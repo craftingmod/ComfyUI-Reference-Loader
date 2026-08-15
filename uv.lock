@@ -12,7 +12,7 @@ wheels = [
 ]
 
 [[package]]
-name = "comfyui-custom-node-template"
+name = "comfyui-reference-loader"
 version = "1.0.0"
 source = { virtual = "." }
 

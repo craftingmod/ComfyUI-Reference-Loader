@@ -1,5 +1,5 @@
 {
-  "name": "comfyui-custom-node-template",
+  "name": "comfyui-reference-loader",
   "private": true,
   "description": "A Bun and Python template for a ComfyUI V3 custom node",
   "keywords": [

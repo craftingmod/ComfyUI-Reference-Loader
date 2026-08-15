@@ -1,9 +1,7 @@
 from comfy_api.latest import io
 
-PROJECT_ID = "comfyui-custom-node-template"
-PROJECT_NAME = "My Custom Node"
-
-
+PROJECT_ID = "comfyui-reference-loader"
+PROJECT_NAME = "Reference Media Loader"
 class ExampleNormalizeTextNode(io.ComfyNode):
   @classmethod
   def define_schema(cls) -> io.Schema:

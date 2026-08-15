@@ -1,18 +1,17 @@
 [project]
-name = "comfyui-custom-node-template"
-description = "A Bun and Python template for a ComfyUI V3 custom node"
+name = "comfyui-reference-loader"
+description = "ComfyUI reference media loader for diffusion models."
 version = "1.0.0"
 requires-python = ">=3.12"
 readme = "README.md"
 license = { file = "LICENSE" }
 
 [project.urls]
-Repository = "https://github.com/your-name/your-repo"
-
+Repository = "https://github.com/craftingmod/ComfyUI-Reference-Loader"
 [tool.comfy]
-PublisherId = "your-username"
-DisplayName = "My Custom Node"
-Icon = "https://cdn.jsdelivr.net/gh/your-name/your-repo/assets/icon.svg"
+PublisherId = "alyac"
+DisplayName = "Reference Media Loader"
+Icon = "https://cdn.jsdelivr.net/gh/craftingmod/ComfyUI-Reference-Loader/assets/icon.svg"
 includes = ["dist"]
 
 [dependency-groups]

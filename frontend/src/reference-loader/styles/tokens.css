@@ -1,0 +1,81 @@
+.reference-loader,
+.rl-modal {
+  --rl-bg: color-mix(in srgb, var(--comfy-menu-bg, #17191f) 94%, #000);
+  --rl-panel: color-mix(in srgb, var(--comfy-input-bg, #242833) 88%, #000);
+  --rl-border: color-mix(in srgb, var(--border-color, #535967) 78%, transparent);
+  --rl-text: var(--input-text, #e8eaf0);
+  --rl-muted: #a4abba;
+  --rl-accent: var(--p-primary-color, #6ba4ff);
+  --rl-edit: #77d5a0;
+  --rl-danger: #ff7c82;
+  color: var(--rl-text);
+  color-scheme: dark;
+  font:
+    12px/1.35 Inter,
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+}
+
+.reference-loader {
+  box-sizing: border-box;
+  min-width: 360px;
+  height: 100%;
+  min-height: 360px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--rl-bg);
+  border: 1px solid var(--rl-border);
+  border-radius: 8px;
+  padding: 8px;
+  user-select: none;
+}
+
+.reference-loader *,
+.rl-modal * {
+  box-sizing: border-box;
+}
+.reference-loader button,
+.reference-loader input,
+.reference-loader textarea,
+.reference-loader select,
+.rl-modal button,
+.rl-modal input,
+.rl-modal textarea,
+.rl-modal select {
+  font: inherit;
+}
+.reference-loader button,
+.rl-file-button,
+.rl-modal button {
+  min-height: 26px;
+  border: 1px solid var(--rl-border);
+  border-radius: 5px;
+  background: var(--rl-panel);
+  color: var(--rl-text);
+  cursor: pointer;
+}
+.reference-loader button:hover:not(:disabled),
+.rl-file-button:hover,
+.rl-modal button:hover:not(:disabled) {
+  border-color: var(--rl-accent);
+}
+.reference-loader button:disabled,
+.rl-modal button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+.reference-loader button:focus-visible,
+.reference-loader textarea:focus-visible,
+.reference-loader input:focus-visible,
+.rl-modal button:focus-visible,
+.rl-modal input:focus-visible,
+.rl-modal select:focus-visible {
+  outline: 2px solid var(--rl-accent);
+  outline-offset: 1px;
+}
+.rl-primary {
+  background: color-mix(in srgb, var(--rl-accent) 72%, #162239) !important;
+  border-color: color-mix(in srgb, var(--rl-accent) 80%, #fff) !important;
+  color: #fff !important;
+}

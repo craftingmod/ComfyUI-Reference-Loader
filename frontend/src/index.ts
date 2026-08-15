@@ -1,18 +1,9 @@
 import { api } from "../../scripts/api.js"
 import { app } from "../../scripts/app.js"
 import { registerReferenceLoader } from "./reference-loader/extension.ts"
+import { installStylesheet } from "./stylesheet.ts"
 
-import referenceLoaderCss from "./reference-loader/styles.css"
+import "./reference-loader/styles/index.css"
 
-const STYLE_ID = "reference-loader-style"
-
-function installStyles(): void {
-  if (document.getElementById(STYLE_ID)) return
-  const style = document.createElement("style")
-  style.id = STYLE_ID
-  style.textContent = referenceLoaderCss
-  document.head.append(style)
-}
-
-installStyles()
+installStylesheet()
 registerReferenceLoader(app, api)

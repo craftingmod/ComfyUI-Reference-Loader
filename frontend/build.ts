@@ -13,7 +13,6 @@ export const buildConfig = {
   format: "esm",
   minify: true,
   external: ["*/scripts/app.js", "*/scripts/api.js"],
-  loader: { ".css": "text" },
   naming: {
     entry: "[name].[ext]",
     chunk: "[name]-[hash].[ext]",

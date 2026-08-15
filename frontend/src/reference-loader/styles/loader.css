@@ -1,0 +1,170 @@
+.rl-toolbar {
+  position: sticky;
+  top: -8px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -8px -8px 0;
+  padding: 8px;
+  background: color-mix(in srgb, var(--rl-bg) 94%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--rl-border);
+}
+.rl-toolbar button,
+.rl-file-button {
+  padding: 4px 9px;
+}
+.reference-loader button.rl-clear {
+  color: var(--rl-danger);
+  border-color: color-mix(in srgb, var(--rl-danger) 65%, var(--rl-border));
+  background: color-mix(in srgb, var(--rl-danger) 10%, var(--rl-panel));
+}
+.reference-loader button.rl-clear:hover:not(:disabled) {
+  color: #fff;
+  border-color: var(--rl-danger);
+  background: color-mix(in srgb, var(--rl-danger) 38%, var(--rl-panel));
+}
+.rl-file-button {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.rl-file-button input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.rl-toolbar__count {
+  margin-left: auto;
+  color: var(--rl-muted);
+  font-variant-numeric: tabular-nums;
+}
+.rl-status {
+  margin: 7px 2px;
+  min-height: 16px;
+  color: var(--rl-muted);
+}
+.rl-pending {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.rl-pending > div {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 7px;
+  padding: 6px;
+  border-radius: 5px;
+  background: var(--rl-panel);
+}
+.rl-pending small {
+  color: var(--rl-muted);
+}
+.rl-spinner {
+  inline-size: 13px;
+  block-size: 13px;
+  border: 2px solid color-mix(in srgb, var(--rl-accent) 25%, transparent);
+  border-top-color: var(--rl-accent);
+  border-radius: 50%;
+  animation: rl-spin 0.75s linear infinite;
+}
+@keyframes rl-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.rl-channels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.rl-channel {
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--rl-border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--rl-panel) 65%, transparent);
+}
+.rl-channel > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.rl-channel > header > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rl-channel > header span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  color: var(--rl-muted);
+  background: var(--rl-bg);
+}
+.rl-channel > header small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--rl-muted);
+}
+.rl-carl-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--rl-grid-columns, 3), minmax(0, 1fr));
+  gap: 6px;
+  min-height: 70px;
+}
+.rl-carl-grid.is-empty {
+  min-height: 34px;
+}
+.rl-grid-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  border: 1px dashed color-mix(in srgb, var(--rl-accent) 70%, var(--rl-border));
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--rl-accent) 88%, #fff);
+  background: color-mix(in srgb, var(--rl-accent) 8%, transparent);
+  cursor: pointer;
+}
+.rl-grid-add:hover,
+.rl-grid-add:focus-within {
+  border-color: var(--rl-accent);
+  background: color-mix(in srgb, var(--rl-accent) 15%, transparent);
+}
+.rl-grid-add.is-tile {
+  min-height: 70px;
+  align-self: stretch;
+}
+.rl-grid-add.is-wide {
+  grid-column: 1 / -1;
+  min-height: 38px;
+}
+.rl-grid-add__icon {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+}
+.rl-grid-add input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.reference-loader.is-dragging .rl-carl-grid {
+  outline: 1px dashed var(--rl-accent);
+  outline-offset: 2px;
+}

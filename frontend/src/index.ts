@@ -1,6 +1,5 @@
-import { api } from "/scripts/api.js"
-import { app } from "/scripts/app.js"
-
+import { api } from "../../scripts/api.js"
+import { app } from "../../scripts/app.js"
 import { registerReferenceLoader } from "./reference-loader/extension.ts"
 
 import referenceLoaderCss from "./reference-loader/styles.css"

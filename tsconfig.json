@@ -1,14 +1,14 @@
 {
   "extends": "@tsconfig/bun/tsconfig.json",
-  "include": ["frontend/**/*", "scripts/**/*", "oxfmt.config.ts", "oxlint.config.ts"],
+  "include": [
+    "frontend/build.ts",
+    "frontend/dev.ts",
+    "scripts/**/*",
+    "oxfmt.config.ts",
+    "oxlint.config.ts"
+  ],
   "compilerOptions": {
     "types": ["bun"],
-    "allowImportingTsExtensions": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "moduleResolution": "Bundler",
-    "paths": {
-      "/scripts/app.js": ["./frontend/src/comfyui-app.d.ts"],
-      "/scripts/api.js": ["./frontend/src/comfyui-api.d.ts"]
-    }
+    "allowImportingTsExtensions": true
   }
 }

@@ -23,7 +23,7 @@ describe("Bun build config", () => {
   })
 
   it("keeps ComfyUI runtime modules external and inlines CSS as text", () => {
-    expect(buildConfig.external).toEqual(["/scripts/app.js", "/scripts/api.js"])
+    expect(buildConfig.external).toEqual(["*/scripts/app.js", "*/scripts/api.js"])
     expect(buildConfig.loader).toEqual({ ".css": "text" })
   })
 })

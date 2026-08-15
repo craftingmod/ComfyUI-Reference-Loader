@@ -3,6 +3,12 @@
   "include": ["frontend/**/*", "scripts/**/*", "oxfmt.config.ts", "oxlint.config.ts"],
   "compilerOptions": {
     "types": ["bun"],
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "moduleResolution": "Bundler",
+    "paths": {
+      "/scripts/app.js": ["./frontend/src/comfyui-app.d.ts"],
+      "/scripts/api.js": ["./frontend/src/comfyui-api.d.ts"]
+    }
   }
 }

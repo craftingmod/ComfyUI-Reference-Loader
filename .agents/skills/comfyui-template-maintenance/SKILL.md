@@ -111,7 +111,7 @@ If the working tree was dirty before execution, expect file updates only; review
 
 Run `bun run build:custom-node` to build the frontend and create `build/<project.name>-<project.version>.zip`.
 
-Expect the archive to contain Git-tracked files, minus paths matched by `.comfyignore`, plus every file or directory listed in `[tool.comfy].includes`. Keep `dist` in `tool.comfy.includes` because it is generated and gitignored. Inspect the ZIP before publishing; the script requires root `__init__.py` and `pyproject.toml` and refuses unsafe paths or symbolic links.
+Expect the archive to contain existing Git-tracked files and eligible untracked files, minus paths matched by `.comfyignore`, plus every file or directory listed in `[tool.comfy].includes`. Deleted tracked paths are excluded so the current working-tree layout can be validated before staging. Keep `dist` in `tool.comfy.includes` because it is generated and gitignored. Inspect the ZIP before publishing; the script requires root `__init__.py` and `pyproject.toml` and refuses unsafe paths or symbolic links.
 
 ## Synchronize ComfyUI skills
 

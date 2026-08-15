@@ -8,11 +8,16 @@ license = { file = "LICENSE" }
 
 [project.urls]
 Repository = "https://github.com/craftingmod/ComfyUI-Reference-Loader"
+
+[project.optional-dependencies]
+rembg = ["rembg[cpu]>=2.0.77; python_version < '3.14'"]
+
 [tool.comfy]
 PublisherId = "alyac"
 DisplayName = "Reference Media Loader"
 Icon = "https://cdn.jsdelivr.net/gh/craftingmod/ComfyUI-Reference-Loader/assets/icon.svg"
+requires-comfyui = ">=0.19.3"
 includes = ["dist"]
 
 [dependency-groups]
-dev = ["pytest>=9.1.1", "ruff>=0.16.3"]
+dev = ["pillow>=12.1.1", "pytest>=9.1.1", "ruff>=0.16.3"]

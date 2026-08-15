@@ -2,6 +2,7 @@
 bun = true
 
 [test]
+preload = ["./frontend/test/setup.ts"]
 coverageThreshold = { line = 0.7 }
 coverageSkipTestFiles = true
 coveragePathIgnorePatterns = ["frontend/src/index.ts", "frontend/build.ts", "frontend/dev.ts"]

@@ -1,14 +1,20 @@
+from typing import override
+
 from comfy_api.latest import ComfyExtension, io
 
-from .nodes.example_normalize_text import ExampleNormalizeTextNode
+from .nodes import ReferenceLoaderNode
+from .reference_routes import register_reference_routes
 
 
-class TemplateExtension(ComfyExtension):
+class ReferenceLoaderExtension(ComfyExtension):
+  @override
   async def get_node_list(self) -> list[type[io.ComfyNode]]:
-    return [ExampleNormalizeTextNode]
+    return [ReferenceLoaderNode]
 
 
-__all__ = [
-  "ExampleNormalizeTextNode",
-  "TemplateExtension",
-]
+async def comfy_entrypoint() -> ReferenceLoaderExtension:
+  register_reference_routes()
+  return ReferenceLoaderExtension()
+
+
+__all__ = ["ReferenceLoaderExtension", "ReferenceLoaderNode", "comfy_entrypoint"]

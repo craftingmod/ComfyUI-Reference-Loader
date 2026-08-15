@@ -1,137 +1,58 @@
-# ComfyUI Custom Node Template
+# ComfyUI Reference Loader
 
-A template for one publishable ComfyUI custom node pack. It combines:
+Reference Loader is a ComfyUI V3 custom node for uploading, arranging, editing, and emitting independent image, audio, and video reference lists. It preserves each item's native dimensions, keeps captions aligned with their media outputs, and emits a payload-free manifest for provenance and ordering.
 
-- ComfyUI V3 Python nodes in `backend/`
-- a TypeScript frontend bundled with Bun from `frontend/` to `dist/`
-- Ruff, Oxlint, Oxfmt, Pytest, and Bun Test validation
-- Registry ZIP and release automation in `scripts/`
+The node is available under `media / reference` as **Reference Loader**. A minimal workflow is included at [`workflows/Reference_Loader.json`](workflows/Reference_Loader.json).
 
-## Requirements
+## Features
 
-- Python 3.12
-- [uv](https://docs.astral.sh/uv/)
-- Bun 1.3.14
+- Independent Images, Videos, and Audio boards with reorder, enable, caption, and preview controls
+- Per-image crop, flip, mask, background, optional `rembg`, and restore-original editing
+- Audio/video trim and playback; VIDEO values retain embedded audio
+- Optional per-image MPixel limiting and alpha compositing at execution
+- Explicit IMAGE/AUDIO/VIDEO list outputs with index-aligned caption lists
+- Managed, content-validated storage under `ComfyUI/input/reference_loader`
 
-Install the locked dependencies:
+## Installation
+
+Install through ComfyUI Manager, or extract a release archive into `ComfyUI/custom_nodes`. Restart ComfyUI after installation. Release archives include `dist/index.js`, so Bun and TypeScript are needed only for development.
+
+Pillow, NumPy, torch, and PyAV are supplied by ComfyUI. Automatic background removal is optional; install it in the same Python environment as ComfyUI:
+
+```shell
+pip install ".[rembg]"
+```
+
+## Outputs
+
+| Output                      | Contract                                                                |
+| --------------------------- | ----------------------------------------------------------------------- |
+| `images` / `image_captions` | Enabled Images order; equal list lengths                                |
+| `audios` / `audio_captions` | Enabled standalone and video-derived Audio order; equal list lengths    |
+| `videos` / `video_captions` | Enabled Videos order; equal list lengths                                |
+| `manifest_json`             | Deterministic metadata without tensors, base64 media, or absolute paths |
+
+Each new video starts with VIDEO enabled and its separate AUDIO output disabled. The VIDEO container's embedded audio remains intact.
+
+See [the Reference Loader guide](docs/REFERENCE_LOADER.md) for editor behavior, limits, storage, and the complete output contract.
+
+## Development
+
+Requirements are Python 3.12, [uv](https://docs.astral.sh/uv/), and Bun 1.3.14 or newer.
 
 ```shell
 bun install --frozen-lockfile
 uv sync --locked --group dev
-```
-
-## Initialize a new project
-
-Run `bun run init:template` and provide these values in order:
-
-1. Project ID — Registry/package identifier such as `image-tools`
-2. Project Name — user-facing name such as `Image Tools`
-3. GitHub username
-4. GitHub repository name
-5. Comfy Registry Publisher ID
-
-Project ID is written to `pyproject.toml` project metadata, `package.json`, frontend
-setting IDs, and the example V3 node namespace. Project Name is written to Registry,
-frontend, and node display labels. The Publisher ID is independent of the GitHub
-username.
-
-For non-interactive PowerShell:
-
-```powershell
-@("image-tools", "Image Tools", "octocat", "comfyui-image-tools", "octocat") |
-  bun run init:template
-```
-
-Refresh lockfiles after initialization:
-
-```shell
-uv lock
-bun install
-```
-
-Also update the description, LICENSE copyright holder, and icon for the new project.
-
-## Local ComfyUI development
-
-Copy `.env.example` to `.env.local` and set `COMFYUI_PATH` to the absolute path of
-an existing ComfyUI installation. Then configure Pylance without duplicating the
-machine-specific path:
-
-```shell
-bun run setup:local
-```
-
-This writes the ignored `.vscode/settings.json` with `python.analysis.extraPaths`.
-Existing unrelated VS Code settings are preserved. You can override the configured
-path for one invocation with `--comfyui-path <path>`.
-
-For development, build the frontend and create a directory junction from ComfyUI's
-`custom_nodes/<project.name>` to this repository:
-
-```shell
-bun run deploy:dev
-```
-
-The command is idempotent when the link already points to this repository. It refuses
-to delete or replace an existing directory or a link to another location. Python
-changes require a ComfyUI restart; run `bun run dev` to rebuild frontend changes while
-developing.
-
-To test the packaged layout instead, build the Registry package and replace the
-matching directory below ComfyUI's `custom_nodes` directory with:
-
-```shell
-bun run deploy:local
-```
-
-The destination directory name is `[project].name` from `pyproject.toml`. The deploy
-command validates the ComfyUI layout and swaps in a fully built staging directory so
-a failed build cannot leave a partially copied node package.
-
-## Development
-
-```shell
-bun run dev
 bun run fmt:check
 bun run lint
 bun run typecheck
-bun run test
+bun run test:unit
 bun run build
 ```
 
-The root `__init__.py` exposes `comfy_entrypoint()` for the V3 backend and
-`WEB_DIRECTORY = "./dist"` for the frontend extension. Add V3 nodes to the
-`TemplateExtension.get_node_list()` result in `backend/__init__.py`.
+Configure a local ComfyUI path in `.env.local`, then use `bun run setup:local` and `bun run deploy:dev`. Python changes require a ComfyUI restart; `bun run dev` watches frontend changes.
 
-See [docs/TESTING.md](docs/TESTING.md) for the complete validation commands.
-
-## Package and publish
-
-Create the same minimal archive layout expected by Comfy Registry:
-
-```shell
-bun run build:custom-node
-```
-
-The ZIP is written to `build/<project-id>-<version>.zip`. `.comfyignore` is an
-allowlist for the publishable files and `[tool.comfy].includes` ensures generated
-`dist/` files are included.
-
-To increment the patch version, sync `uv.lock`, and—only from a clean working tree—
-create a commit and `v<version>` tag:
-
-```shell
-bun run version:bump
-```
-
-Push the commit and tag when ready. The tag workflow validates the repository,
-checks that template placeholders have been replaced and project identifiers agree,
-rebuilds the frontend, and publishes with `REGISTRY_ACCESS_TOKEN`. You can run the
-publish-specific metadata check locally before tagging:
-
-```shell
-bun run release:check
-```
+Build the Registry-style package with `bun run build:custom-node`. See [testing](docs/TESTING.md) for the full validation and smoke-test checklist.
 
 ## License
 

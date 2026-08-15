@@ -20,37 +20,54 @@ def _install_comfy_api_test_stub() -> None:
   class ComfyExtension:
     pass
 
-  class Input:
-    def __init__(self, input_id: str, **kwargs):
-      self.id = input_id
-      for key, value in kwargs.items():
-        setattr(self, key, value)
+  class Field:
+    def __init__(self, data_type: str, name: str | None = None, **options):
+      self.data_type = data_type
+      self.name = name
+      self.id = name
+      self.options = options
 
-  class Output:
-    def __init__(self, **kwargs):
-      for key, value in kwargs.items():
-        setattr(self, key, value)
+  def field_type(data_type: str):
+    class FieldType:
+      @classmethod
+      def Input(cls, name: str, **options):
+        return Field(data_type, name, **options)
 
-  class String:
-    pass
+      @classmethod
+      def Output(cls, name: str | None = None, **options):
+        return Field(data_type, name, **options)
 
-  String.Input = Input
-  String.Output = Output
+    return FieldType
 
   class Schema:
     def __init__(self, **kwargs):
       for key, value in kwargs.items():
         setattr(self, key, value)
 
-  class NodeOutput:
-    def __init__(self, *values):
-      self.values = values
+  class NodeOutput(tuple):
+    def __new__(cls, *values):
+      return super().__new__(cls, values)
+
+    @property
+    def values(self):
+      return tuple(self)
 
   io_module = types.ModuleType("comfy_api.latest.io")
   io_module.ComfyNode = ComfyNode
   io_module.NodeOutput = NodeOutput
   io_module.Schema = Schema
-  io_module.String = String
+  for name in (
+    "Audio",
+    "Boolean",
+    "Color",
+    "Combo",
+    "Float",
+    "Image",
+    "Int",
+    "String",
+    "Video",
+  ):
+    setattr(io_module, name, field_type(name.lower()))
 
   latest_module = types.ModuleType("comfy_api.latest")
   latest_module.ComfyExtension = ComfyExtension
@@ -62,6 +79,24 @@ def _install_comfy_api_test_stub() -> None:
   sys.modules["comfy_api"] = comfy_api_module
   sys.modules["comfy_api.latest"] = latest_module
   sys.modules["comfy_api.latest.io"] = io_module
+
+  class Routes:
+    def __init__(self):
+      self.handlers = {}
+
+    def post(self, path):
+      return lambda handler: (
+        self.handlers.setdefault(("POST", path), handler) or handler
+      )
+
+    def get(self, path):
+      return lambda handler: self.handlers.setdefault(("GET", path), handler) or handler
+
+  server_module = types.ModuleType("server")
+  server_module.PromptServer = types.SimpleNamespace(
+    instance=types.SimpleNamespace(routes=Routes())
+  )
+  sys.modules["server"] = server_module
 
 
 def _preload_root_entrypoint_for_pytest() -> None:

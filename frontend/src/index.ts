@@ -1,14 +1,19 @@
-import { PROJECT_ID, PROJECT_NAME, SETTINGS_IDS } from "./constants.ts"
+import { api } from "/scripts/api.js"
+import { app } from "/scripts/app.js"
 
-app.registerExtension({
-  name: `${PROJECT_ID}.extension`,
-  settings: [
-    {
-      id: SETTINGS_IDS.DEBUG_LOGGING satisfies string as any,
-      name: `${PROJECT_NAME}: Enable Debug Logging`,
-      type: "boolean",
-      tooltip: "Show detailed debug logs in browser console during operation",
-      defaultValue: false,
-    },
-  ],
-})
+import { registerReferenceLoader } from "./reference-loader/extension.ts"
+
+import referenceLoaderCss from "./reference-loader/styles.css"
+
+const STYLE_ID = "reference-loader-style"
+
+function installStyles(): void {
+  if (document.getElementById(STYLE_ID)) return
+  const style = document.createElement("style")
+  style.id = STYLE_ID
+  style.textContent = referenceLoaderCss
+  document.head.append(style)
+}
+
+installStyles()
+registerReferenceLoader(app, api)

@@ -1,7 +1,7 @@
 {
   "name": "comfyui-reference-loader",
   "private": true,
-  "description": "A Bun and Python template for a ComfyUI V3 custom node",
+  "description": "ComfyUI reference media loader with aligned image, audio, video, caption, and manifest outputs",
   "keywords": [
     "comfyui",
     "custom node",
@@ -29,16 +29,17 @@
     "skills:check": "bun scripts/sync-comfyui-skills.ts --check",
     "setup:local": "bun scripts/setup-local.ts",
     "test": "bun run test:unit",
-    "test:frontend": "bun test frontend/test",
+    "test:frontend": "bun test --path-ignore-patterns='**/*-Multimodal/**' frontend/test",
     "test:backend": "uv run pytest tests/python tests/backend -q",
     "test:unit": "bun run test:frontend && bun run test:backend",
-    "test:watch": "bun test --watch frontend/test",
-    "test:coverage": "bun test --coverage frontend/test",
+    "test:watch": "bun test --path-ignore-patterns='**/*-Multimodal/**' --watch frontend/test",
+    "test:coverage": "bun test --path-ignore-patterns='**/*-Multimodal/**' --coverage frontend/test",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "version:bump": "bun scripts/bump-version.ts"
   },
   "devDependencies": {
     "@comfyorg/comfyui-frontend-types": "1.47.12",
+    "@happy-dom/global-registrator": "^20.11.1",
     "@tsconfig/bun": "^1.0.10",
     "@types/bun": "^1.3.14",
     "fflate": "^0.8.3",

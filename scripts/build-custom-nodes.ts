@@ -72,6 +72,18 @@ async function gitFiles(): Promise<Set<string>> {
     .split("\0")
     .filter(Boolean)
     .map(normalizeArchivePath)
+  const untracked = (
+    await $`git ls-files --others --exclude-standard --exclude-from=.comfyignore -z`.text()
+  )
+    .split("\0")
+    .filter(Boolean)
+    .map(normalizeArchivePath)
+  const deleted = new Set(
+    (await $`git ls-files --deleted -z`.text())
+      .split("\0")
+      .filter(Boolean)
+      .map(normalizeArchivePath),
+  )
   const ignored = new Set<string>()
 
   if (await Bun.file(Path.join(projectDir, ".comfyignore")).exists()) {
@@ -81,7 +93,11 @@ async function gitFiles(): Promise<Set<string>> {
     }
   }
 
-  return new Set(tracked.filter((filePath) => !ignored.has(filePath)))
+  return new Set(
+    [...tracked, ...untracked].filter(
+      (filePath) => !deleted.has(filePath) && !ignored.has(filePath),
+    ),
+  )
 }
 
 const pyproject = Bun.TOML.parse(

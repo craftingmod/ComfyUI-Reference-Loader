@@ -14,10 +14,11 @@ def test_backend_package_exports_v3_extension():
     repo_root=REPO_ROOT,
   )
 
-  extension = module.TemplateExtension()
+  extension = module.ReferenceLoaderExtension()
 
-  assert asyncio.run(extension.get_node_list()) == [module.ExampleNormalizeTextNode]
+  assert asyncio.run(extension.get_node_list()) == [module.ReferenceLoaderNode]
   assert module.__all__ == [
-    "ExampleNormalizeTextNode",
-    "TemplateExtension",
+    "ReferenceLoaderExtension",
+    "ReferenceLoaderNode",
+    "comfy_entrypoint",
   ]

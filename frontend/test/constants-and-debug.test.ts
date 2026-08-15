@@ -15,8 +15,8 @@ afterEach(() => {
 
 describe("template identity constants", () => {
   it("keeps machine identifiers separate from the display name", () => {
-    expect(PROJECT_ID).toBe("comfyui-custom-node-template")
-    expect(PROJECT_NAME).toBe("My Custom Node")
+    expect(PROJECT_ID).toBe("comfyui-reference-loader")
+    expect(PROJECT_NAME).toBe("Reference Media Loader")
     expect(SETTINGS_PREFIX).toBe(PROJECT_ID)
     expect(LOGGING_PREFIX).toBe(`[${PROJECT_ID}]`)
     expect(SETTINGS_IDS.DEBUG_LOGGING).toBe(`${PROJECT_ID}.Debug Logging`)

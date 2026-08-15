@@ -1,0 +1,237 @@
+import type {
+  ComfyApi,
+  ComfyApiLike,
+  ComfyApp,
+  ComfyAppLike,
+  ComfyNode,
+  ComfyWidget,
+} from "../comfyui.ts"
+import { ReferenceLoaderApi } from "./api.ts"
+import { ReferenceLoaderController } from "./components/loader.ts"
+
+export const REFERENCE_LOADER_WIDGET_TYPE = "REFERENCE_LOADER"
+const controllers = new WeakMap<ComfyNode, ReferenceLoaderController>()
+const removalHooks = new WeakSet<ComfyNode>()
+const displayProxies = new WeakMap<ComfyNode, NativeDisplayProxy>()
+
+interface NativeDisplayProxy {
+  syncFromState(): void
+  dispose(): void
+}
+
+export function registerReferenceLoader(app: ComfyApp, api: ComfyApi): void
+export function registerReferenceLoader(app: ComfyAppLike, api: ComfyApiLike): void
+export function registerReferenceLoader(
+  app: ComfyApp | ComfyAppLike,
+  api: ComfyApi | ComfyApiLike,
+): void {
+  const referenceApp = app as ComfyAppLike
+  referenceApp.registerExtension({
+    name: "reference-loader.extension",
+    getCustomWidgets() {
+      return {
+        [REFERENCE_LOADER_WIDGET_TYPE]: (node, inputName, inputData) => {
+          controllers.get(node)?.destroy()
+          displayProxies.get(node)?.dispose()
+          displayProxies.delete(node)
+          const root = document.createElement("div")
+          root.className = "reference-loader"
+          root.dataset.input = inputName
+          root.addEventListener("pointerdown", (event) => event.stopPropagation())
+          root.addEventListener("wheel", (event) => event.stopPropagation())
+
+          const initial = initialValue(inputData)
+          const controller = new ReferenceLoaderController(
+            root,
+            node,
+            new ReferenceLoaderApi(api),
+            initial,
+            {
+              beforeChange: () => referenceApp.canvas?.emitBeforeChange?.(),
+              afterChange: () => referenceApp.canvas?.emitAfterChange?.(),
+            },
+          )
+          let displayProxy: NativeDisplayProxy | undefined
+          let removed = false
+          const widget = node.addDOMWidget(inputName, REFERENCE_LOADER_WIDGET_TYPE, root, {
+            serialize: true,
+            hideOnZoom: false,
+            getValue: () => controller.serialize(),
+            setValue: (value) => {
+              controller.restore(value)
+              displayProxy?.syncFromState()
+            },
+            getMinHeight: () => 360,
+            getMaxHeight: () => 1_200,
+          })
+          widget.serialize = true
+          widget.serializeValue = () => controller.serialize()
+          widget.beforeQueued = () => displayProxy?.syncFromState()
+          const bindingTimer = globalThis.setTimeout(() => {
+            if (removed) return
+            displayProxy = bindNativeDisplayProxies(node, controller)
+            if (displayProxy) displayProxies.set(node, displayProxy)
+          }, 0)
+          const originalWidgetRemove = widget.onRemove
+          widget.onRemove = () => {
+            removed = true
+            globalThis.clearTimeout(bindingTimer)
+            displayProxy?.dispose()
+            displayProxies.delete(node)
+            controller.destroy()
+            originalWidgetRemove?.call(widget)
+          }
+          controllers.set(node, controller)
+
+          if (!removalHooks.has(node)) {
+            removalHooks.add(node)
+            const originalRemoved = node.onRemoved
+            node.onRemoved = function (...args: unknown[]): unknown {
+              controllers.get(this)?.destroy()
+              controllers.delete(this)
+              displayProxies.get(this)?.dispose()
+              displayProxies.delete(this)
+              return originalRemoved?.apply(this, args)
+            }
+          }
+          const [width = 560, height = 500] = node.size ?? []
+          if (width < 520 || height < 460)
+            node.setSize?.([Math.max(width, 560), Math.max(height, 500)])
+          return { widget }
+        },
+      }
+    },
+  })
+}
+
+function bindNativeDisplayProxies(
+  node: ComfyNode,
+  controller: ReferenceLoaderController,
+): NativeDisplayProxy | undefined {
+  const gridColumns = node.widgets?.find((widget) => widget.name === "grid_columns")
+  const previewPixels = node.widgets?.find((widget) => widget.name === "preview_pixels")
+  const showCaptions = node.widgets?.find((widget) => widget.name === "show_captions")
+  const cardAspect = node.widgets?.find((widget) => widget.name === "card_aspect")
+  const previewFit = node.widgets?.find((widget) => widget.name === "preview_fit")
+  const waveformPairs = node.widgets?.find((widget) => widget.name === "waveform_pairs")
+  if (
+    !gridColumns ||
+    !previewPixels ||
+    !showCaptions ||
+    !cardAspect ||
+    !previewFit ||
+    !waveformPairs
+  ) {
+    return undefined
+  }
+
+  const originalGridCallback = gridColumns.callback
+  const originalPreviewCallback = previewPixels.callback
+  const originalShowCaptionsCallback = showCaptions.callback
+  const originalCardAspectCallback = cardAspect.callback
+  const originalPreviewFitCallback = previewFit.callback
+  const originalWaveformPairsCallback = waveformPairs.callback
+  const syncFromState = (): void => {
+    const values = controller.displayState
+    gridColumns.value = values.gridColumns
+    previewPixels.value = values.previewPixels
+    showCaptions.value = values.showCaptions
+    cardAspect.value = values.cardAspect
+    previewFit.value = values.previewFit
+    waveformPairs.value = values.waveformPairs
+  }
+  const gridCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalGridCallback?.call(gridColumns, value, ...args)
+    controller.writeDisplayProxy({
+      gridColumns: typeof value === "number" ? value : Number(value),
+    })
+    syncFromState()
+    return result
+  }
+  const previewCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalPreviewCallback?.call(previewPixels, value, ...args)
+    controller.writeDisplayProxy({
+      previewPixels: typeof value === "number" ? value : Number(value),
+    })
+    syncFromState()
+    return result
+  }
+  const showCaptionsCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalShowCaptionsCallback?.call(showCaptions, value, ...args)
+    controller.writeDisplayProxy({ showCaptions: Boolean(value) })
+    syncFromState()
+    return result
+  }
+  const cardAspectCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalCardAspectCallback?.call(cardAspect, value, ...args)
+    controller.writeDisplayProxy({ cardAspect: String(value) })
+    syncFromState()
+    return result
+  }
+  const previewFitCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalPreviewFitCallback?.call(previewFit, value, ...args)
+    controller.writeDisplayProxy({ previewFit: value === "cover" ? "cover" : "contain" })
+    syncFromState()
+    return result
+  }
+  const waveformPairsCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalWaveformPairsCallback?.call(waveformPairs, value, ...args)
+    controller.writeDisplayProxy({
+      waveformPairs: typeof value === "number" ? value : Number(value),
+    })
+    syncFromState()
+    return result
+  }
+  gridColumns.callback = gridCallback
+  previewPixels.callback = previewCallback
+  showCaptions.callback = showCaptionsCallback
+  cardAspect.callback = cardAspectCallback
+  previewFit.callback = previewFitCallback
+  waveformPairs.callback = waveformPairsCallback
+  syncFromState()
+  return {
+    syncFromState,
+    dispose() {
+      if (gridColumns.callback === gridCallback) {
+        if (originalGridCallback) gridColumns.callback = originalGridCallback
+        else delete gridColumns.callback
+      }
+      if (previewPixels.callback === previewCallback) {
+        if (originalPreviewCallback) previewPixels.callback = originalPreviewCallback
+        else delete previewPixels.callback
+      }
+      if (showCaptions.callback === showCaptionsCallback) {
+        if (originalShowCaptionsCallback) showCaptions.callback = originalShowCaptionsCallback
+        else delete showCaptions.callback
+      }
+      if (cardAspect.callback === cardAspectCallback) {
+        if (originalCardAspectCallback) cardAspect.callback = originalCardAspectCallback
+        else delete cardAspect.callback
+      }
+      if (previewFit.callback === previewFitCallback) {
+        if (originalPreviewFitCallback) previewFit.callback = originalPreviewFitCallback
+        else delete previewFit.callback
+      }
+      if (waveformPairs.callback === waveformPairsCallback) {
+        if (originalWaveformPairsCallback) waveformPairs.callback = originalWaveformPairsCallback
+        else delete waveformPairs.callback
+      }
+    },
+  }
+}
+
+function initialValue(inputData: unknown): unknown {
+  if (!Array.isArray(inputData)) return undefined
+  const options = inputData[1]
+  if (typeof options !== "object" || options === null) return undefined
+  const record = options as Record<string, unknown>
+  return record.default ?? record.defaultValue
+}
+
+export function getReferenceLoaderController(
+  node: ComfyNode,
+): ReferenceLoaderController | undefined {
+  return controllers.get(node)
+}
+
+export type ReferenceLoaderWidget = ComfyWidget

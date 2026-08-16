@@ -4,7 +4,7 @@ from comfy_api.latest import io
 
 from .reference_bundle import REFERENCE_LOADER_BUNDLE_TYPE, ReferenceLoaderBundle
 
-FRAME_MODES = ("I2V", "L2V", "FL2V", "T2V")
+FRAME_MODES = ("I2V", "L2V", "FL2V", "FL2V_LOOP", "T2V")
 
 
 class ReferenceLoaderStartEndFramesNode(io.ComfyNode):
@@ -16,7 +16,8 @@ class ReferenceLoaderStartEndFramesNode(io.ComfyNode):
       category="reference/output",
       description=(
         "Projects zero, one, or two enabled Reference Loader images into nullable "
-        "start_image and end_image outputs for I2V, L2V, FL2V, and T2V workflows."
+        "start_image and end_image outputs for I2V, L2V, FL2V, FL2V_LOOP, "
+        "and T2V workflows."
       ),
       search_aliases=[
         "reference loader i2v",
@@ -40,7 +41,7 @@ class ReferenceLoaderStartEndFramesNode(io.ComfyNode):
           force_input=True,
           tooltip=(
             "Optional string socket override for mode. Accepts I2V, L2V, FL2V, "
-            "or T2V; a blank value falls back to the Combo."
+            "FL2V_LOOP, or T2V; a blank value falls back to the Combo."
           ),
         ),
       ],
@@ -51,7 +52,10 @@ class ReferenceLoaderStartEndFramesNode(io.ComfyNode):
         ),
         io.Image.Output(
           "end_image",
-          tooltip="Second enabled image, or None when fewer than two are enabled.",
+          tooltip=(
+            "Mode-selected ending image, or None when the selected mode has no "
+            "available ending frame."
+          ),
         ),
       ],
     )
@@ -79,10 +83,12 @@ class ReferenceLoaderStartEndFramesNode(io.ComfyNode):
 
     first_image = references.images[0] if image_count >= 1 else None
     last_image = references.images[-1] if image_count >= 1 else None
-    start_image = first_image if selected_mode in {"I2V", "FL2V"} else None
+    start_image = first_image if selected_mode in {"I2V", "FL2V", "FL2V_LOOP"} else None
     end_image = (
       references.images[1]
       if selected_mode == "FL2V" and image_count >= 2
+      else first_image
+      if selected_mode == "FL2V_LOOP"
       else last_image
       if selected_mode == "L2V"
       else None

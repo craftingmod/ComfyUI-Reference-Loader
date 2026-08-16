@@ -10,13 +10,18 @@ class ReferenceLoaderRawOutputsNode(io.ComfyNode):
   def define_schema(cls) -> io.Schema:
     return io.Schema(
       node_id="Alyac_ReferenceLoaderRawOutputs",
-      display_name="Reference Loader Raw Outputs",
+      display_name="Reference Loader Media Outputs",
       category="reference/output",
       description=(
         "Unpacks a Reference Loader bundle into aligned image, audio, video, "
-        "caption, and manifest outputs."
+        "caption, manifest, and nullable first-image outputs."
       ),
-      search_aliases=["reference unpack", "reference splitter", "media outputs"],
+      search_aliases=[
+        "reference media outputs",
+        "reference raw outputs",
+        "reference unpack",
+        "reference splitter",
+      ],
       inputs=[
         REFERENCE_LOADER_BUNDLE_TYPE.Input(
           "references",
@@ -31,6 +36,10 @@ class ReferenceLoaderRawOutputsNode(io.ComfyNode):
         io.Video.Output("videos", is_output_list=True),
         io.String.Output("video_captions", is_output_list=True),
         io.String.Output("manifest_json"),
+        io.Image.Output(
+          "first_image",
+          tooltip="First enabled image, or None when no image is enabled.",
+        ),
       ],
     )
 
@@ -46,6 +55,7 @@ class ReferenceLoaderRawOutputsNode(io.ComfyNode):
       list(references.videos),
       list(references.video_captions),
       references.manifest_json,
+      references.images[0] if references.images else None,
     )
 
 

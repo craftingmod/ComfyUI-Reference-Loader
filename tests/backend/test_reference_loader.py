@@ -221,7 +221,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   outputs_module = importlib.import_module("backend.nodes.reference_loader_raw_outputs")
   outputs_schema = outputs_module.ReferenceLoaderRawOutputsNode.define_schema()
   assert outputs_schema.node_id == "Alyac_ReferenceLoaderRawOutputs"
-  assert outputs_schema.display_name == "Reference Loader Raw Outputs"
+  assert outputs_schema.display_name == "Reference Loader Media Outputs"
   assert outputs_schema.category == "reference/output"
   assert [field.name for field in outputs_schema.inputs] == ["references"]
   assert outputs_schema.inputs[0].data_type == "REFERENCE_LOADER_BUNDLE"
@@ -233,10 +233,11 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     "videos",
     "video_captions",
     "manifest_json",
+    "first_image",
   ]
   assert [
     field.options.get("is_output_list", False) for field in outputs_schema.outputs
-  ] == [True, True, True, True, True, True, False]
+  ] == [True, True, True, True, True, True, False, False]
   unpacked = outputs_module.ReferenceLoaderRawOutputsNode.execute(bundle)
   assert unpacked[:6] == (
     ["native-image"],
@@ -247,6 +248,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     [],
   )
   assert unpacked[6] == bundle.manifest_json
+  assert unpacked[7] == "native-image"
   limited_output = module.ReferenceLoaderNode.execute(
     json.dumps(state),
     limit_image_pixels=True,
@@ -280,6 +282,25 @@ def test_reference_loader_raw_outputs_rejects_non_bundle_value(monkeypatch):
 
   with pytest.raises(TypeError, match="REFERENCE_LOADER_BUNDLE"):
     outputs_module.ReferenceLoaderRawOutputsNode.execute(object())
+
+
+def test_reference_loader_media_outputs_returns_none_without_a_first_image(monkeypatch):
+  load_node_module(monkeypatch)
+  outputs_module = importlib.import_module("backend.nodes.reference_loader_raw_outputs")
+  bundle_module = importlib.import_module("backend.nodes.reference_bundle")
+  bundle = bundle_module.ReferenceLoaderBundle(
+    images=(),
+    image_captions=(),
+    audios=(),
+    audio_captions=(),
+    videos=(),
+    video_captions=(),
+    manifest_json="{}",
+  )
+
+  unpacked = outputs_module.ReferenceLoaderRawOutputsNode.execute(bundle)
+
+  assert unpacked[7] is None
 
 
 def test_reference_loader_rejects_loader_alignment_mismatch(monkeypatch):

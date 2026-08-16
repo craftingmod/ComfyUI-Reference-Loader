@@ -29,7 +29,13 @@ def test_start_end_frames_schema_declares_nullable_image_contract():
   ]
   assert schema.inputs[0].data_type == "REFERENCE_LOADER_BUNDLE"
   assert schema.inputs[1].data_type == "combo"
-  assert schema.inputs[1].options["options"] == ["I2V", "L2V", "FL2V", "T2V"]
+  assert schema.inputs[1].options["options"] == [
+    "I2V",
+    "L2V",
+    "FL2V",
+    "FL2V_LOOP",
+    "T2V",
+  ]
   assert schema.inputs[1].options["default"] == "FL2V"
   assert schema.inputs[2].data_type == "string"
   assert schema.inputs[2].options["optional"] is True
@@ -65,6 +71,9 @@ def test_start_end_frames_defaults_to_flf2v_projection(images, expected):
     ("L2V", ("only",), (None, "only")),
     ("L2V", ("first", "last"), (None, "last")),
     ("FL2V", ("first", "last"), ("first", "last")),
+    ("FL2V_LOOP", (), (None, None)),
+    ("FL2V_LOOP", ("only",), ("only", "only")),
+    ("FL2V_LOOP", ("first", "second"), ("first", "first")),
     ("T2V", ("ignored",), (None, None)),
   ],
 )
@@ -101,7 +110,9 @@ def test_blank_enum_string_falls_back_to_combo():
 def test_start_end_frames_rejects_unknown_mode():
   module = importlib.import_module("backend.nodes.reference_loader_start_end_frames")
 
-  with pytest.raises(ValueError, match="mode must be one of I2V, L2V, FL2V, T2V"):
+  with pytest.raises(
+    ValueError, match="mode must be one of I2V, L2V, FL2V, FL2V_LOOP, T2V"
+  ):
     module.ReferenceLoaderStartEndFramesNode.execute(
       _bundle(module, ("first",)), enum_string="V2V"
     )

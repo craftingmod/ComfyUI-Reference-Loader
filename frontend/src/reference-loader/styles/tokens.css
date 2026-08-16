@@ -33,6 +33,15 @@
   user-select: none;
 }
 
+.reference-loader {
+  position: relative;
+}
+
+/* Vue Nodes stretches `auto auto` widget-grid rows across the remaining node height. */
+.rl-reference-loader-widgets {
+  grid-template-rows: max-content minmax(180px, 1fr) !important;
+}
+
 .reference-loader *,
 .reference-prompt *,
 .rl-modal * {

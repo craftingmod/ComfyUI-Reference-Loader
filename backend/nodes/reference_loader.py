@@ -148,6 +148,19 @@ class ReferenceLoaderNode(io.ComfyNode):
           socketless=True,
           tooltip="Show caption fields on Loader cards; captions remain available in Edit when hidden.",
         ),
+        io.Boolean.Input(
+          "two_image_mode",
+          display_name="two_image_mode",
+          default=False,
+          label_on="Up to 2",
+          label_off="Unlimited",
+          advanced=True,
+          socketless=True,
+          tooltip=(
+            "Frontend-only guard that permits at most two enabled IMAGE outputs "
+            "for I2V and FLF2V workflows."
+          ),
+        ),
         io.Combo.Input(
           "card_aspect",
           display_name="card_aspect",
@@ -204,6 +217,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     grid_columns: int = 3,
     preview_pixels: float = 1.0,
     show_captions: bool = True,
+    two_image_mode: bool = False,
     card_aspect: str = "4 / 3",
     preview_fit: str = "contain",
     waveform_pairs: int = 300,
@@ -213,6 +227,7 @@ class ReferenceLoaderNode(io.ComfyNode):
       grid_columns,
       preview_pixels,
       show_captions,
+      two_image_mode,
       card_aspect,
       preview_fit,
       waveform_pairs,
@@ -242,6 +257,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     grid_columns: int = 3,
     preview_pixels: float = 1.0,
     show_captions: bool = True,
+    two_image_mode: bool = False,
     card_aspect: str = "4 / 3",
     preview_fit: str = "contain",
     waveform_pairs: int = 300,
@@ -251,6 +267,7 @@ class ReferenceLoaderNode(io.ComfyNode):
       grid_columns,
       preview_pixels,
       show_captions,
+      two_image_mode,
       card_aspect,
       preview_fit,
       waveform_pairs,

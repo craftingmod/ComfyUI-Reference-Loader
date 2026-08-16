@@ -40,4 +40,13 @@ describe("Reference Loader stylesheet", () => {
     expect(pickerRule).toContain("overflow: auto;")
     expect(pickerRule).toContain("overscroll-behavior: contain;")
   })
+
+  it("keeps the Vue Nodes Media row intrinsic and gives spare height to Prompt", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/tokens.css", import.meta.url),
+    ).text()
+    const gridRule = css.match(/\.rl-reference-loader-widgets\s*\{([^}]*)\}/)?.[1]
+
+    expect(gridRule).toContain("grid-template-rows: max-content minmax(180px, 1fr) !important;")
+  })
 })

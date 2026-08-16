@@ -4,6 +4,7 @@ from .backend import (
   ReferenceLoaderNode,
   ReferenceLoaderOptionsOverrideNode,
   ReferenceLoaderRawOutputsNode,
+  ReferenceLoaderStartEndFramesNode,
 )
 
 WEB_DIRECTORY = "./dist"
@@ -22,5 +23,6 @@ __all__ = [
   "ReferenceLoaderNode",
   "ReferenceLoaderOptionsOverrideNode",
   "ReferenceLoaderRawOutputsNode",
+  "ReferenceLoaderStartEndFramesNode",
   "comfy_entrypoint",
 ]

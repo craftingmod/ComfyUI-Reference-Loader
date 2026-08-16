@@ -17,6 +17,7 @@ const promptControllers = new WeakMap<ComfyNode, ReferencePromptController>()
 const promptSubscriptions = new WeakMap<ComfyNode, () => void>()
 const removalHooks = new WeakSet<ComfyNode>()
 const displayProxies = new WeakMap<ComfyNode, NativeDisplayProxy>()
+const VUE_WIDGET_GRID_CLASS = "rl-reference-loader-widgets"
 
 interface NativeDisplayProxy {
   syncFromState(): void
@@ -57,6 +58,12 @@ export function registerReferenceLoader(
           )
           let displayProxy: NativeDisplayProxy | undefined
           let removed = false
+          const contentHeight = () => {
+            const channels = root.querySelector<HTMLElement>(".rl-channels")
+            // Root is the offset parent. Measure only through the final Media
+            // section, excluding any spare height assigned to the DOM widget.
+            return Math.max(360, (channels?.offsetTop ?? 0) + (channels?.offsetHeight ?? 0) + 9)
+          }
           const widget = node.addDOMWidget(inputName, REFERENCE_LOADER_WIDGET_TYPE, root, {
             serialize: true,
             hideOnZoom: false,
@@ -65,9 +72,12 @@ export function registerReferenceLoader(
               controller.restore(value)
               displayProxy?.syncFromState()
             },
-            getMinHeight: () => 360,
-            getMaxHeight: () => 1_200,
+            // Use the full Media content height without accepting spare flex height.
+            // Keeping min/max equal avoids both nested scrolling and a gap before Prompt.
+            getMinHeight: contentHeight,
+            getMaxHeight: contentHeight,
           })
+          const releaseVueWidgetGrid = bindVueWidgetGrid(root)
           widget.serialize = true
           widget.serializeValue = () => controller.serialize()
           widget.beforeQueued = () => displayProxy?.syncFromState()
@@ -80,6 +90,7 @@ export function registerReferenceLoader(
           widget.onRemove = () => {
             removed = true
             globalThis.clearTimeout(bindingTimer)
+            releaseVueWidgetGrid()
             promptSubscriptions.get(node)?.()
             promptSubscriptions.delete(node)
             displayProxy?.dispose()
@@ -158,6 +169,29 @@ function bindPromptReferences(node: ComfyNode): void {
   )
 }
 
+function bindVueWidgetGrid(root: HTMLElement): () => void {
+  let widgetGrid: HTMLElement | undefined
+  let retryFrame: number | undefined
+  let disposed = false
+  const bind = (): boolean => {
+    if (disposed) return false
+    const candidate = root.closest<HTMLElement>('[data-testid="node-widgets"]')
+    if (!candidate) return false
+    widgetGrid = candidate
+    widgetGrid.classList.add(VUE_WIDGET_GRID_CLASS)
+    return true
+  }
+  const bindingTimer = globalThis.setTimeout(() => {
+    if (!bind()) retryFrame = globalThis.requestAnimationFrame(() => bind())
+  }, 0)
+  return () => {
+    disposed = true
+    globalThis.clearTimeout(bindingTimer)
+    if (retryFrame !== undefined) globalThis.cancelAnimationFrame(retryFrame)
+    widgetGrid?.classList.remove(VUE_WIDGET_GRID_CLASS)
+  }
+}
+
 function installNodeRemovalHook(node: ComfyNode): void {
   if (removalHooks.has(node)) return
   removalHooks.add(node)
@@ -182,6 +216,7 @@ function bindNativeDisplayProxies(
   const gridColumns = node.widgets?.find((widget) => widget.name === "grid_columns")
   const previewPixels = node.widgets?.find((widget) => widget.name === "preview_pixels")
   const showCaptions = node.widgets?.find((widget) => widget.name === "show_captions")
+  const twoImageMode = node.widgets?.find((widget) => widget.name === "two_image_mode")
   const cardAspect = node.widgets?.find((widget) => widget.name === "card_aspect")
   const previewFit = node.widgets?.find((widget) => widget.name === "preview_fit")
   const waveformPairs = node.widgets?.find((widget) => widget.name === "waveform_pairs")
@@ -189,6 +224,7 @@ function bindNativeDisplayProxies(
     !gridColumns ||
     !previewPixels ||
     !showCaptions ||
+    !twoImageMode ||
     !cardAspect ||
     !previewFit ||
     !waveformPairs
@@ -199,6 +235,7 @@ function bindNativeDisplayProxies(
   const originalGridCallback = gridColumns.callback
   const originalPreviewCallback = previewPixels.callback
   const originalShowCaptionsCallback = showCaptions.callback
+  const originalTwoImageModeCallback = twoImageMode.callback
   const originalCardAspectCallback = cardAspect.callback
   const originalPreviewFitCallback = previewFit.callback
   const originalWaveformPairsCallback = waveformPairs.callback
@@ -207,6 +244,7 @@ function bindNativeDisplayProxies(
     gridColumns.value = values.gridColumns
     previewPixels.value = values.previewPixels
     showCaptions.value = values.showCaptions
+    twoImageMode.value = values.twoImageMode
     cardAspect.value = values.cardAspect
     previewFit.value = values.previewFit
     waveformPairs.value = values.waveformPairs
@@ -233,6 +271,12 @@ function bindNativeDisplayProxies(
     syncFromState()
     return result
   }
+  const twoImageModeCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalTwoImageModeCallback?.call(twoImageMode, value, ...args)
+    controller.writeDisplayProxy({ twoImageMode: Boolean(value) })
+    syncFromState()
+    return result
+  }
   const cardAspectCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
     const result = originalCardAspectCallback?.call(cardAspect, value, ...args)
     controller.writeDisplayProxy({ cardAspect: String(value) })
@@ -256,6 +300,7 @@ function bindNativeDisplayProxies(
   gridColumns.callback = gridCallback
   previewPixels.callback = previewCallback
   showCaptions.callback = showCaptionsCallback
+  twoImageMode.callback = twoImageModeCallback
   cardAspect.callback = cardAspectCallback
   previewFit.callback = previewFitCallback
   waveformPairs.callback = waveformPairsCallback
@@ -274,6 +319,10 @@ function bindNativeDisplayProxies(
       if (showCaptions.callback === showCaptionsCallback) {
         if (originalShowCaptionsCallback) showCaptions.callback = originalShowCaptionsCallback
         else delete showCaptions.callback
+      }
+      if (twoImageMode.callback === twoImageModeCallback) {
+        if (originalTwoImageModeCallback) twoImageMode.callback = originalTwoImageModeCallback
+        else delete twoImageMode.callback
       }
       if (cardAspect.callback === cardAspectCallback) {
         if (originalCardAspectCallback) cardAspect.callback = originalCardAspectCallback

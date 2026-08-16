@@ -20,6 +20,7 @@ def test_backend_package_exports_v3_extension():
     module.ReferenceLoaderNode,
     module.ReferenceLoaderOptionsOverrideNode,
     module.ReferenceLoaderRawOutputsNode,
+    module.ReferenceLoaderStartEndFramesNode,
     module.MiniMaxH3ReferenceToVideoWrapperNode,
   ]
   assert module.__all__ == [
@@ -28,5 +29,6 @@ def test_backend_package_exports_v3_extension():
     "ReferenceLoaderNode",
     "ReferenceLoaderOptionsOverrideNode",
     "ReferenceLoaderRawOutputsNode",
+    "ReferenceLoaderStartEndFramesNode",
     "comfy_entrypoint",
   ]

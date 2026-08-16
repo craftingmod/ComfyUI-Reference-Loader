@@ -45,6 +45,7 @@ export interface LoaderDisplayState {
   gridColumns: number
   previewPixels: number
   showCaptions: boolean
+  twoImageMode: boolean
   cardAspect: string
   previewFit: "contain" | "cover"
   waveformPairs: number
@@ -100,6 +101,12 @@ function showCaptionsProperty(node: ComfyNode): boolean {
   return typeof showCaptions === "boolean" ? showCaptions : true
 }
 
+function twoImageModeProperty(node: ComfyNode): boolean {
+  const value = node.properties?.[NODE_PROPERTY_KEY]
+  if (typeof value !== "object" || value === null) return false
+  return (value as Record<string, unknown>).twoImageMode === true
+}
+
 function setShowCaptionsProperty(node: ComfyNode, showCaptions: boolean): void {
   const current = node.properties?.[NODE_PROPERTY_KEY]
   const namespace =
@@ -107,6 +114,16 @@ function setShowCaptionsProperty(node: ComfyNode, showCaptions: boolean): void {
   node.properties = {
     ...node.properties,
     [NODE_PROPERTY_KEY]: { ...namespace, showCaptions },
+  }
+}
+
+function setTwoImageModeProperty(node: ComfyNode, twoImageMode: boolean): void {
+  const current = node.properties?.[NODE_PROPERTY_KEY]
+  const namespace =
+    typeof current === "object" && current !== null ? (current as Record<string, unknown>) : {}
+  node.properties = {
+    ...node.properties,
+    [NODE_PROPERTY_KEY]: { ...namespace, twoImageMode },
   }
 }
 
@@ -273,6 +290,7 @@ export class ReferenceLoaderController {
       gridColumns: this.state.ui.gridColumns,
       previewPixels: this.state.ui.previewMaxPixels / 1_000_000,
       showCaptions: showCaptionsProperty(this.#node),
+      twoImageMode: twoImageModeProperty(this.#node),
       cardAspect: this.state.ui.cardAspectRatio,
       previewFit: this.state.ui.previewFit,
       waveformPairs: this.state.ui.waveformPeaks,
@@ -397,6 +415,20 @@ export class ReferenceLoaderController {
       if (showCaptions !== showCaptionsProperty(this.#node)) {
         this.#recordGraphChange(() => setShowCaptionsProperty(this.#node, showCaptions))
         this.#node.setDirtyCanvas(true, true)
+        this.render()
+      }
+    }
+    if (values.twoImageMode !== undefined) {
+      const twoImageMode = Boolean(values.twoImageMode)
+      if (twoImageMode && this.#activeImageCount() > 2) {
+        this.#status = "Two-image mode requires at most two enabled Images."
+        this.render()
+      } else if (twoImageMode !== twoImageModeProperty(this.#node)) {
+        this.#recordGraphChange(() => setTwoImageModeProperty(this.#node, twoImageMode))
+        this.#node.setDirtyCanvas(true, true)
+        this.#status = twoImageMode
+          ? "Two-image mode enabled. Additional Images will be added disabled."
+          : "Two-image mode disabled."
         this.render()
       }
     }
@@ -792,13 +824,13 @@ export class ReferenceLoaderController {
         this.#runtime.delete(id ?? "")
         return
       case "toggle-image":
-        if (id) this.#dispatch({ type: "toggle", id, channel: "image" })
+        if (id) this.#toggleOutput(id, "image")
         return
       case "toggle-video":
-        if (id) this.#dispatch({ type: "toggle", id, channel: "video" })
+        if (id) this.#toggleOutput(id, "video")
         return
       case "toggle-audio":
-        if (id) this.#dispatch({ type: "toggle", id, channel: "audio" })
+        if (id) this.#toggleOutput(id, "audio")
         return
       case "preview-audio":
         if (id) void this.#toggleAudioPreview(id)
@@ -1151,11 +1183,16 @@ export class ReferenceLoaderController {
         this.#status = `${file.name}: the server identified this as ${uploaded.kind}, but that media limit is already full.`
         return
       }
-      const item = createMediaItem(uploaded.kind, uploaded.source)
+      let item = createMediaItem(uploaded.kind, uploaded.source)
+      const addedDisabled =
+        item.kind === "image" && twoImageModeProperty(this.#node) && this.#activeImageCount() >= 2
+      if (addedDisabled && item.kind === "image") item = { ...item, imageEnabled: false }
       this.#runtime.set(item.id, { loading: true, metadata: uploaded.metadata })
       this.#dispatch({ type: "add", item })
       this.#selectedId = item.id
-      this.#status = `${file.name} added.`
+      this.#status = addedDisabled
+        ? `${file.name} added with its IMAGE output disabled by two-image mode.`
+        : `${file.name} added.`
       await this.#loadRuntime(item)
     } catch (error) {
       if (!this.#isStateRequestCurrent(epoch, stateController)) return
@@ -1441,6 +1478,29 @@ export class ReferenceLoaderController {
       this.#history = commitHistory(this.#history, next)
     })
     this.#changed()
+  }
+
+  #activeImageCount(): number {
+    return this.state.imageOrder.reduce((count, id) => {
+      const item = this.state.items[id]
+      return count + (item?.kind === "image" && item.imageEnabled ? 1 : 0)
+    }, 0)
+  }
+
+  #toggleOutput(id: string, channel: LoaderChannel): void {
+    const item = this.state.items[id]
+    if (
+      channel === "image" &&
+      item?.kind === "image" &&
+      !item.imageEnabled &&
+      twoImageModeProperty(this.#node) &&
+      this.#activeImageCount() >= 2
+    ) {
+      this.#status = "Two-image mode permits at most two enabled Images."
+      this.render()
+      return
+    }
+    this.#dispatch({ type: "toggle", id, channel })
   }
 
   #recordGraphChange(change: () => void): void {

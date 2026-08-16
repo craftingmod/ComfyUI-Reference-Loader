@@ -20,6 +20,7 @@ def test_python_lane_loads_reference_loader_via_entrypoint():
     "Alyac_ReferenceLoader",
     "Alyac_ReferenceLoaderOptionsOverride",
     "Alyac_ReferenceLoaderRawOutputs",
+    "Alyac_ReferenceLoaderStartEndFrames",
     "Alyac_MiniMaxH3ReferenceToVideoWrapper",
   ]
   assert module.WEB_DIRECTORY == "./dist"
@@ -30,5 +31,6 @@ def test_python_lane_loads_reference_loader_via_entrypoint():
     "ReferenceLoaderNode",
     "ReferenceLoaderOptionsOverrideNode",
     "ReferenceLoaderRawOutputsNode",
+    "ReferenceLoaderStartEndFramesNode",
     "comfy_entrypoint",
   ]

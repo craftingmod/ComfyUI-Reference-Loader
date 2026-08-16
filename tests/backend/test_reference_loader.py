@@ -27,6 +27,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     "grid_columns",
     "preview_pixels",
     "show_captions",
+    "two_image_mode",
     "card_aspect",
     "preview_fit",
     "waveform_pairs",
@@ -82,7 +83,15 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert show_captions.options["default"] is True
   assert show_captions.options["advanced"] is True
   assert show_captions.options["socketless"] is True
-  card_aspect = schema.inputs[9]
+  two_image_mode = schema.inputs[9]
+  assert two_image_mode.data_type == "boolean"
+  assert two_image_mode.options["display_name"] == "two_image_mode"
+  assert two_image_mode.options["default"] is False
+  assert two_image_mode.options["label_off"] == "Unlimited"
+  assert two_image_mode.options["label_on"] == "Up to 2"
+  assert two_image_mode.options["advanced"] is True
+  assert two_image_mode.options["socketless"] is True
+  card_aspect = schema.inputs[10]
   assert card_aspect.data_type == "combo"
   assert card_aspect.options["display_name"] == "card_aspect"
   assert card_aspect.options["options"] == [
@@ -95,14 +104,14 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert card_aspect.options["default"] == "4 / 3"
   assert card_aspect.options["advanced"] is True
   assert card_aspect.options["socketless"] is True
-  preview_fit = schema.inputs[10]
+  preview_fit = schema.inputs[11]
   assert preview_fit.data_type == "combo"
   assert preview_fit.options["display_name"] == "preview_fit"
   assert preview_fit.options["options"] == ["contain", "cover"]
   assert preview_fit.options["default"] == "contain"
   assert preview_fit.options["advanced"] is True
   assert preview_fit.options["socketless"] is True
-  waveform_pairs = schema.inputs[11]
+  waveform_pairs = schema.inputs[12]
   assert waveform_pairs.data_type == "int"
   assert waveform_pairs.options["display_name"] == "waveform_pairs"
   assert waveform_pairs.options["default"] == 300
@@ -282,6 +291,7 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
     grid_columns=8,
     preview_pixels=16.0,
     show_captions=False,
+    two_image_mode=True,
     card_aspect="16 / 9",
     preview_fit="cover",
     waveform_pairs=1000,

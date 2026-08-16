@@ -1,8 +1,8 @@
 # ComfyUI Reference Loader
 
-Reference Loader is a ComfyUI V3 custom node for uploading, arranging, and editing image, audio, and video references. It emits one compact `REFERENCE_LOADER_BUNDLE` plus a structured `prompt` STRING; the companion **Reference Loader Raw Outputs** node unpacks aligned media and caption lists plus a payload-free manifest. **MiniMax H3 Reference to Video Wrapper** passes the same bundle to ComfyUI's native MiniMax H3 reference-conditioning implementation without manual list indexing.
+Reference Loader is a ComfyUI V3 custom node for uploading, arranging, and editing image, audio, and video references. It emits one compact `REFERENCE_LOADER_BUNDLE` plus a structured `prompt` STRING; the companion **Reference Loader Raw Outputs** node unpacks aligned media and caption lists plus a payload-free manifest. **Reference Loader Start/End Frames** projects up to two enabled images into nullable I2V/L2V/FL2V/T2V frame outputs. **MiniMax H3 Reference to Video Wrapper** passes the same bundle to ComfyUI's native MiniMax H3 reference-conditioning implementation without manual list indexing.
 
-The Loader is available under `reference / loader`, **Reference Loader Raw Outputs** is under `reference / output`, and **MiniMax H3 Reference to Video Wrapper** is under `reference / integration`. A minimal workflow is included at [`workflows/Reference_Loader.json`](workflows/Reference_Loader.json).
+The Loader is available under `reference / loader`, **Reference Loader Raw Outputs** and **Reference Loader Start/End Frames** are under `reference / output`, and **MiniMax H3 Reference to Video Wrapper** is under `reference / integration`. A minimal workflow is included at [`workflows/Reference_Loader.json`](workflows/Reference_Loader.json).
 
 ## Features
 
@@ -14,6 +14,8 @@ The Loader is available under `reference / loader`, **Reference Loader Raw Outpu
 - Stable media mentions compiled to `<Picture N>`, `<Video N>`, and `<Audio N>` tags
 - Compact reference bundle with a dedicated Reference Loader Raw Outputs node
 - Explicit IMAGE/AUDIO/VIDEO lists with index-aligned caption lists after unpacking
+- Nullable start/end IMAGE projection for I2V and first-last-frame video workflows
+- Optional frontend-only two-image mode that guards the enabled IMAGE output count
 - Managed, content-validated storage under `ComfyUI/input/reference_loader`
 
 ## Installation
@@ -31,6 +33,12 @@ pip install ".[rembg]"
 **Reference Loader** emits `references` as `REFERENCE_LOADER_BUNDLE` and a compiled `prompt` STRING. Connect `references` to **Reference Loader Raw Outputs** when standard ComfyUI values are needed. Connect `prompt` through an LLM and then to the MiniMax wrapper, or connect it directly. When an LLM is in the middle, instruct it to preserve `<Picture N>`, `<Video N>`, `<Audio N>`, and `<d>...</d>` exactly.
 
 Connect it to **MiniMax H3 Reference to Video Wrapper** for native MiniMax H3 reference conditioning. The Wrapper retains the native `clip`, `vae`, `audio_vae`, `prompt`, `width`, `height`, `length`, and `ref_image_size` controls and replaces the native `ref_*` Autogrow sockets with `references`. Reference videos are decoded and sampled to the 24 fps IMAGE batch expected by MiniMax H3; no separate sampling node is required.
+
+Connect `references` to **Reference Loader Start/End Frames** and choose `I2V`, `L2V`, `FL2V`, or `T2V`. `I2V` emits only the first enabled image as `start_image`; `L2V` emits the last enabled image as `end_image`; `FL2V` emits the first two as start/end; and `T2V` emits `(None, None)`. Missing frames remain `None`. The optional `enum_string` socket accepts the same abbreviations and overrides the Combo when its trimmed value is non-empty. Image-driven modes reject more than two enabled images so frame roles stay unambiguous; T2V ignores images.
+
+Enable the Loader's advanced `two_image_mode` widget to prevent a third IMAGE output from being enabled. Additional uploaded images remain available but start disabled. The socketless widget is a write-only frontend proxy and does not alter execution or cache fingerprints; Start/End Frames still validates the bundle at execution.
+
+The Media board uses its full content height without accepting extra flex height, so it does not gain a nested scrollbar and the Prompt editor stays immediately adjacent instead of being separated by blank Media space.
 
 | Output                      | Contract                                                                |
 | --------------------------- | ----------------------------------------------------------------------- |

@@ -32,6 +32,7 @@ describe("Reference Loader custom widget", () => {
     expect(extension?.getCustomWidgets?.()[REFERENCE_PROMPT_WIDGET_TYPE]).toBeDefined()
 
     let domOptions: DomWidgetOptions | undefined
+    let loaderRoot: HTMLElement | undefined
     let valueSetCount = 0
     let removeReceiver: ComfyWidget | undefined
     const widget = { name: "loader_state" } as ComfyWidget
@@ -47,7 +48,8 @@ describe("Reference Loader custom widget", () => {
     })
     const node: ComfyNode = {
       addWidget: () => ({ name: "unused", value: null }),
-      addDOMWidget(_name, _type, _element, options) {
+      addDOMWidget(_name, _type, element, options) {
+        loaderRoot = element
         domOptions = options
         return widget
       },
@@ -67,6 +69,20 @@ describe("Reference Loader custom widget", () => {
     )
     const restored = loaderReducer(createEmptyLoaderState(), { type: "add", item })
     expect(valueSetCount).toBe(0)
+    expect(domOptions?.getMinHeight?.()).toBe(360)
+    expect(domOptions?.getMaxHeight?.()).toBe(360)
+    const channels = loaderRoot?.querySelector(".rl-channels")
+    expect(channels).toBeDefined()
+    Object.defineProperty(channels as HTMLElement, "offsetTop", {
+      configurable: true,
+      value: 91,
+    })
+    Object.defineProperty(channels as HTMLElement, "offsetHeight", {
+      configurable: true,
+      value: 620,
+    })
+    expect(domOptions?.getMinHeight?.()).toBe(720)
+    expect(domOptions?.getMaxHeight?.()).toBe(720)
     widget.value = serializeLoaderState(restored)
     expect(valueSetCount).toBe(1)
     expect(JSON.parse(String(domOptions?.getValue?.())).imageOrder).toEqual(["restored"])
@@ -86,9 +102,12 @@ describe("Reference Loader custom widget", () => {
     const factory = extension?.getCustomWidgets?.()[REFERENCE_LOADER_WIDGET_TYPE]
     let domOptions: DomWidgetOptions | undefined
     let loaderRoot: HTMLElement | undefined
+    const vueWidgetGrid = document.createElement("div")
+    vueWidgetGrid.dataset.testid = "node-widgets"
     const gridColumns: ComfyWidget = { name: "grid_columns", value: 3 }
     const previewPixels: ComfyWidget = { name: "preview_pixels", value: 1 }
     const showCaptions: ComfyWidget = { name: "show_captions", value: true }
+    const twoImageMode: ComfyWidget = { name: "two_image_mode", value: false }
     const cardAspect: ComfyWidget = { name: "card_aspect", value: "4 / 3" }
     const previewFit: ComfyWidget = { name: "preview_fit", value: "contain" }
     const waveformPairs: ComfyWidget = { name: "waveform_pairs", value: 300 }
@@ -107,6 +126,7 @@ describe("Reference Loader custom widget", () => {
         gridColumns,
         previewPixels,
         showCaptions,
+        twoImageMode,
         cardAspect,
         previewFit,
         waveformPairs,
@@ -115,6 +135,7 @@ describe("Reference Loader custom widget", () => {
       addWidget: () => ({ name: "unused", value: null }),
       addDOMWidget(_name, _type, element, options) {
         loaderRoot = element
+        vueWidgetGrid.append(element)
         domOptions = options
         return loaderWidget
       },
@@ -127,6 +148,7 @@ describe("Reference Loader custom widget", () => {
       app,
     )
     await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(vueWidgetGrid.classList.contains("rl-reference-loader-widgets")).toBe(true)
 
     previewPixels.value = 16
     gridColumns.callback?.(5)
@@ -147,6 +169,11 @@ describe("Reference Loader custom widget", () => {
       (node.properties?.referenceLoader as Record<string, unknown> | undefined)?.showCaptions,
     ).toBe(false)
     expect(loaderRoot?.querySelector("textarea[data-field='caption']")).toBeNull()
+    twoImageMode.callback?.(true)
+    expect(twoImageMode.value).toBe(true)
+    expect(
+      (node.properties?.referenceLoader as Record<string, unknown> | undefined)?.twoImageMode,
+    ).toBe(true)
     cardAspect.callback?.("9 / 16")
     previewFit.callback?.("cover")
     waveformPairs.callback?.(750)
@@ -168,6 +195,7 @@ describe("Reference Loader custom widget", () => {
     gridColumns.value = 8
     previewPixels.value = 16
     showCaptions.value = true
+    twoImageMode.value = false
     cardAspect.value = "16 / 9"
     previewFit.value = "cover"
     waveformPairs.value = 1000
@@ -179,6 +207,7 @@ describe("Reference Loader custom widget", () => {
     expect(gridColumns.value).toBe(2)
     expect(previewPixels.value).toBe(4)
     expect(showCaptions.value).toBe(false)
+    expect(twoImageMode.value).toBe(true)
     expect(cardAspect.value).toBe("1 / 1")
     expect(previewFit.value).toBe("contain")
     expect(waveformPairs.value).toBe(450)
@@ -189,6 +218,7 @@ describe("Reference Loader custom widget", () => {
     gridColumns.value = 7
     previewPixels.value = 12
     showCaptions.value = true
+    twoImageMode.value = false
     cardAspect.value = "16 / 9"
     previewFit.value = "cover"
     waveformPairs.value = 1000
@@ -200,6 +230,7 @@ describe("Reference Loader custom widget", () => {
     expect(gridColumns.value).toBe(2)
     expect(previewPixels.value).toBe(4)
     expect(showCaptions.value).toBe(false)
+    expect(twoImageMode.value).toBe(true)
     expect(cardAspect.value).toBe("1 / 1")
     expect(previewFit.value).toBe("contain")
     expect(waveformPairs.value).toBe(450)
@@ -208,5 +239,6 @@ describe("Reference Loader custom widget", () => {
     expect(compositeAlpha.value).toBe(false)
     expect(alphaBackground.value).toBe("#abcdef")
     loaderWidget.onRemove?.()
+    expect(vueWidgetGrid.classList.contains("rl-reference-loader-widgets")).toBe(false)
   })
 })

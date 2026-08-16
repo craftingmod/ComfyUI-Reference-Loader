@@ -214,6 +214,177 @@ describe("Reference Loader DOM lifecycle", () => {
     root.remove()
   })
 
+  test("two-image mode blocks only a third enabled IMAGE output", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const node: ComfyNode = {
+      properties: { referenceLoader: { twoImageMode: true } },
+      addWidget: () => ({ name: "unused", value: null }),
+      addDOMWidget: () => ({ name: "unused", value: null }),
+      setDirtyCanvas: () => undefined,
+    }
+    let state = createEmptyLoaderState()
+    for (const [index, id] of ["first", "second", "candidate"].entries()) {
+      state = loaderReducer(state, {
+        type: "add",
+        item: createMediaItem(
+          "image",
+          {
+            path: `reference_loader/sources/${id}.png`,
+            mime: "image/png",
+            sha256: String(index + 1).repeat(64),
+          },
+          id,
+        ),
+      })
+    }
+    state = loaderReducer(state, { type: "toggle", id: "candidate", channel: "image" })
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi({ fetchApi: async () => new Promise<Response>(() => undefined) }),
+      serializeLoaderState(state),
+    )
+
+    root
+      .querySelector<HTMLButtonElement>(
+        '.rl-card[data-id="candidate"] [data-action="toggle-image"]',
+      )
+      ?.click()
+    expect(controller.state.items.candidate).toMatchObject({ imageEnabled: false })
+    expect(root.querySelector(".rl-status")?.textContent).toContain("at most two enabled Images")
+
+    root
+      .querySelector<HTMLButtonElement>('.rl-card[data-id="second"] [data-action="toggle-image"]')
+      ?.click()
+    root
+      .querySelector<HTMLButtonElement>(
+        '.rl-card[data-id="candidate"] [data-action="toggle-image"]',
+      )
+      ?.click()
+    expect(controller.state.items.second).toMatchObject({ imageEnabled: false })
+    expect(controller.state.items.candidate).toMatchObject({ imageEnabled: true })
+
+    controller.destroy()
+    root.remove()
+  })
+
+  test("two-image mode rejects activation when three Images are already enabled", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const node: ComfyNode = {
+      properties: {},
+      addWidget: () => ({ name: "unused", value: null }),
+      addDOMWidget: () => ({ name: "unused", value: null }),
+      setDirtyCanvas: () => undefined,
+    }
+    let state = createEmptyLoaderState()
+    for (const [index, id] of ["one", "two", "three"].entries()) {
+      state = loaderReducer(state, {
+        type: "add",
+        item: createMediaItem(
+          "image",
+          {
+            path: `reference_loader/sources/${id}.png`,
+            mime: "image/png",
+            sha256: String(index + 1).repeat(64),
+          },
+          id,
+        ),
+      })
+    }
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi({ fetchApi: async () => new Promise<Response>(() => undefined) }),
+      serializeLoaderState(state),
+    )
+
+    controller.writeDisplayProxy({ twoImageMode: true })
+
+    expect(
+      (node.properties?.referenceLoader as Record<string, unknown> | undefined)?.twoImageMode,
+    ).not.toBe(true)
+    expect(root.querySelector(".rl-status")?.textContent).toContain(
+      "requires at most two enabled Images",
+    )
+    controller.destroy()
+    root.remove()
+  })
+
+  test("two-image mode keeps additional uploaded Images disabled", async () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const node: ComfyNode = {
+      properties: { referenceLoader: { twoImageMode: true } },
+      addWidget: () => ({ name: "unused", value: null }),
+      addDOMWidget: () => ({ name: "unused", value: null }),
+      setDirtyCanvas: () => undefined,
+    }
+    let state = createEmptyLoaderState()
+    for (const [index, id] of ["start", "end"].entries()) {
+      state = loaderReducer(state, {
+        type: "add",
+        item: createMediaItem(
+          "image",
+          {
+            path: `reference_loader/sources/${id}.png`,
+            mime: "image/png",
+            sha256: String(index + 1).repeat(64),
+          },
+          id,
+        ),
+      })
+    }
+    const api: ComfyApiLike = {
+      fetchApi: async (route) => {
+        if (route.endsWith("/upload")) {
+          return new Response(
+            JSON.stringify({
+              kind: "image",
+              source: {
+                path: "reference_loader/sources/extra.png",
+                mime: "image/png",
+                sha256: "e".repeat(64),
+              },
+              metadata: { width: 1, height: 1 },
+            }),
+            { status: 201 },
+          )
+        }
+        if (route.endsWith("/metadata")) {
+          return new Response(JSON.stringify({ metadata: { width: 1, height: 1 } }))
+        }
+        if (route.endsWith("/image_proxy")) {
+          return new Response(JSON.stringify({ url: "/api/view?filename=extra.webp" }))
+        }
+        return new Response("{}")
+      },
+    }
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi(api),
+      serializeLoaderState(state),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const input = root.querySelector<HTMLInputElement>('[data-upload-kind="image"]')
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["extra"], "extra.png", { type: "image/png" })],
+    })
+    input?.dispatchEvent(new Event("change", { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const extra = Object.values(controller.state.items).find(
+      (item) => item.source.path === "reference_loader/sources/extra.png",
+    )
+    expect(extra).toMatchObject({ kind: "image", imageEnabled: false })
+    expect(root.querySelector(".rl-status")?.textContent).toContain("disabled by two-image mode")
+    controller.destroy()
+    root.remove()
+  })
+
   test("arms native article dragging from the card surface but not its controls", () => {
     const root = document.createElement("div")
     document.body.append(root)

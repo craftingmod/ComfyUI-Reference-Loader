@@ -7,6 +7,7 @@ from .nodes import (
   ReferenceLoaderNode,
   ReferenceLoaderOptionsOverrideNode,
   ReferenceLoaderRawOutputsNode,
+  ReferenceLoaderStartEndFramesNode,
 )
 from .reference_routes import register_reference_routes
 
@@ -18,6 +19,7 @@ class ReferenceLoaderExtension(ComfyExtension):
       ReferenceLoaderNode,
       ReferenceLoaderOptionsOverrideNode,
       ReferenceLoaderRawOutputsNode,
+      ReferenceLoaderStartEndFramesNode,
       MiniMaxH3ReferenceToVideoWrapperNode,
     ]
 
@@ -33,5 +35,6 @@ __all__ = [
   "ReferenceLoaderNode",
   "ReferenceLoaderOptionsOverrideNode",
   "ReferenceLoaderRawOutputsNode",
+  "ReferenceLoaderStartEndFramesNode",
   "comfy_entrypoint",
 ]

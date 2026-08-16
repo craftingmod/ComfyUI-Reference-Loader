@@ -1,8 +1,12 @@
 # Reference Loader
 
-`Reference Loader` is a ComfyUI V3 node for arranging local image, audio, and video references before another node analyzes or generates from them. It owns file ingestion, independent image/video/audio ordering, raw user captions, enable state, non-destructive edits, and a structured reference-aware prompt. It emits one compact reference bundle and one compiled prompt STRING. It does not load an LLM/VLM or rewrite prompt text itself.
+`Reference Loader` is a ComfyUI V3 node for arranging local image, audio, and video references before another node analyzes or generates from them. It owns file ingestion, independent image/video/audio ordering, raw user captions, enable state, non-destructive edits, and a structured reference-aware prompt. It emits one compact reference bundle and one compiled prompt STRING. It does not load an LLM/VLM or rewrite prompt text itself. `Reference Loader Start/End Frames` converts up to two enabled Images into nullable scalar frame outputs for I2V, L2V, FL2V, and T2V nodes.
 
-Reference Loader appears under `reference / loader`, Reference Loader Raw Outputs appears under `reference / output`, and MiniMax H3 Reference to Video Wrapper appears under `reference / integration`. A minimal saved graph is available as [`Reference_Loader.json`](../workflows/Reference_Loader.json).
+Reference Loader appears under `reference / loader`, Reference Loader Raw Outputs and Reference Loader Start/End Frames appear under `reference / output`, and MiniMax H3 Reference to Video Wrapper appears under `reference / integration`. A minimal saved graph is available as [`Reference_Loader.json`](../workflows/Reference_Loader.json).
+
+For I2V, L2V, and FL2V preparation, enable advanced `two_image_mode`. It limits enabled IMAGE outputs to two without reducing the Loader's 32-image storage limit: a third activation is blocked, and newly uploaded Images beyond the active pair are retained with IMAGE disabled. If more than two Images are already enabled, the mode refuses activation until the extra outputs are disabled manually. This is a frontend-only, socketless write-through control; the Start/End Frames node remains the backend validation boundary. Video and audio channels stay unrestricted because Start/End Frames consumes only Images.
+
+Start/End Frames defaults to `FL2V`. Its mode Combo contains only `I2V`, `L2V`, `FL2V`, and `T2V`. The optional connection-only `enum_string` input accepts the same values case-insensitively and overrides the Combo when non-blank. I2V fills only `start_image`, L2V fills only `end_image`, FL2V fills both when available, and T2V returns two `None` values. Missing source Images also produce `None` rather than an error.
 
 ## Installation
 
@@ -34,6 +38,9 @@ The extra is available on Python versions supported by `rembg` (currently Python
 2. Click **Add media**, select one or more local image/audio/video files, or drop them onto the Loader.
 3. Enter captions directly on the cards. Captions remain raw strings and are not automatically inserted into the prompt.
 4. In **Prompt**, type `@` to choose an active image, video, or audio reference. Image and video choices include their loaded proxy thumbnails.
+
+The Prompt widget is placed directly after Media. Vue Nodes sizes the Media grid row as `max-content` and gives remaining height to Prompt; Legacy Canvas uses the DOM-widget min/max height contract. Both modes avoid a nested Media scrollbar and prevent spare height from becoming a gap before Prompt.
+
 5. Type `#` to create a dialogue block. Use `Shift+Enter` inside the block for a line break and `Enter` to leave it. Use **Raw** to inspect or edit the literal tags.
 6. Drag from any non-control area of a card, or use the arrow buttons, to set order. The card that will exchange position is highlighted while dragging. Images, Videos, and Audio are independently ordered.
 7. Use **I**, **V**, or **A** to include or exclude a card from its matching output channel.

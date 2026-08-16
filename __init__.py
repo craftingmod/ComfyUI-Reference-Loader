@@ -5,6 +5,7 @@ from .backend import (
   ReferenceLoaderNode,
   ReferenceLoaderOptionsOverrideNode,
   ReferenceLoaderRawOutputsNode,
+  ReferenceLoaderRawPromptNode,
   ReferenceLoaderStartEndFramesNode,
 )
 
@@ -25,6 +26,7 @@ __all__ = [
   "ReferenceLoaderNode",
   "ReferenceLoaderOptionsOverrideNode",
   "ReferenceLoaderRawOutputsNode",
+  "ReferenceLoaderRawPromptNode",
   "ReferenceLoaderStartEndFramesNode",
   "comfy_entrypoint",
 ]

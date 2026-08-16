@@ -6,6 +6,7 @@ from .reference_loader_export_prompt_for_llm import (
 )
 from .reference_loader_options_override import ReferenceLoaderOptionsOverrideNode
 from .reference_loader_raw_outputs import ReferenceLoaderRawOutputsNode
+from .reference_loader_raw_prompt import ReferenceLoaderRawPromptNode
 from .reference_loader_start_end_frames import ReferenceLoaderStartEndFramesNode
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
   "ReferenceLoaderNode",
   "ReferenceLoaderOptionsOverrideNode",
   "ReferenceLoaderRawOutputsNode",
+  "ReferenceLoaderRawPromptNode",
   "ReferenceLoaderStartEndFramesNode",
 ]

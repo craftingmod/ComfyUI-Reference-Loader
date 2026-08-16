@@ -336,10 +336,6 @@ class ReferenceLoaderNode(io.ComfyNode):
             "snapshot for Reference Loader output and integration nodes."
           ),
         ),
-        io.String.Output(
-          "prompt",
-          tooltip="Compiled prompt with resolved media and dialogue tags.",
-        ),
       ],
     )
 
@@ -462,7 +458,6 @@ class ReferenceLoaderNode(io.ComfyNode):
         prompt_state_json=serialize_prompt_document(prompt_document),
         compiled_prompt=compiled_prompt,
       ),
-      compiled_prompt,
     )
 
 

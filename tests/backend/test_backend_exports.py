@@ -21,6 +21,7 @@ def test_backend_package_exports_v3_extension():
     module.ReferenceLoaderOptionsOverrideNode,
     module.ReferenceLoaderExportPromptForLLMNode,
     module.ReferenceLoaderRawOutputsNode,
+    module.ReferenceLoaderRawPromptNode,
     module.ReferenceLoaderStartEndFramesNode,
     module.MiniMaxH3ReferenceToVideoWrapperNode,
   ]
@@ -31,6 +32,7 @@ def test_backend_package_exports_v3_extension():
     "ReferenceLoaderNode",
     "ReferenceLoaderOptionsOverrideNode",
     "ReferenceLoaderRawOutputsNode",
+    "ReferenceLoaderRawPromptNode",
     "ReferenceLoaderStartEndFramesNode",
     "comfy_entrypoint",
   ]

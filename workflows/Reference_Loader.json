@@ -1,8 +1,8 @@
 {
   "id": "cd4aa51d-72d0-4d73-b752-2520f25cdffe",
   "revision": 0,
-  "last_node_id": 2,
-  "last_link_id": 1,
+  "last_node_id": 3,
+  "last_link_id": 2,
   "nodes": [
     {
       "id": 1,
@@ -55,7 +55,7 @@
           "localized_name": "references",
           "name": "references",
           "type": "REFERENCE_LOADER_BUNDLE",
-          "links": [1]
+          "links": [1, 2]
         }
       ],
       "properties": {
@@ -148,9 +148,41 @@
         "Node name for S&R": "Alyac_ReferenceLoaderRawOutputs"
       },
       "widgets_values": []
+    },
+    {
+      "id": 3,
+      "type": "Alyac_ReferenceLoaderRawPrompt",
+      "pos": [700, 320],
+      "size": [300, 90],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "references",
+          "name": "references",
+          "type": "REFERENCE_LOADER_BUNDLE",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "raw prompt",
+          "name": "raw_prompt",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Alyac_ReferenceLoaderRawPrompt"
+      },
+      "widgets_values": []
     }
   ],
-  "links": [[1, 1, 0, 2, 0, "REFERENCE_LOADER_BUNDLE"]],
+  "links": [
+    [1, 1, 0, 2, 0, "REFERENCE_LOADER_BUNDLE"],
+    [2, 1, 0, 3, 0, "REFERENCE_LOADER_BUNDLE"]
+  ],
   "groups": [],
   "config": {},
   "extra": {

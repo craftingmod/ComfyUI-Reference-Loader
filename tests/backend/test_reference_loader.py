@@ -143,10 +143,9 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert waveform_pairs.options["step"] == 50
   assert waveform_pairs.options["advanced"] is True
   assert waveform_pairs.options["socketless"] is True
-  assert [field.name for field in schema.outputs] == ["references", "prompt"]
+  assert [field.name for field in schema.outputs] == ["references"]
   assert schema.outputs[0].data_type == "REFERENCE_LOADER_BUNDLE"
   assert schema.outputs[0].options.get("is_output_list", False) is False
-  assert schema.outputs[1].data_type == "string"
 
   state = {
     "version": 1,
@@ -203,9 +202,8 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   output = module.ReferenceLoaderNode.execute(
     json.dumps(state), prompt=json.dumps(prompt_state)
   )
-  assert len(output) == 2
+  assert len(output) == 1
   bundle = output[0]
-  assert output[1] == "scene:\nUse <Picture 1><d>Hello</d>"
   assert bundle.images == ("native-image",)
   assert bundle.image_captions == ("caption",)
   assert bundle.audios == ()
@@ -216,7 +214,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     "version": 3,
     "sections": prompt_state["sections"],
   }
-  assert bundle.compiled_prompt == output[1]
+  assert bundle.compiled_prompt == "scene:\nUse <Picture 1><d>Hello</d>"
   assert json.loads(bundle.manifest_json)["outputs"]["images"] == ["img"]
   assert json.loads(bundle.manifest_json)["image_output"] == {
     "mode": "original",
@@ -290,7 +288,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     prompt=json.dumps(replacement_prompt),
     prompt_by_order=True,
   )
-  assert order_bound_output[1] == "scene:\nUse <Picture 1><d>Hello</d>"
+  assert order_bound_output[0].compiled_prompt == "scene:\nUse <Picture 1><d>Hello</d>"
   assert (
     json.loads(order_bound_output[0].prompt_state_json)["sections"][0]["parts"][1][
       "referenceId"
@@ -305,6 +303,65 @@ def test_reference_loader_raw_outputs_rejects_non_bundle_value(monkeypatch):
 
   with pytest.raises(TypeError, match="REFERENCE_LOADER_BUNDLE"):
     outputs_module.ReferenceLoaderRawOutputsNode.execute(object())
+
+
+def test_reference_loader_raw_prompt_extracts_compiled_bundle_prompt(monkeypatch):
+  load_node_module(monkeypatch)
+  raw_prompt_module = importlib.import_module(
+    "backend.nodes.reference_loader_raw_prompt"
+  )
+  bundle_module = importlib.import_module("backend.nodes.reference_bundle")
+  contract = importlib.import_module("backend.core.reference_contract")
+  manifest = importlib.import_module("backend.core.reference_manifest")
+  state = contract.parse_reference_state(
+    {
+      "version": 1,
+      "items": {},
+      "imageOrder": [],
+      "videoOrder": [],
+      "audioOrder": [],
+      "videoAudioPolicy": "preserve",
+    }
+  )
+  bundle = bundle_module.ReferenceLoaderBundle(
+    images=(),
+    image_captions=(),
+    audios=(),
+    audio_captions=(),
+    videos=(),
+    video_captions=(),
+    manifest_json=json.dumps(manifest.build_reference_manifest(state)),
+    prompt_state_json=json.dumps(
+      {
+        "version": 3,
+        "sections": [
+          {
+            "title": "scene",
+            "parts": [{"type": "text", "text": "A quiet station"}],
+          }
+        ],
+      }
+    ),
+    compiled_prompt="scene:\nA quiet station",
+  )
+
+  schema = raw_prompt_module.ReferenceLoaderRawPromptNode.define_schema()
+  assert schema.node_id == "Alyac_ReferenceLoaderRawPrompt"
+  assert schema.display_name == "[Reference Loader] Raw Prompt"
+  assert schema.category == "reference/output"
+  assert [field.name for field in schema.inputs] == ["references"]
+  assert schema.inputs[0].data_type == "REFERENCE_LOADER_BUNDLE"
+  assert [field.name for field in schema.outputs] == ["raw_prompt"]
+  assert schema.outputs[0].data_type == "string"
+
+  output = raw_prompt_module.ReferenceLoaderRawPromptNode.execute(bundle)
+  assert output == ("scene:\nA quiet station",)
+  assert (
+    len(raw_prompt_module.ReferenceLoaderRawPromptNode.fingerprint_inputs(bundle)) == 64
+  )
+
+  with pytest.raises(TypeError, match="REFERENCE_LOADER_BUNDLE"):
+    raw_prompt_module.ReferenceLoaderRawPromptNode.execute(object())
 
 
 def test_reference_loader_media_outputs_returns_none_without_a_first_image(monkeypatch):

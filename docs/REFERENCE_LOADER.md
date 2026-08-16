@@ -1,8 +1,8 @@
 # Reference Loader
 
-`Reference Loader` is a ComfyUI V3 node for arranging local image, audio, and video references before another node analyzes or generates from them. It owns file ingestion, independent image/video/audio ordering, raw user captions, enable state, non-destructive edits, and a structured reference-aware prompt. It emits one compact reference bundle and one compiled prompt STRING. It does not load an LLM/VLM or rewrite prompt text itself. `Reference Loader Start/End Frames` converts up to two enabled Images into nullable scalar frame outputs for I2V, L2V, FL2V, and T2V nodes.
+`Reference Loader` is a ComfyUI V3 node for arranging local image, audio, and video references before another node analyzes or generates from them. It owns file ingestion, independent image/video/audio ordering, raw user captions, enable state, non-destructive edits, and a structured reference-aware prompt. It emits one compact reference bundle and one compiled prompt STRING. The bundle carries the execution-relevant prompt snapshot so `Reference Loader Export Prompt for LLM` can combine it with active captions through one connection. It does not load an LLM/VLM or rewrite prompt text itself. `Reference Loader Start/End Frames` converts up to two enabled Images into nullable scalar frame outputs for I2V, L2V, FL2V, and T2V nodes.
 
-Reference Loader appears under `reference / loader`, Reference Loader Raw Outputs and Reference Loader Start/End Frames appear under `reference / output`, and MiniMax H3 Reference to Video Wrapper appears under `reference / integration`. A minimal saved graph is available as [`Reference_Loader.json`](../workflows/Reference_Loader.json).
+Reference Loader appears under `reference / loader`; Reference Loader Export Prompt for LLM, Reference Loader Raw Outputs, and Reference Loader Start/End Frames appear under `reference / output`; and MiniMax H3 Reference to Video Wrapper appears under `reference / integration`. A minimal saved graph is available as [`Reference_Loader.json`](../workflows/Reference_Loader.json).
 
 For I2V, L2V, and FL2V preparation, enable advanced `two_image_mode`. It limits enabled IMAGE outputs to two without reducing the Loader's 32-image storage limit: a third activation is blocked, and newly uploaded Images beyond the active pair are retained with IMAGE disabled. If more than two Images are already enabled, the mode refuses activation until the extra outputs are disabled manually. This is a frontend-only, socketless write-through control; the Start/End Frames node remains the backend validation boundary. Video and audio channels stay unrestricted because Start/End Frames consumes only Images.
 
@@ -46,6 +46,7 @@ The Prompt widget is placed directly after Media. Vue Nodes sizes the Media grid
 7. Use **I**, **V**, or **A** to include or exclude a card from its matching output channel.
 8. Use an Audio card's **▶/■** button for audio auditioning, or a VIDEO card's **▶/■** button for an on-demand picture-and-sound preview of its applied range. Open **Edit** to crop/flip an image, optionally extract its foreground with `rembg`, paint an erase/restore keep mask, restore a materialized edit to its immutable original, choose transparent or solid background output, or trim and audition one audio/video item by seconds.
 9. Add **Reference Loader Raw Outputs**, connect the Loader's `references` output to it, then connect the required media and caption lists downstream. Use `manifest_json` when stable IDs or provenance are needed.
+10. For an LLM path, add **Reference Loader Export Prompt for LLM** and connect only `references`. Its `prompt` output is strict YAML containing the active captions and ordered structured `generation_directives`.
 
 Saving the workflow serializes versioned Loader and Prompt state into separate node widgets. Reloading restores card order, captions, toggles, edit recipes, trim ranges, display preferences, title-tag prompt sections, and the selected prompt view. Prompt state version 3 intentionally does not migrate the former flat version 2 prompt structure. Undo/redo is available for board changes and inside each media editor; undo history itself is session-local.
 
@@ -65,7 +66,15 @@ The `/` commands are creation aliases supplied by the selected preset under **Sh
 
 Prompt preset definitions live as individual user-editable files under `presets/prompt/`, such as `generic.json` and `minimax_h3_base.json`. Each file contains one preset plus `version`, numeric `order`, and Boolean `default` metadata. Exactly one file must set `default` to `true`; `order` values and preset IDs must be unique, and each filename must equal `<id>.json`. Add, remove, reorder, or translate presets there, then restart ComfyUI so the backend rescans the directory and republishes both Combo options and Prompt metadata; rebuilding the frontend is not required. Preset IDs, slash commands, and title tags must use lowercase identifiers, and alias commands must be unique within a preset. Invalid JSON or schema data reports a focused node-loading error rather than exposing a partially applied catalog. Stable English preset IDs, slash commands, and title tags are serialized or compiled as appropriate. The editor detects Korean from the document or browser locale and translates only its visible labels, descriptions, placeholders, and active-preset badge; all other locales use English. This lightweight localization keeps shared workflows and model-facing field names language-independent.
 
-The resulting `prompt` STRING may be connected directly to a model node or passed through an LLM first. For an LLM workflow, give the LLM an instruction to preserve `<Picture N>`, `<Video N>`, `<Audio N>`, and `<d>...</d>` exactly so the final MiniMax tokenizer retains its media bindings.
+The resulting `prompt` STRING may be connected directly to a model node. For a caption-aware LLM workflow, use Reference Loader Export Prompt for LLM instead of manually joining the separate prompt and caption outputs.
+
+## LLM prompt export
+
+**Reference Loader Export Prompt for LLM** accepts one `REFERENCE_LOADER_BUNDLE` and emits one compact strict YAML `prompt` STRING. Only enabled outputs appear. Images, Videos, and Audio retain their independent output order and use the same `<Picture N>`, `<Video N>`, and `<Audio N>` tags as mapping keys. Image and Video values are captions. Each Audio value is a mapping containing `caption` and, when the enabled Audio projection is derived from an enabled Video, the matching `source_video`.
+
+The top-level `generation_directives` mapping is generated directly from the normalized structured Prompt state rather than by reparsing the pseudo-YAML compiled output. Its keys are section titles and its values are compiled section contents. Section order, resolved media mentions, and `<d>...</d>` dialogue blocks are therefore preserved without treating title-like body lines as new sections. Arbitrary captions and content use YAML 1.2-compatible quoted scalars. Empty media channels and empty generation directives are emitted as empty mappings.
+
+The bundle and export deliberately exclude `prompt_schema_preset`, Prompt view mode, and all other frontend-only policy or presentation state. Changing a preset without changing the authored sections therefore changes neither execution nor the exported YAML.
 
 ## Board and editor behavior
 
@@ -93,7 +102,7 @@ Workflow restoration initializes every card's loading state before its first ren
 
 ## Output contract
 
-Reference Loader emits `references` with the custom type `REFERENCE_LOADER_BUNDLE` and `prompt` as a standard STRING. The bundle carries all loaded media, aligned raw captions, and the payload-free manifest as one connection. **Reference Loader Raw Outputs** accepts that bundle and exposes the following standard ComfyUI values.
+Reference Loader emits `references` with the custom type `REFERENCE_LOADER_BUNDLE` and `prompt` as a standard STRING. The bundle carries all loaded media, aligned raw captions, the payload-free manifest, normalized prompt state, and its compiled prompt as one aligned snapshot. **Reference Loader Export Prompt for LLM** consumes the metadata and prompt portion without exposing media payloads in its YAML. **Reference Loader Raw Outputs** accepts the same bundle and exposes the following standard ComfyUI values.
 
 All unpacked media and caption outputs are explicit data lists. They are not a same-resolution IMAGE batch and are never montaged or padded. IMAGE items retain their edited/original resolution in Original mode; Limited mode independently downsizes only items above `max_image_pixels`, so output dimensions may still differ.
 

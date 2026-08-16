@@ -203,6 +203,11 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert bundle.audio_captions == ()
   assert bundle.videos == ()
   assert bundle.video_captions == ()
+  assert json.loads(bundle.prompt_state_json) == {
+    "version": 3,
+    "sections": prompt_state["sections"],
+  }
+  assert bundle.compiled_prompt == output[1]
   assert json.loads(bundle.manifest_json)["outputs"]["images"] == ["img"]
   assert json.loads(bundle.manifest_json)["image_output"] == {
     "mode": "original",
@@ -391,6 +396,10 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
     module.EMPTY_LOADER_STATE_JSON,
     prompt="A different prompt",
   )
+  raw_view_fingerprint = module.ReferenceLoaderNode.fingerprint_inputs(
+    module.EMPTY_LOADER_STATE_JSON,
+    prompt=json.dumps({"version": 3, "view": "raw", "sections": []}),
+  )
 
   assert len(fingerprint) == 64
   assert display_only_fingerprint == fingerprint
@@ -401,4 +410,5 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
   assert opaque_fingerprint != fingerprint
   assert opaque_alpha_fingerprint == opaque_fingerprint
   assert prompt_fingerprint != fingerprint
-  assert len(calls) == 9
+  assert raw_view_fingerprint == fingerprint
+  assert len(calls) == 10

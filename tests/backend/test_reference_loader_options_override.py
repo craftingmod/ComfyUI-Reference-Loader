@@ -62,6 +62,11 @@ def _bundle(module):
     videos=("original-video",),
     video_captions=("video caption",),
     manifest_json=json.dumps(manifest.build_reference_manifest(state)),
+    prompt_state_json=(
+      '{"sections":[{"parts":[{"text":"Keep this prompt",'
+      '"type":"text"}],"title":"scene"}],"version":3}'
+    ),
+    compiled_prompt="scene:\nKeep this prompt",
   )
 
 
@@ -116,6 +121,8 @@ def test_options_override_schema_and_execute_preserve_non_image_media(monkeypatc
   assert output.audio_captions is bundle.audio_captions
   assert output.videos is bundle.videos
   assert output.video_captions is bundle.video_captions
+  assert output.prompt_state_json is bundle.prompt_state_json
+  assert output.compiled_prompt is bundle.compiled_prompt
   assert json.loads(output.manifest_json)["image_output"] == {
     "mode": "limited",
     "maxPixels": 3_500_000,
@@ -152,3 +159,32 @@ def test_options_override_rejects_non_bundle_value():
 
   with pytest.raises(TypeError, match="REFERENCE_LOADER_BUNDLE"):
     module.ReferenceLoaderOptionsOverrideNode.execute(object())
+
+
+def test_options_override_fingerprint_includes_prompt_snapshot(monkeypatch):
+  module = importlib.import_module("backend.nodes.reference_loader_options_override")
+  monkeypatch.setattr(module, "validate_reference_sources", lambda _state: None)
+  bundle = _bundle(module)
+  changed = module.ReferenceLoaderBundle(
+    images=bundle.images,
+    image_captions=bundle.image_captions,
+    audios=bundle.audios,
+    audio_captions=bundle.audio_captions,
+    videos=bundle.videos,
+    video_captions=bundle.video_captions,
+    manifest_json=bundle.manifest_json,
+    prompt_state_json=(
+      '{"sections":[{"parts":[{"text":"Changed prompt",'
+      '"type":"text"}],"title":"scene"}],"version":3}'
+    ),
+    compiled_prompt="scene:\nChanged prompt",
+  )
+
+  original_fingerprint = module.ReferenceLoaderOptionsOverrideNode.fingerprint_inputs(
+    bundle
+  )
+  changed_fingerprint = module.ReferenceLoaderOptionsOverrideNode.fingerprint_inputs(
+    changed
+  )
+
+  assert original_fingerprint != changed_fingerprint

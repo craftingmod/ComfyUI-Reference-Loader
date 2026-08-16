@@ -19,12 +19,14 @@ def test_backend_package_exports_v3_extension():
   assert asyncio.run(extension.get_node_list()) == [
     module.ReferenceLoaderNode,
     module.ReferenceLoaderOptionsOverrideNode,
+    module.ReferenceLoaderExportPromptForLLMNode,
     module.ReferenceLoaderRawOutputsNode,
     module.ReferenceLoaderStartEndFramesNode,
     module.MiniMaxH3ReferenceToVideoWrapperNode,
   ]
   assert module.__all__ == [
     "MiniMaxH3ReferenceToVideoWrapperNode",
+    "ReferenceLoaderExportPromptForLLMNode",
     "ReferenceLoaderExtension",
     "ReferenceLoaderNode",
     "ReferenceLoaderOptionsOverrideNode",

@@ -168,6 +168,17 @@ def parse_prompt_state(value: str | Mapping[str, Any]) -> PromptDocument:
 def compile_prompt(document: PromptDocument, references: ReferenceState) -> str:
   """Resolve stable mentions while preserving the user's title-tag section order."""
 
+  return "\n\n".join(
+    f"{title}:\n{content}" if content else f"{title}:"
+    for title, content in compile_prompt_sections(document, references)
+  )
+
+
+def compile_prompt_sections(
+  document: PromptDocument, references: ReferenceState
+) -> tuple[tuple[str, str], ...]:
+  """Resolve stable mentions into ordered title/content pairs."""
+
   plan = build_reference_output_plan(references)
   ids_by_kind = {
     "image": plan.image_ids,
@@ -191,13 +202,42 @@ def compile_prompt(document: PromptDocument, references: ReferenceState) -> str:
       return f"@{part.label or part.reference_id}"
     return f"<{tag_names[kind]} {ordinal}>"
 
-  compiled_sections: list[str] = []
+  compiled_sections: list[tuple[str, str]] = []
   for section in document.sections:
     content = "".join(compile_part(part) for part in section.parts).strip()
-    compiled_sections.append(
-      f"{section.title}:\n{content}" if content else f"{section.title}:"
-    )
-  return "\n\n".join(compiled_sections)
+    compiled_sections.append((section.title, content))
+  return tuple(compiled_sections)
+
+
+def serialize_prompt_document(document: PromptDocument) -> str:
+  """Serialize execution-relevant prompt state without frontend-only view state."""
+
+  def serialize_part(part: PromptPart) -> dict[str, Any]:
+    if part.type in {"text", "dialogue"}:
+      return {"type": part.type, "text": part.text}
+    return {
+      "type": "mention",
+      "referenceId": part.reference_id,
+      "mediaKind": part.media_kind,
+      "label": part.label,
+    }
+
+  value = {
+    "version": document.version,
+    "sections": [
+      {
+        "title": section.title,
+        "parts": [serialize_part(part) for part in section.parts],
+      }
+      for section in document.sections
+    ],
+  }
+  return json.dumps(
+    value,
+    ensure_ascii=False,
+    sort_keys=True,
+    separators=(",", ":"),
+  )
 
 
 def compile_prompt_state(
@@ -216,7 +256,9 @@ __all__ = [
   "PromptPart",
   "PromptSection",
   "compile_prompt",
+  "compile_prompt_sections",
   "compile_prompt_state",
   "empty_prompt_state",
   "parse_prompt_state",
+  "serialize_prompt_document",
 ]

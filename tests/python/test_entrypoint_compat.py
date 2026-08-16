@@ -19,6 +19,7 @@ def test_python_lane_loads_reference_loader_via_entrypoint():
   assert [node.define_schema().node_id for node in node_classes] == [
     "Alyac_ReferenceLoader",
     "Alyac_ReferenceLoaderOptionsOverride",
+    "Alyac_ReferenceLoaderExportPromptForLLM",
     "Alyac_ReferenceLoaderRawOutputs",
     "Alyac_ReferenceLoaderStartEndFrames",
     "Alyac_MiniMaxH3ReferenceToVideoWrapper",
@@ -27,6 +28,7 @@ def test_python_lane_loads_reference_loader_via_entrypoint():
   assert module.__all__ == [
     "WEB_DIRECTORY",
     "MiniMaxH3ReferenceToVideoWrapperNode",
+    "ReferenceLoaderExportPromptForLLMNode",
     "ReferenceLoaderExtension",
     "ReferenceLoaderNode",
     "ReferenceLoaderOptionsOverrideNode",

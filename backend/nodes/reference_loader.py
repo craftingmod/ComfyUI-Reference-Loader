@@ -7,7 +7,12 @@ from pathlib import Path
 
 from comfy_api.latest import io
 
-from ..core.prompt_contract import EMPTY_PROMPT_STATE_JSON, compile_prompt_state
+from ..core.prompt_contract import (
+  EMPTY_PROMPT_STATE_JSON,
+  compile_prompt,
+  parse_prompt_state,
+  serialize_prompt_document,
+)
 from ..core.reference_contract import (
   ReferenceContractError,
   execution_fingerprint,
@@ -313,8 +318,8 @@ class ReferenceLoaderNode(io.ComfyNode):
         REFERENCE_LOADER_BUNDLE_TYPE.Output(
           "references",
           tooltip=(
-            "Bundled media, aligned captions, and manifest for "
-            "Reference Loader Raw Outputs."
+            "Bundled media, aligned captions, manifest, and structured prompt "
+            "snapshot for Reference Loader output and integration nodes."
           ),
         ),
         io.String.Output(
@@ -361,9 +366,11 @@ class ReferenceLoaderNode(io.ComfyNode):
       alpha_background,
     )
     media_fingerprint = execution_fingerprint(state, image_output=output_settings)
-    compiled_prompt = compile_prompt_state(prompt, state)
+    prompt_document = parse_prompt_state(prompt)
+    prompt_state_json = serialize_prompt_document(prompt_document)
+    compiled_prompt = compile_prompt(prompt_document, state)
     return hashlib.sha256(
-      f"{media_fingerprint}\0{compiled_prompt}".encode()
+      f"{media_fingerprint}\0{prompt_state_json}\0{compiled_prompt}".encode()
     ).hexdigest()
 
   @classmethod
@@ -402,7 +409,8 @@ class ReferenceLoaderNode(io.ComfyNode):
       alpha_background,
     )
     plan = build_reference_output_plan(state)
-    compiled_prompt = compile_prompt_state(prompt, state)
+    prompt_document = parse_prompt_state(prompt)
+    compiled_prompt = compile_prompt(prompt_document, state)
     loaded = load_reference_media(state, image_output=output_settings)
     if len(loaded.images) != len(plan.image_ids):
       raise ReferenceContractError(
@@ -431,6 +439,8 @@ class ReferenceLoaderNode(io.ComfyNode):
         videos=loaded.videos,
         video_captions=plan.video_captions,
         manifest_json=manifest_json,
+        prompt_state_json=serialize_prompt_document(prompt_document),
+        compiled_prompt=compiled_prompt,
       ),
       compiled_prompt,
     )

@@ -15,47 +15,13 @@ from ..core.reference_contract import (
 )
 from ..core.reference_manifest import (
   build_reference_manifest,
-  build_reference_output_plan,
-  parse_reference_manifest_state,
 )
 from ..core.reference_media import load_reference_media, validate_reference_sources
-from .reference_bundle import REFERENCE_LOADER_BUNDLE_TYPE, ReferenceLoaderBundle
-
-
-def _validated_state(references: ReferenceLoaderBundle) -> ReferenceState:
-  if not isinstance(references, ReferenceLoaderBundle):
-    raise TypeError("references must be a REFERENCE_LOADER_BUNDLE value.")
-  state = parse_reference_manifest_state(references.manifest_json)
-  plan = build_reference_output_plan(state)
-  alignments = (
-    (
-      "IMAGE",
-      references.images,
-      references.image_captions,
-      plan.image_ids,
-      plan.image_captions,
-    ),
-    (
-      "AUDIO",
-      references.audios,
-      references.audio_captions,
-      plan.audio_ids,
-      plan.audio_captions,
-    ),
-    (
-      "VIDEO",
-      references.videos,
-      references.video_captions,
-      plan.video_ids,
-      plan.video_captions,
-    ),
-  )
-  for label, media, captions, ids, expected_captions in alignments:
-    if len(media) != len(ids) or tuple(captions) != expected_captions:
-      raise ReferenceContractError(
-        f"Reference Loader manifest does not match bundled {label} outputs."
-      )
-  return state
+from .reference_bundle import (
+  REFERENCE_LOADER_BUNDLE_TYPE,
+  ReferenceLoaderBundle,
+  validate_reference_loader_bundle,
+)
 
 
 def _image_only_state(state: ReferenceState) -> ReferenceState:
@@ -127,7 +93,7 @@ class ReferenceLoaderOptionsOverrideNode(io.ComfyNode):
     composite_alpha: bool = False,
     alpha_background: str = "#000000",
   ) -> str:
-    state = _validated_state(references)
+    state = validate_reference_loader_bundle(references)
     image_state = _image_only_state(state)
     validate_reference_sources(image_state)
     settings = image_output_settings(
@@ -137,7 +103,10 @@ class ReferenceLoaderOptionsOverrideNode(io.ComfyNode):
       alpha_background,
     )
     return hashlib.sha256(
-      execution_fingerprint(state, image_output=settings).encode()
+      (
+        f"{execution_fingerprint(state, image_output=settings)}\0"
+        f"{references.prompt_state_json}\0{references.compiled_prompt}"
+      ).encode()
     ).hexdigest()
 
   @classmethod
@@ -149,7 +118,7 @@ class ReferenceLoaderOptionsOverrideNode(io.ComfyNode):
     composite_alpha: bool = False,
     alpha_background: str = "#000000",
   ) -> io.NodeOutput:
-    state = _validated_state(references)
+    state = validate_reference_loader_bundle(references)
     settings = image_output_settings(
       limit_image_pixels,
       max_image_pixels,
@@ -179,6 +148,8 @@ class ReferenceLoaderOptionsOverrideNode(io.ComfyNode):
         videos=references.videos,
         video_captions=references.video_captions,
         manifest_json=manifest_json,
+        prompt_state_json=references.prompt_state_json,
+        compiled_prompt=references.compiled_prompt,
       )
     )
 

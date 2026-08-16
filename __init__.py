@@ -1,5 +1,6 @@
 from .backend import (
   MiniMaxH3ReferenceToVideoWrapperNode,
+  ReferenceLoaderExportPromptForLLMNode,
   ReferenceLoaderExtension,
   ReferenceLoaderNode,
   ReferenceLoaderOptionsOverrideNode,
@@ -19,6 +20,7 @@ async def comfy_entrypoint() -> ReferenceLoaderExtension:
 __all__ = [
   "WEB_DIRECTORY",
   "MiniMaxH3ReferenceToVideoWrapperNode",
+  "ReferenceLoaderExportPromptForLLMNode",
   "ReferenceLoaderExtension",
   "ReferenceLoaderNode",
   "ReferenceLoaderOptionsOverrideNode",

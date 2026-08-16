@@ -1,8 +1,8 @@
 # ComfyUI Reference Loader
 
-Reference Loader is a ComfyUI V3 custom node for uploading, arranging, and editing image, audio, and video references. It emits one compact `REFERENCE_LOADER_BUNDLE` plus a structured `prompt` STRING; the companion **Reference Loader Raw Outputs** node unpacks aligned media and caption lists plus a payload-free manifest. **Reference Loader Start/End Frames** projects up to two enabled images into nullable I2V/L2V/FL2V/T2V frame outputs. **MiniMax H3 Reference to Video Wrapper** passes the same bundle to ComfyUI's native MiniMax H3 reference-conditioning implementation without manual list indexing.
+Reference Loader is a ComfyUI V3 custom node for uploading, arranging, and editing image, audio, and video references. It emits one compact `REFERENCE_LOADER_BUNDLE` plus a structured `prompt` STRING. The bundle retains an execution-relevant prompt snapshot alongside its media, captions, and payload-free manifest. **Reference Loader Export Prompt for LLM** converts that snapshot and the active captions into strict YAML through one connection, while **Reference Loader Raw Outputs** unpacks the standard media and metadata values. **Reference Loader Start/End Frames** projects up to two enabled images into nullable I2V/L2V/FL2V/T2V frame outputs. **MiniMax H3 Reference to Video Wrapper** passes the same bundle to ComfyUI's native MiniMax H3 reference-conditioning implementation without manual list indexing.
 
-The Loader is available under `reference / loader`, **Reference Loader Raw Outputs** and **Reference Loader Start/End Frames** are under `reference / output`, and **MiniMax H3 Reference to Video Wrapper** is under `reference / integration`. A minimal workflow is included at [`workflows/Reference_Loader.json`](workflows/Reference_Loader.json).
+The Loader is available under `reference / loader`; **Reference Loader Export Prompt for LLM**, **Reference Loader Raw Outputs**, and **Reference Loader Start/End Frames** are under `reference / output`; and **MiniMax H3 Reference to Video Wrapper** is under `reference / integration`. A minimal workflow is included at [`workflows/Reference_Loader.json`](workflows/Reference_Loader.json).
 
 ## Features
 
@@ -12,6 +12,7 @@ The Loader is available under `reference / loader`, **Reference Loader Raw Outpu
 - Optional per-image MPixel limiting and alpha compositing at execution
 - Structured prompt editor with thumbnail `@` mentions, dialogue blocks, and literal raw view
 - Stable media mentions compiled to `<Picture N>`, `<Video N>`, and `<Audio N>` tags
+- Strict YAML export of active captions and structured prompt sections for LLM inputs
 - Compact reference bundle with a dedicated Reference Loader Raw Outputs node
 - Explicit IMAGE/AUDIO/VIDEO lists with index-aligned caption lists after unpacking
 - Nullable start/end IMAGE projection for I2V and first-last-frame video workflows
@@ -30,7 +31,7 @@ pip install ".[rembg]"
 
 ## Outputs
 
-**Reference Loader** emits `references` as `REFERENCE_LOADER_BUNDLE` and a compiled `prompt` STRING. Connect `references` to **Reference Loader Raw Outputs** when standard ComfyUI values are needed. Connect `prompt` through an LLM and then to the MiniMax wrapper, or connect it directly. When an LLM is in the middle, instruct it to preserve `<Picture N>`, `<Video N>`, `<Audio N>`, and `<d>...</d>` exactly.
+**Reference Loader** emits `references` as `REFERENCE_LOADER_BUNDLE` and a compiled `prompt` STRING. Connect `references` to **Reference Loader Export Prompt for LLM** to produce one compact strict YAML STRING containing active `<Picture N>`, `<Video N>`, and `<Audio N>` caption mappings plus the ordered `generation_directives` mapping. A derived Audio mapping includes `source_video` when its Video is also enabled. The frontend-only `prompt_schema_preset` is never included. Connect `references` to **Reference Loader Raw Outputs** when standard ComfyUI values are needed. The original `prompt` output remains available for direct model connections.
 
 Connect it to **MiniMax H3 Reference to Video Wrapper** for native MiniMax H3 reference conditioning. The Wrapper retains the native `clip`, `vae`, `audio_vae`, `prompt`, `width`, `height`, `length`, and `ref_image_size` controls and replaces the native `ref_*` Autogrow sockets with `references`. Reference videos are decoded and sampled to the 24 fps IMAGE batch expected by MiniMax H3; no separate sampling node is required.
 

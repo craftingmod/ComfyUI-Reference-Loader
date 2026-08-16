@@ -38,7 +38,7 @@ See [the Reference Loader guide](docs/REFERENCE_LOADER.md) for editor behavior, 
 
 ## Development
 
-Requirements are Python 3.12, [uv](https://docs.astral.sh/uv/), and Bun 1.3.14 or newer.
+Requirements are Python 3.12, [uv](https://docs.astral.sh/uv/), and Bun 1.4.0 or newer.
 
 ```shell
 bun install --frozen-lockfile

@@ -159,17 +159,22 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     ),
   )
   prompt_state = {
-    "version": 1,
+    "version": 3,
     "view": "structured",
-    "parts": [
-      {"type": "text", "text": "Use "},
+    "sections": [
       {
-        "type": "mention",
-        "referenceId": "img",
-        "mediaKind": "image",
-        "label": "image1",
-      },
-      {"type": "dialogue", "text": "Hello"},
+        "title": "scene",
+        "parts": [
+          {"type": "text", "text": "Use "},
+          {
+            "type": "mention",
+            "referenceId": "img",
+            "mediaKind": "image",
+            "label": "image1",
+          },
+          {"type": "dialogue", "text": "Hello"},
+        ],
+      }
     ],
   }
   output = module.ReferenceLoaderNode.execute(
@@ -177,7 +182,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   )
   assert len(output) == 2
   bundle = output[0]
-  assert output[1] == "Use <Picture 1><d>Hello</d>"
+  assert output[1] == "scene:\nUse <Picture 1><d>Hello</d>"
   assert bundle.images == ("native-image",)
   assert bundle.image_captions == ("caption",)
   assert bundle.audios == ()

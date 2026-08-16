@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -8,12 +9,14 @@ from typing import Any, Literal
 from .reference_contract import ReferenceState
 from .reference_manifest import build_reference_output_plan
 
-PROMPT_STATE_VERSION = 1
+PROMPT_STATE_VERSION = 3
 MAX_PROMPT_STATE_CHARACTERS = 250_000
 MAX_PROMPT_TEXT_CHARACTERS = 100_000
+MAX_PROMPT_SECTION_TITLE_CHARACTERS = 64
 
 PromptMediaKind = Literal["image", "video", "audio"]
-PromptDirectiveKind = Literal["audio", "style"]
+PromptPartKind = Literal["text", "dialogue", "mention"]
+SECTION_TITLE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
 class PromptContractError(ValueError):
@@ -22,26 +25,30 @@ class PromptContractError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class PromptPart:
-  type: Literal["text", "dialogue", "directive", "mention"]
+  type: PromptPartKind
   text: str = ""
-  directive_kind: PromptDirectiveKind | None = None
-  directive_parts: tuple[PromptPart, ...] = ()
   reference_id: str = ""
   media_kind: PromptMediaKind | None = None
   label: str = ""
 
 
 @dataclass(frozen=True, slots=True)
+class PromptSection:
+  title: str
+  parts: tuple[PromptPart, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class PromptDocument:
   version: int
-  parts: tuple[PromptPart, ...]
+  sections: tuple[PromptSection, ...]
 
 
 def empty_prompt_state() -> dict[str, Any]:
   return {
     "version": PROMPT_STATE_VERSION,
     "view": "structured",
-    "parts": [],
+    "sections": [],
   }
 
 
@@ -80,8 +87,7 @@ def _mention_part(value: Mapping[str, Any], path: str) -> PromptPart:
   )
 
 
-def _part(value: Any, index: int) -> PromptPart:
-  path = f"prompt.parts[{index}]"
+def _part(value: Any, path: str) -> PromptPart:
   if not isinstance(value, Mapping):
     raise _error(path, "must be an object")
   part_type = value.get("type")
@@ -90,50 +96,36 @@ def _part(value: Any, index: int) -> PromptPart:
       type=part_type,
       text=_text(value.get("text"), f"{path}.text", MAX_PROMPT_TEXT_CHARACTERS),
     )
-  if part_type == "directive":
-    directive_kind = value.get("kind")
-    if directive_kind not in {"audio", "style"}:
-      raise _error(f"{path}.kind", "must be audio or style")
-    raw_directive_parts = value.get("parts")
-    if raw_directive_parts is None and "text" in value:
-      raw_directive_parts = [{"type": "text", "text": value.get("text")}]
-    if not isinstance(raw_directive_parts, Sequence) or isinstance(
-      raw_directive_parts, (str, bytes)
-    ):
-      raise _error(f"{path}.parts", "must be an array")
-    directive_parts: list[PromptPart] = []
-    for part_index, raw_inline_part in enumerate(raw_directive_parts):
-      inline_path = f"{path}.parts[{part_index}]"
-      if not isinstance(raw_inline_part, Mapping):
-        raise _error(inline_path, "must be an object")
-      inline_type = raw_inline_part.get("type")
-      if inline_type == "text":
-        directive_parts.append(
-          PromptPart(
-            type="text",
-            text=_text(
-              raw_inline_part.get("text"),
-              f"{inline_path}.text",
-              MAX_PROMPT_TEXT_CHARACTERS,
-            ),
-          )
-        )
-      elif inline_type == "mention":
-        directive_parts.append(_mention_part(raw_inline_part, inline_path))
-      else:
-        raise _error(f"{inline_path}.type", "must be text or mention")
-    return PromptPart(
-      type="directive",
-      directive_kind=directive_kind,
-      directive_parts=tuple(directive_parts),
-    )
-  if part_type != "mention":
-    raise _error(f"{path}.type", "must be text, dialogue, directive, or mention")
-  return _mention_part(value, path)
+  if part_type == "mention":
+    return _mention_part(value, path)
+  raise _error(f"{path}.type", "must be text, dialogue, or mention")
+
+
+def _section(value: Any, index: int) -> PromptSection:
+  path = f"prompt.sections[{index}]"
+  if not isinstance(value, Mapping):
+    raise _error(path, "must be an object")
+  title = _text(
+    value.get("title"),
+    f"{path}.title",
+    MAX_PROMPT_SECTION_TITLE_CHARACTERS,
+  )
+  if SECTION_TITLE_PATTERN.fullmatch(title) is None:
+    raise _error(f"{path}.title", "must be a lowercase snake_case title tag")
+  raw_parts = value.get("parts")
+  if not isinstance(raw_parts, Sequence) or isinstance(raw_parts, (str, bytes)):
+    raise _error(f"{path}.parts", "must be an array")
+  return PromptSection(
+    title=title,
+    parts=tuple(
+      _part(raw_part, f"{path}.parts[{part_index}]")
+      for part_index, raw_part in enumerate(raw_parts)
+    ),
+  )
 
 
 def parse_prompt_state(value: str | Mapping[str, Any]) -> PromptDocument:
-  """Parse a prompt document; a non-JSON string remains a literal prompt."""
+  """Parse a title-based prompt document; a non-JSON string is a scene section."""
 
   if isinstance(value, str):
     if len(value) > MAX_PROMPT_STATE_CHARACTERS:
@@ -141,34 +133,40 @@ def parse_prompt_state(value: str | Mapping[str, Any]) -> PromptDocument:
     try:
       raw: Any = json.loads(value)
     except (TypeError, ValueError):
-      return PromptDocument(
-        version=PROMPT_STATE_VERSION,
-        parts=(PromptPart(type="text", text=value),),
+      sections = (
+        (PromptSection(title="scene", parts=(PromptPart(type="text", text=value),)),)
+        if value
+        else ()
       )
+      return PromptDocument(version=PROMPT_STATE_VERSION, sections=sections)
   else:
     raw = value
   if not isinstance(raw, Mapping):
     raise _error("prompt", "must be an object")
   if raw.get("version") != PROMPT_STATE_VERSION:
     raise _error("prompt.version", f"must equal {PROMPT_STATE_VERSION}")
-  raw_parts = raw.get("parts")
-  if not isinstance(raw_parts, Sequence) or isinstance(raw_parts, (str, bytes)):
-    raise _error("prompt.parts", "must be an array")
-  parts = tuple(_part(value, index) for index, value in enumerate(raw_parts))
-  text_length = sum(
-    len(part.text) + sum(len(inline_part.text) for inline_part in part.directive_parts)
-    for part in parts
+  raw_sections = raw.get("sections")
+  if not isinstance(raw_sections, Sequence) or isinstance(raw_sections, (str, bytes)):
+    raise _error("prompt.sections", "must be an array")
+  sections = tuple(
+    _section(section, index) for index, section in enumerate(raw_sections)
   )
+  titles: set[str] = set()
+  for index, section in enumerate(sections):
+    if section.title in titles:
+      raise _error(f"prompt.sections[{index}].title", "must be unique")
+    titles.add(section.title)
+  text_length = sum(len(part.text) for section in sections for part in section.parts)
   if text_length > MAX_PROMPT_TEXT_CHARACTERS:
     raise _error(
-      "prompt.parts",
+      "prompt.sections",
       f"combined text must contain at most {MAX_PROMPT_TEXT_CHARACTERS} characters",
     )
-  return PromptDocument(version=PROMPT_STATE_VERSION, parts=parts)
+  return PromptDocument(version=PROMPT_STATE_VERSION, sections=sections)
 
 
 def compile_prompt(document: PromptDocument, references: ReferenceState) -> str:
-  """Resolve stable mentions to the active MiniMax H3 reference ordinals."""
+  """Resolve stable mentions while preserving the user's title-tag section order."""
 
   plan = build_reference_output_plan(references)
   ids_by_kind = {
@@ -181,31 +179,25 @@ def compile_prompt(document: PromptDocument, references: ReferenceState) -> str:
     kind: {reference_id: index for index, reference_id in enumerate(ids, start=1)}
     for kind, ids in ids_by_kind.items()
   }
-  output: list[str] = []
 
   def compile_part(part: PromptPart) -> str:
     if part.type == "text":
       return part.text
+    if part.type == "dialogue":
+      return f"<d>{part.text}</d>"
     kind = part.media_kind or "image"
     ordinal = ordinals[kind].get(part.reference_id)
     if ordinal is None:
       return f"@{part.label or part.reference_id}"
     return f"<{tag_names[kind]} {ordinal}>"
 
-  for part in document.parts:
-    if part.type == "text":
-      output.append(part.text)
-    elif part.type == "dialogue":
-      output.append(f"<d>{part.text}</d>")
-    elif part.type == "directive":
-      kind = part.directive_kind or "style"
-      content = "".join(
-        compile_part(inline_part) for inline_part in part.directive_parts
-      )
-      output.append(f"<{kind}>{content}</{kind}>")
-    else:
-      output.append(compile_part(part))
-  return "".join(output)
+  compiled_sections: list[str] = []
+  for section in document.sections:
+    content = "".join(compile_part(part) for part in section.parts).strip()
+    compiled_sections.append(
+      f"{section.title}:\n{content}" if content else f"{section.title}:"
+    )
+  return "\n\n".join(compiled_sections)
 
 
 def compile_prompt_state(
@@ -222,6 +214,7 @@ __all__ = [
   "PromptContractError",
   "PromptDocument",
   "PromptPart",
+  "PromptSection",
   "compile_prompt",
   "compile_prompt_state",
   "empty_prompt_state",

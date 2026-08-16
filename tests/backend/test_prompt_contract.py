@@ -71,41 +71,49 @@ def reference_state():
 
 def test_compiles_stable_mentions_against_active_per_type_orders():
   document = {
-    "version": 1,
+    "version": 3,
     "view": "structured",
-    "parts": [
-      {"type": "text", "text": "A "},
+    "sections": [
       {
-        "type": "mention",
-        "referenceId": "image-a",
-        "mediaKind": "image",
-        "label": "image1",
+        "title": "integrated_multimodal_description",
+        "parts": [
+          {"type": "text", "text": "A "},
+          {
+            "type": "mention",
+            "referenceId": "image-a",
+            "mediaKind": "image",
+            "label": "image1",
+          },
+          {"type": "text", "text": " watches "},
+          {
+            "type": "mention",
+            "referenceId": "video-a",
+            "mediaKind": "video",
+            "label": "video1",
+          },
+          {"type": "text", "text": " with "},
+          {
+            "type": "mention",
+            "referenceId": "video-a:audio",
+            "mediaKind": "audio",
+            "label": "audio1",
+          },
+          {"type": "text", "text": " and "},
+          {
+            "type": "mention",
+            "referenceId": "audio-a",
+            "mediaKind": "audio",
+            "label": "audio2",
+          },
+          {"type": "dialogue", "text": "안녕하세요"},
+        ],
       },
-      {"type": "text", "text": " watches "},
       {
-        "type": "mention",
-        "referenceId": "video-a",
-        "mediaKind": "video",
-        "label": "video1",
+        "title": "visual_style",
+        "parts": [{"type": "text", "text": "Soft 3D"}],
       },
-      {"type": "text", "text": " with "},
       {
-        "type": "mention",
-        "referenceId": "video-a:audio",
-        "mediaKind": "audio",
-        "label": "audio1",
-      },
-      {"type": "text", "text": " and "},
-      {
-        "type": "mention",
-        "referenceId": "audio-a",
-        "mediaKind": "audio",
-        "label": "audio2",
-      },
-      {"type": "dialogue", "text": "안녕하세요"},
-      {
-        "type": "directive",
-        "kind": "audio",
+        "title": "overall_soundscape",
         "parts": [
           {"type": "text", "text": "No music for "},
           {
@@ -116,35 +124,61 @@ def test_compiles_stable_mentions_against_active_per_type_orders():
           },
         ],
       },
-      {"type": "directive", "kind": "style", "text": "Soft 3D"},
     ],
   }
   assert compile_prompt_state(json.dumps(document), reference_state()) == (
+    "integrated_multimodal_description:\n"
     "A <Picture 1> watches <Video 1> with <Audio 1> and <Audio 2><d>안녕하세요</d>"
-    "<audio>No music for <Picture 1></audio><style>Soft 3D</style>"
+    "\n\nvisual_style:\nSoft 3D"
+    "\n\noverall_soundscape:\nNo music for <Picture 1>"
   )
 
 
 def test_unavailable_mentions_remain_visible_without_rebinding_to_another_item():
   document = {
-    "version": 1,
-    "parts": [
+    "version": 3,
+    "sections": [
       {
-        "type": "mention",
-        "referenceId": "image-b",
-        "mediaKind": "image",
-        "label": "disabled-image",
+        "title": "scene",
+        "parts": [
+          {
+            "type": "mention",
+            "referenceId": "image-b",
+            "mediaKind": "image",
+            "label": "disabled-image",
+          }
+        ],
       }
     ],
   }
-  assert compile_prompt_state(document, reference_state()) == "@disabled-image"
+  assert compile_prompt_state(document, reference_state()) == "scene:\n@disabled-image"
 
 
 def test_accepts_literal_prompt_strings_and_rejects_invalid_structured_state():
-  assert compile_prompt_state("literal text", reference_state()) == "literal text"
-  with pytest.raises(PromptContractError, match="prompt.parts"):
-    parse_prompt_state(json.dumps({"version": 1, "parts": "invalid"}))
-  with pytest.raises(PromptContractError, match="must be audio or style"):
+  assert (
+    compile_prompt_state("literal text", reference_state()) == "scene:\nliteral text"
+  )
+  with pytest.raises(PromptContractError, match="prompt.sections"):
+    parse_prompt_state(json.dumps({"version": 3, "sections": "invalid"}))
+  with pytest.raises(PromptContractError, match="lowercase snake_case"):
     parse_prompt_state(
-      {"version": 1, "parts": [{"type": "directive", "kind": "camera", "text": ""}]}
+      {"version": 3, "sections": [{"title": "Bad Title", "parts": []}]}
+    )
+
+
+def test_rejects_version_2_prompt_state_without_migration():
+  with pytest.raises(PromptContractError, match="prompt.version: must equal 3"):
+    parse_prompt_state({"version": 2, "parts": []})
+
+
+def test_rejects_duplicate_section_titles():
+  with pytest.raises(PromptContractError, match="must be unique"):
+    parse_prompt_state(
+      {
+        "version": 3,
+        "sections": [
+          {"title": "scene", "parts": []},
+          {"title": "scene", "parts": []},
+        ],
+      }
     )

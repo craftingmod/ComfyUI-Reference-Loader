@@ -1,10 +1,22 @@
-export const PROMPT_STATE_VERSION = 1 as const
+export const PROMPT_STATE_VERSION = 3 as const
 export const MAX_PROMPT_STATE_CHARACTERS = 250_000
 export const MAX_PROMPT_TEXT_CHARACTERS = 100_000
+export const MAX_PROMPT_SECTION_TITLE_CHARACTERS = 64
 
 export type PromptMediaKind = "image" | "video" | "audio"
 export type PromptViewMode = "structured" | "raw"
-export type PromptDirectiveKind = "audio" | "style"
+
+export const PROMPT_SECTION_ALIASES = {
+  style: "visual_style",
+  camera: "camera_direction",
+  timeline: "timeline_direction",
+  sound: "sound_effects_and_ambience",
+  music: "non_diegetic_music",
+  voice: "voice_direction",
+  avoid: "negative_constraints",
+} as const
+
+export type PromptSectionAlias = keyof typeof PROMPT_SECTION_ALIASES
 
 export interface PromptTextPart {
   type: "text"
@@ -16,12 +28,6 @@ export interface PromptDialoguePart {
   text: string
 }
 
-export interface PromptDirectivePart {
-  type: "directive"
-  kind: PromptDirectiveKind
-  parts: PromptInlinePart[]
-}
-
 export interface PromptMentionPart {
   type: "mention"
   referenceId: string
@@ -29,18 +35,17 @@ export interface PromptMentionPart {
   label: string
 }
 
-export type PromptInlinePart = PromptTextPart | PromptMentionPart
+export type PromptSectionPart = PromptTextPart | PromptDialoguePart | PromptMentionPart
 
-export type PromptPart =
-  | PromptTextPart
-  | PromptDialoguePart
-  | PromptDirectivePart
-  | PromptMentionPart
+export interface PromptSection {
+  title: string
+  parts: PromptSectionPart[]
+}
 
 export interface PromptDocument {
   version: typeof PROMPT_STATE_VERSION
   view: PromptViewMode
-  parts: PromptPart[]
+  sections: PromptSection[]
 }
 
 export interface PromptReference {
@@ -60,15 +65,28 @@ export interface PromptValidationResult {
 }
 
 export function createEmptyPromptDocument(): PromptDocument {
-  return { version: PROMPT_STATE_VERSION, view: "structured", parts: [] }
+  return { version: PROMPT_STATE_VERSION, view: "structured", sections: [] }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function mergeTextParts(parts: PromptPart[]): PromptPart[] {
-  const merged: PromptPart[] = []
+export function isPromptSectionTitle(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= MAX_PROMPT_SECTION_TITLE_CHARACTERS &&
+    /^[a-z][a-z0-9_]*$/u.test(value)
+  )
+}
+
+export function normalizePromptSectionTitle(value: string): string | undefined {
+  const title = value.trim().replace(/:$/u, "").toLocaleLowerCase()
+  return isPromptSectionTitle(title) ? title : undefined
+}
+
+function mergeTextParts(parts: PromptSectionPart[]): PromptSectionPart[] {
+  const merged: PromptSectionPart[] = []
   for (const part of parts) {
     if (part.type === "text" && !part.text) continue
     const previous = merged.at(-1)
@@ -78,116 +96,102 @@ function mergeTextParts(parts: PromptPart[]): PromptPart[] {
   return merged
 }
 
-function mergeInlineTextParts(parts: PromptInlinePart[]): PromptInlinePart[] {
-  const merged: PromptInlinePart[] = []
-  for (const part of parts) {
-    if (part.type === "text" && !part.text) continue
-    const previous = merged.at(-1)
-    if (part.type === "text" && previous?.type === "text") previous.text += part.text
-    else merged.push(part)
+function validateMention(
+  value: Record<string, unknown>,
+  path: string,
+  issues: string[],
+): PromptMentionPart | undefined {
+  const referenceId = value.referenceId
+  const mediaKind = value.mediaKind
+  if (
+    typeof referenceId !== "string" ||
+    referenceId.length === 0 ||
+    referenceId.length > 160 ||
+    /\s/u.test(referenceId) ||
+    (mediaKind !== "image" && mediaKind !== "video" && mediaKind !== "audio")
+  ) {
+    issues.push(`${path} was discarded.`)
+    return undefined
   }
-  return merged
+  return {
+    type: "mention",
+    referenceId,
+    mediaKind,
+    label: typeof value.label === "string" ? value.label.slice(0, 255) : "",
+  }
 }
 
 export function validatePromptDocument(value: unknown): PromptValidationResult {
-  if (!isRecord(value) || value.version !== PROMPT_STATE_VERSION || !Array.isArray(value.parts)) {
+  if (
+    !isRecord(value) ||
+    value.version !== PROMPT_STATE_VERSION ||
+    !Array.isArray(value.sections)
+  ) {
     return { document: createEmptyPromptDocument(), issues: ["Prompt state was invalid."] }
   }
   const issues: string[] = []
-  const parts: PromptPart[] = []
+  const sections: PromptSection[] = []
+  const sectionByTitle = new Map<string, PromptSection>()
   let textLength = 0
-  for (const [index, rawPart] of value.parts.entries()) {
-    if (!isRecord(rawPart)) {
-      issues.push(`Prompt part ${index} was discarded.`)
+
+  for (const [sectionIndex, rawSection] of value.sections.entries()) {
+    if (!isRecord(rawSection) || !isPromptSectionTitle(rawSection.title)) {
+      issues.push(`Prompt section ${sectionIndex} was discarded.`)
       continue
     }
-    if (rawPart.type === "text" || rawPart.type === "dialogue") {
-      if (typeof rawPart.text !== "string") {
-        issues.push(`Prompt part ${index} was discarded.`)
-        continue
-      }
-      const remaining = Math.max(0, MAX_PROMPT_TEXT_CHARACTERS - textLength)
-      const text = rawPart.text.slice(0, remaining)
-      textLength += text.length
-      parts.push({ type: rawPart.type, text })
-      if (text.length !== rawPart.text.length)
-        issues.push(
-          `Prompt text exceeded ${MAX_PROMPT_TEXT_CHARACTERS} characters and was truncated.`,
-        )
+    if (!Array.isArray(rawSection.parts)) {
+      issues.push(`Prompt section ${sectionIndex} was discarded.`)
       continue
     }
-    if (rawPart.type === "directive" && (rawPart.kind === "audio" || rawPart.kind === "style")) {
-      const rawInlineParts = Array.isArray(rawPart.parts)
-        ? rawPart.parts
-        : typeof rawPart.text === "string"
-          ? [{ type: "text", text: rawPart.text }]
-          : undefined
-      if (!rawInlineParts) {
-        issues.push(`Prompt part ${index} was discarded.`)
+    const parts: PromptSectionPart[] = []
+    for (const [partIndex, rawPart] of rawSection.parts.entries()) {
+      const path = `Prompt section ${sectionIndex} part ${partIndex}`
+      if (!isRecord(rawPart)) {
+        issues.push(`${path} was discarded.`)
         continue
       }
-      const inlineParts: PromptInlinePart[] = []
-      for (const rawInlinePart of rawInlineParts) {
-        if (!isRecord(rawInlinePart)) continue
-        if (rawInlinePart.type === "text" && typeof rawInlinePart.text === "string") {
-          const remaining = Math.max(0, MAX_PROMPT_TEXT_CHARACTERS - textLength)
-          const text = rawInlinePart.text.slice(0, remaining)
-          textLength += text.length
-          inlineParts.push({ type: "text", text })
-          if (text.length !== rawInlinePart.text.length)
-            issues.push(
-              `Prompt text exceeded ${MAX_PROMPT_TEXT_CHARACTERS} characters and was truncated.`,
-            )
-        } else if (
-          rawInlinePart.type === "mention" &&
-          typeof rawInlinePart.referenceId === "string" &&
-          rawInlinePart.referenceId.length > 0 &&
-          rawInlinePart.referenceId.length <= 160 &&
-          !/\s/.test(rawInlinePart.referenceId) &&
-          (rawInlinePart.mediaKind === "image" ||
-            rawInlinePart.mediaKind === "video" ||
-            rawInlinePart.mediaKind === "audio")
-        ) {
-          inlineParts.push({
-            type: "mention",
-            referenceId: rawInlinePart.referenceId,
-            mediaKind: rawInlinePart.mediaKind,
-            label: typeof rawInlinePart.label === "string" ? rawInlinePart.label.slice(0, 255) : "",
-          })
+      if (rawPart.type === "text" || rawPart.type === "dialogue") {
+        if (typeof rawPart.text !== "string") {
+          issues.push(`${path} was discarded.`)
+          continue
         }
+        const remaining = Math.max(0, MAX_PROMPT_TEXT_CHARACTERS - textLength)
+        const text = rawPart.text.slice(0, remaining)
+        textLength += text.length
+        parts.push({ type: rawPart.type, text })
+        if (text.length !== rawPart.text.length)
+          issues.push(
+            `Prompt text exceeded ${MAX_PROMPT_TEXT_CHARACTERS} characters and was truncated.`,
+          )
+        continue
       }
-      parts.push({
-        type: "directive",
-        kind: rawPart.kind,
-        parts: mergeInlineTextParts(inlineParts),
-      })
-      continue
+      if (rawPart.type === "mention") {
+        const mention = validateMention(rawPart, path, issues)
+        if (mention) parts.push(mention)
+        continue
+      }
+      issues.push(`${path} was discarded.`)
     }
-    if (
-      rawPart.type === "mention" &&
-      typeof rawPart.referenceId === "string" &&
-      rawPart.referenceId.length > 0 &&
-      rawPart.referenceId.length <= 160 &&
-      !/\s/.test(rawPart.referenceId) &&
-      (rawPart.mediaKind === "image" ||
-        rawPart.mediaKind === "video" ||
-        rawPart.mediaKind === "audio")
-    ) {
-      parts.push({
-        type: "mention",
-        referenceId: rawPart.referenceId,
-        mediaKind: rawPart.mediaKind,
-        label: typeof rawPart.label === "string" ? rawPart.label.slice(0, 255) : "",
-      })
+
+    const title = rawSection.title
+    const existing = sectionByTitle.get(title)
+    if (existing) {
+      if (existing.parts.length > 0 && parts.length > 0)
+        existing.parts.push({ type: "text", text: "\n\n" })
+      existing.parts = mergeTextParts([...existing.parts, ...parts])
+      issues.push(`Duplicate prompt section ${title} was merged.`)
     } else {
-      issues.push(`Prompt part ${index} was discarded.`)
+      const section = { title, parts: mergeTextParts(parts) }
+      sections.push(section)
+      sectionByTitle.set(title, section)
     }
   }
+
   return {
     document: {
       version: PROMPT_STATE_VERSION,
       view: value.view === "raw" ? "raw" : "structured",
-      parts: mergeTextParts(parts),
+      sections,
     },
     issues,
   }
@@ -198,7 +202,9 @@ export function serializePromptDocument(document: PromptDocument): string {
 }
 
 export function deserializePromptDocument(value: unknown): PromptValidationResult {
-  if (typeof value !== "string" || value.trim() === "") return validatePromptDocument(value)
+  if (value === undefined || value === null || value === "")
+    return { document: createEmptyPromptDocument(), issues: [] }
+  if (typeof value !== "string") return validatePromptDocument(value)
   if (value.length > MAX_PROMPT_STATE_CHARACTERS) {
     return {
       document: createEmptyPromptDocument(),
@@ -213,7 +219,7 @@ export function deserializePromptDocument(value: unknown): PromptValidationResul
       document: {
         version: PROMPT_STATE_VERSION,
         view: "structured",
-        parts: text ? [{ type: "text", text }] : [],
+        sections: text ? [{ title: "scene", parts: [{ type: "text", text }] }] : [],
       },
       issues: [],
     }
@@ -224,17 +230,18 @@ function mentionFallback(part: PromptMentionPart): string {
   return `@${part.label || part.referenceId}`
 }
 
-function compileInlineParts(
-  parts: readonly PromptInlinePart[],
+function compileSectionParts(
+  parts: readonly PromptSectionPart[],
   active: ReadonlyMap<string, PromptReference>,
 ): string {
   return parts
-    .map((part) =>
-      part.type === "text"
-        ? part.text
-        : (active.get(`${part.mediaKind}:${part.referenceId}`)?.tag ?? mentionFallback(part)),
-    )
+    .map((part) => {
+      if (part.type === "text") return part.text
+      if (part.type === "dialogue") return `<d>${part.text}</d>`
+      return active.get(`${part.mediaKind}:${part.referenceId}`)?.tag ?? mentionFallback(part)
+    })
     .join("")
+    .trim()
 }
 
 export function compilePromptDocument(
@@ -244,22 +251,19 @@ export function compilePromptDocument(
   const active = new Map(
     references.map((reference) => [`${reference.mediaKind}:${reference.referenceId}`, reference]),
   )
-  return document.parts
-    .map((part) => {
-      if (part.type === "text") return part.text
-      if (part.type === "dialogue") return `<d>${part.text}</d>`
-      if (part.type === "directive")
-        return `<${part.kind}>${compileInlineParts(part.parts, active)}</${part.kind}>`
-      return active.get(`${part.mediaKind}:${part.referenceId}`)?.tag ?? mentionFallback(part)
+  return document.sections
+    .map((section) => {
+      const content = compileSectionParts(section.parts, active)
+      return content ? `${section.title}:\n${content}` : `${section.title}:`
     })
-    .join("")
+    .join("\n\n")
 }
 
 function officialTagMatch(
   value: string,
   cursor: number,
 ): { raw: string; mediaKind: PromptMediaKind; ordinal: number } | undefined {
-  const match = value.slice(cursor).match(/^<\s*(picture|video|audio)\s+(\d+)\s*>/i)
+  const match = value.slice(cursor).match(/^<\s*(picture|video|audio)\s+(\d+)\s*>/iu)
   if (!match) return undefined
   const mediaKind = match[1]?.toLowerCase() === "picture" ? "image" : match[1]?.toLowerCase()
   const ordinal = Number(match[2])
@@ -272,11 +276,11 @@ function officialTagMatch(
   return { raw: match[0], mediaKind, ordinal }
 }
 
-function parseInlinePrompt(
+function parseSectionParts(
   value: string,
   references: readonly PromptReference[],
-): PromptInlinePart[] {
-  const parts: PromptInlinePart[] = []
+): PromptSectionPart[] {
+  const parts: PromptSectionPart[] = []
   const pushText = (chunk: string): void => {
     if (!chunk) return
     const previous = parts.at(-1)
@@ -286,64 +290,16 @@ function parseInlinePrompt(
   let plainStart = 0
   let cursor = 0
   while (cursor < value.length) {
+    const dialogue = value.slice(cursor).match(/^<d>([\s\S]*?)<\/d>/iu)
     const tag = officialTagMatch(value, cursor)
-    if (!tag) {
+    if (!dialogue && !tag) {
       cursor += 1
       continue
     }
     if (plainStart < cursor) pushText(value.slice(plainStart, cursor))
-    const reference = references.find(
-      (candidate) => candidate.mediaKind === tag.mediaKind && candidate.ordinal === tag.ordinal,
-    )
-    if (reference) {
-      parts.push({
-        type: "mention",
-        referenceId: reference.referenceId,
-        mediaKind: reference.mediaKind,
-        label: reference.label,
-      })
-    } else pushText(tag.raw)
-    cursor += tag.raw.length
-    plainStart = cursor
-  }
-  if (plainStart < value.length) pushText(value.slice(plainStart))
-  return parts
-}
-
-export function parseRawPrompt(
-  value: string,
-  references: readonly PromptReference[],
-  view: PromptViewMode = "raw",
-): PromptDocument {
-  const text = value.slice(0, MAX_PROMPT_TEXT_CHARACTERS)
-  const parts: PromptPart[] = []
-  const pushText = (chunk: string): void => {
-    if (!chunk) return
-    const previous = parts.at(-1)
-    if (previous?.type === "text") previous.text += chunk
-    else parts.push({ type: "text", text: chunk })
-  }
-  let plainStart = 0
-  let cursor = 0
-  while (cursor < text.length) {
-    const dialogue = text.slice(cursor).match(/^<d>([\s\S]*?)<\/d>/i)
-    const directive = text.slice(cursor).match(/^<(audio|style)>([\s\S]*?)<\/\1>/i)
-    const tag = officialTagMatch(text, cursor)
-    if (!dialogue && !directive && !tag) {
-      cursor += 1
-      continue
-    }
-    if (plainStart < cursor) pushText(text.slice(plainStart, cursor))
     if (dialogue) {
       parts.push({ type: "dialogue", text: dialogue[1] ?? "" })
       cursor += dialogue[0].length
-    } else if (directive) {
-      parts.push({
-        type: "directive",
-        kind: directive[1]?.toLowerCase() === "style" ? "style" : "audio",
-        parts: parseInlinePrompt(directive[2] ?? "", references),
-      })
-      cursor += directive[0].length
     } else if (tag) {
       const reference = references.find(
         (candidate) => candidate.mediaKind === tag.mediaKind && candidate.ordinal === tag.ordinal,
@@ -355,13 +311,55 @@ export function parseRawPrompt(
           mediaKind: reference.mediaKind,
           label: reference.label,
         })
-      } else {
-        pushText(tag.raw)
-      }
+      } else pushText(tag.raw)
       cursor += tag.raw.length
     }
     plainStart = cursor
   }
-  if (plainStart < text.length) pushText(text.slice(plainStart))
-  return { version: PROMPT_STATE_VERSION, view, parts }
+  if (plainStart < value.length) pushText(value.slice(plainStart))
+  return mergeTextParts(parts)
+}
+
+export function parseRawPrompt(
+  value: string,
+  references: readonly PromptReference[],
+  view: PromptViewMode = "raw",
+): PromptDocument {
+  const text = value.slice(0, MAX_PROMPT_TEXT_CHARACTERS)
+  const headerPattern = /^([a-z][a-z0-9_]{0,63}):[ \t]*(?:\r?\n|$)/gmu
+  const headers = Array.from(text.matchAll(headerPattern))
+  if (headers.length === 0) {
+    const content = text.trim()
+    return {
+      version: PROMPT_STATE_VERSION,
+      view,
+      sections: content ? [{ title: "scene", parts: parseSectionParts(content, references) }] : [],
+    }
+  }
+
+  const sections: PromptSection[] = []
+  const byTitle = new Map<string, PromptSection>()
+  const addSection = (title: string, content: string): void => {
+    const parts = parseSectionParts(content.trim(), references)
+    const existing = byTitle.get(title)
+    if (existing) {
+      if (existing.parts.length > 0 && parts.length > 0)
+        existing.parts.push({ type: "text", text: "\n\n" })
+      existing.parts = mergeTextParts([...existing.parts, ...parts])
+      return
+    }
+    const section = { title, parts }
+    sections.push(section)
+    byTitle.set(title, section)
+  }
+
+  const prefix = text.slice(0, headers[0]?.index ?? 0).trim()
+  if (prefix) addSection("scene", prefix)
+  headers.forEach((header, index) => {
+    const title = header[1] ?? "scene"
+    const start = (header.index ?? 0) + header[0].length
+    const end = headers[index + 1]?.index ?? text.length
+    addSection(title, text.slice(start, end))
+  })
+  return { version: PROMPT_STATE_VERSION, view, sections }
 }

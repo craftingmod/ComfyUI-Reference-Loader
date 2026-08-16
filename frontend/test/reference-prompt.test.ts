@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 
 import type { ComfyNode } from "../src/comfyui.ts"
 import { ReferencePromptController } from "../src/reference-loader/components/prompt-editor.ts"
@@ -25,7 +25,28 @@ function imageReference(overrides: Partial<PromptReference> = {}): PromptReferen
   }
 }
 
+function makeController(
+  references: PromptReference[] = [],
+  serialized?: unknown,
+): { root: HTMLElement; controller: ReferencePromptController; dirty: () => number } {
+  const root = document.createElement("div")
+  document.body.append(root)
+  let dirtyCount = 0
+  const node: ComfyNode = {
+    addDOMWidget: () => ({ name: "unused", value: null }),
+    setDirtyCanvas: () => {
+      dirtyCount += 1
+    },
+  }
+  return {
+    root,
+    controller: new ReferencePromptController(root, node, () => references, serialized),
+    dirty: () => dirtyCount,
+  }
+}
+
 function placeCaretAtEnd(element: HTMLElement): void {
+  element.focus()
   const selection = getSelection()
   const range = document.createRange()
   const last = element.lastChild
@@ -38,52 +59,106 @@ function placeCaretAtEnd(element: HTMLElement): void {
   selection?.addRange(range)
 }
 
+function inputText(element: HTMLElement, value: string): void {
+  element.textContent = value
+  placeCaretAtEnd(element)
+  element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+}
+
+function press(element: HTMLElement, key: string, options: KeyboardEventInit = {}): boolean {
+  return element.dispatchEvent(
+    new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...options }),
+  )
+}
+
+function sectionBody(root: HTMLElement, title: string): HTMLElement {
+  const body = root.querySelector<HTMLElement>(`[data-prompt-section-body="${title}"]`)
+  if (!body) throw new Error(`Missing ${title} section`)
+  return body
+}
+
+function sectionEntry(root: HTMLElement): HTMLElement {
+  const entry = root.querySelector<HTMLElement>("[data-prompt-section-entry]")
+  if (!entry) throw new Error("Missing section entry")
+  return entry
+}
+
+afterEach(() => {
+  document.body.replaceChildren()
+  getSelection()?.removeAllRanges()
+})
+
 describe("Reference Prompt state", () => {
-  test("round-trips structured parts and compiles official per-type tags", () => {
-    const document = {
+  test("round-trips title sections and compiles official per-type tags", () => {
+    const prompt = {
       ...createEmptyPromptDocument(),
-      parts: [
-        { type: "text" as const, text: "Look at " },
+      sections: [
         {
-          type: "mention" as const,
-          referenceId: "image-a",
-          mediaKind: "image" as const,
-          label: "image1",
+          title: "integrated_multimodal_description",
+          parts: [
+            { type: "text" as const, text: "Look at " },
+            {
+              type: "mention" as const,
+              referenceId: "image-a",
+              mediaKind: "image" as const,
+              label: "image1",
+            },
+            { type: "dialogue" as const, text: "안녕하세요" },
+          ],
         },
-        { type: "dialogue" as const, text: "안녕하세요" },
-        {
-          type: "directive" as const,
-          kind: "style" as const,
-          parts: [{ type: "text" as const, text: "Soft 3D" }],
-        },
+        { title: "visual_style", parts: [{ type: "text" as const, text: "Soft 3D" }] },
       ],
     }
-    const serialized = serializePromptDocument(document)
-    expect(deserializePromptDocument(serialized).document).toEqual(document)
-    expect(compilePromptDocument(document, [imageReference()])).toBe(
-      "Look at <Picture 1><d>안녕하세요</d><style>Soft 3D</style>",
+    const serialized = serializePromptDocument(prompt)
+    expect(deserializePromptDocument(serialized).document).toEqual(prompt)
+    expect(compilePromptDocument(prompt, [imageReference()])).toBe(
+      "integrated_multimodal_description:\nLook at <Picture 1><d>안녕하세요</d>\n\nvisual_style:\nSoft 3D",
     )
   })
 
-  test("parses raw audio and style tags back into structured directives", () => {
-    const document = parseRawPrompt("<audio>No music</audio><style>Soft 3D</style>", [])
-    expect(document.parts).toEqual([
+  test("parses arbitrary pseudo-YAML title tags in source order", () => {
+    const raw = [
+      "integrated_multimodal_description:",
+      "A duel begins.",
+      "",
+      "overall_soundscape:",
+      "Sword clash",
+      "",
+      "custom_h3_field:",
+      "Keep this too",
+    ].join("\n")
+    const prompt = parseRawPrompt(raw, [])
+    expect(prompt.sections).toEqual([
       {
-        type: "directive",
-        kind: "audio",
-        parts: [{ type: "text", text: "No music" }],
+        title: "integrated_multimodal_description",
+        parts: [{ type: "text", text: "A duel begins." }],
       },
-      {
-        type: "directive",
-        kind: "style",
-        parts: [{ type: "text", text: "Soft 3D" }],
-      },
+      { title: "overall_soundscape", parts: [{ type: "text", text: "Sword clash" }] },
+      { title: "custom_h3_field", parts: [{ type: "text", text: "Keep this too" }] },
+    ])
+    expect(compilePromptDocument(prompt, [])).toBe(raw)
+  })
+
+  test("merges duplicate raw titles instead of creating ambiguous sections", () => {
+    const prompt = parseRawPrompt("scene:\nFirst\n\nscene:\nSecond", [])
+    expect(prompt.sections).toEqual([
+      { title: "scene", parts: [{ type: "text", text: "First\n\nSecond" }] },
     ])
   })
 
-  test("parses raw official tags back to stable mentions and preserves unknown tags", () => {
-    const document = parseRawPrompt("Use <Picture 1> and <Video 9><d>Hello</d>", [imageReference()])
-    expect(document.parts).toEqual([
+  test("rejects the previous version without migration", () => {
+    const result = deserializePromptDocument(
+      JSON.stringify({ version: 2, parts: [{ type: "text", text: "legacy" }] }),
+    )
+    expect(result.document).toEqual(createEmptyPromptDocument())
+    expect(result.issues).toEqual(["Prompt state was invalid."])
+  })
+
+  test("parses official tags to stable mentions and preserves unknown tags", () => {
+    const prompt = parseRawPrompt("scene:\nUse <Picture 1> and <Video 9><d>Hello</d>", [
+      imageReference(),
+    ])
+    expect(prompt.sections[0]?.parts).toEqual([
       { type: "text", text: "Use " },
       {
         type: "mention",
@@ -96,256 +171,170 @@ describe("Reference Prompt state", () => {
     ])
   })
 
-  test("does not silently rebind an unavailable stable mention", () => {
-    const document = {
+  test("keeps unavailable stable mentions visible without rebinding", () => {
+    const prompt = {
       ...createEmptyPromptDocument(),
-      parts: [
+      sections: [
         {
-          type: "mention" as const,
-          referenceId: "removed",
-          mediaKind: "image" as const,
-          label: "old-image",
+          title: "scene",
+          parts: [
+            {
+              type: "mention" as const,
+              referenceId: "removed",
+              mediaKind: "image" as const,
+              label: "old-image",
+            },
+          ],
         },
       ],
     }
-    expect(compilePromptDocument(document, [imageReference()])).toBe("@old-image")
+    expect(compilePromptDocument(prompt, [imageReference()])).toBe("scene:\n@old-image")
   })
 })
 
-describe("Reference Prompt editor", () => {
-  test("opens a thumbnail picker for @ and stores a stable mention", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    let dirty = 0
-    const node: ComfyNode = {
-      addDOMWidget: () => ({ name: "unused", value: null }),
-      setDirtyCanvas: () => {
-        dirty += 1
-      },
-    }
-    let references = [imageReference()]
-    const controller = new ReferencePromptController(root, node, () => references, undefined)
-    const editor = root.querySelector<HTMLElement>("[data-prompt-editor]")
-    expect(editor).not.toBeNull()
-    editor!.textContent = "Battle @"
-    editor!.focus()
-    placeCaretAtEnd(editor!)
-    editor!.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+describe("Reference Prompt section stack", () => {
+  test("shows a virtual scene card but keeps an untouched prompt empty", () => {
+    const { root, controller } = makeController()
+    expect(sectionBody(root, "scene")).toBeTruthy()
+    expect(controller.compiledPrompt).toBe("")
+    expect(JSON.parse(controller.serialize()).sections).toEqual([])
+    controller.destroy()
+  })
 
-    const option = root.querySelector<HTMLButtonElement>("[data-prompt-reference-index='0']")
-    expect(root.querySelector("[data-prompt-picker]")?.previousElementSibling).toBe(editor!)
-    expect(option?.querySelector<HTMLImageElement>("img")?.src).toContain("/fighter.webp")
-    expect(option?.textContent).toContain("@image1")
-    expect(option?.textContent).toContain("<Picture 1>")
-    option?.click()
+  test("creates a section from a slash alias and stores its title tag", () => {
+    const { root, controller, dirty } = makeController()
+    const entry = sectionEntry(root)
+    inputText(entry, "/style")
+    expect(root.querySelectorAll("[data-prompt-alias-index]").length).toBeGreaterThan(0)
+    expect(press(entry, "Enter")).toBe(false)
+    const body = sectionBody(root, "visual_style")
+    inputText(body, "Soft 3D")
+    expect(controller.compiledPrompt).toBe("visual_style:\nSoft 3D")
+    expect(JSON.parse(controller.serialize()).sections[0].title).toBe("visual_style")
+    expect(dirty()).toBeGreaterThan(0)
+    controller.destroy()
+  })
 
-    const mention = root.querySelector<HTMLElement>(".rl-prompt-mention")
-    expect(mention?.dataset.referenceId).toBe("image-a")
-    expect(mention?.querySelector<HTMLImageElement>("img")?.src).toContain("/fighter.webp")
-    expect(controller.compiledPrompt).toBe("Battle <Picture 1>")
-    expect(JSON.parse(controller.serialize()).parts[1]).toMatchObject({
+  test("accepts a direct integrated_multimodal_description title tag", () => {
+    const { root, controller } = makeController()
+    const entry = sectionEntry(root)
+    inputText(entry, "integrated_multimodal_description:")
+    press(entry, "Enter")
+    const body = sectionBody(root, "integrated_multimodal_description")
+    inputText(body, "A character enters.")
+    expect(controller.compiledPrompt).toBe(
+      "integrated_multimodal_description:\nA character enters.",
+    )
+    controller.destroy()
+  })
+
+  test("focuses an existing title when an alias is entered twice", () => {
+    const { root, controller } = makeController()
+    inputText(sectionEntry(root), "/camera")
+    press(sectionEntry(root), "Enter")
+    const first = sectionBody(root, "camera_direction")
+    inputText(first, "Tracking shot")
+    inputText(sectionEntry(root), "/camera")
+    press(sectionEntry(root), "Enter")
+    expect(root.querySelectorAll('[data-prompt-section="camera_direction"]')).toHaveLength(1)
+    expect(document.activeElement).toBe(first)
+    expect(controller.compiledPrompt).toBe("camera_direction:\nTracking shot")
+    controller.destroy()
+  })
+
+  test("opens @ references inside every section and stores stable identity", () => {
+    const reference = imageReference()
+    const { root, controller } = makeController([reference])
+    const scene = sectionBody(root, "scene")
+    inputText(scene, "Battle @")
+    expect(root.querySelectorAll("[data-prompt-reference-index]")).toHaveLength(1)
+    press(scene, "Enter")
+    expect(controller.compiledPrompt).toBe("scene:\nBattle <Picture 1>")
+    expect(JSON.parse(controller.serialize()).sections[0].parts[1]).toMatchObject({
       type: "mention",
       referenceId: "image-a",
-      mediaKind: "image",
     })
-
-    references = [imageReference({ ordinal: 2, tag: "<Picture 2>", label: "image2" })]
-    controller.refreshReferences()
-    expect(root.querySelector(".rl-prompt-mention")?.textContent).toContain("@image2")
-    expect(controller.compiledPrompt).toBe("Battle <Picture 2>")
-    expect(dirty).toBeGreaterThan(0)
     controller.destroy()
-    root.remove()
   })
 
-  test("scrolls a long media picker with the mouse wheel", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const node: ComfyNode = {
-      addDOMWidget: () => ({ name: "unused", value: null }),
-      setDirtyCanvas: () => undefined,
-    }
-    const references = Array.from({ length: 12 }, (_, index) =>
-      imageReference({
-        referenceId: `image-${index}`,
-        itemId: `image-${index}`,
-        ordinal: index + 1,
-        tag: `<Picture ${index + 1}>`,
-        label: `image${index + 1}`,
-      }),
-    )
-    const controller = new ReferencePromptController(root, node, () => references, undefined)
-    const editor = root.querySelector<HTMLElement>("[data-prompt-editor]")!
-    editor.textContent = "@"
-    editor.focus()
-    placeCaretAtEnd(editor)
-    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
-
-    const picker = root.querySelector<HTMLElement>("[data-prompt-picker]")!
-    const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 80 })
-    picker.querySelector<HTMLElement>("[data-prompt-reference-index]")!.dispatchEvent(wheel)
-
-    expect(wheel.defaultPrevented).toBe(true)
-    expect(picker.scrollTop).toBe(80)
-    controller.destroy()
-    root.remove()
-  })
-
-  test("scrolls the media picker when keyboard selection leaves the visible range", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const node: ComfyNode = {
-      addDOMWidget: () => ({ name: "unused", value: null }),
-      setDirtyCanvas: () => undefined,
-    }
-    const references = Array.from({ length: 12 }, (_, index) =>
-      imageReference({
-        referenceId: `keyboard-image-${index}`,
-        itemId: `keyboard-image-${index}`,
-        ordinal: index + 1,
-        tag: `<Picture ${index + 1}>`,
-        label: `image${index + 1}`,
-      }),
-    )
-    const controller = new ReferencePromptController(root, node, () => references, undefined)
-    const editor = root.querySelector<HTMLElement>("[data-prompt-editor]")!
-    editor.textContent = "@"
-    editor.focus()
-    placeCaretAtEnd(editor)
-    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
-    const picker = root.querySelector<HTMLElement>("[data-prompt-picker]")!
-    Object.defineProperties(picker, {
-      clientHeight: { configurable: true, value: 100 },
-    })
-    for (const option of picker.querySelectorAll<HTMLElement>("[data-prompt-reference-index]")) {
-      const index = Number(option.dataset.promptReferenceIndex)
-      Object.defineProperties(option, {
-        offsetTop: { configurable: true, value: index * 47 },
-        offsetHeight: { configurable: true, value: 44 },
-      })
-    }
-
-    editor.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }))
-
-    expect(picker.querySelector("[aria-selected='true']")?.textContent).toContain("@image12")
-    expect(picker.scrollTop).toBeGreaterThan(0)
-    controller.destroy()
-    root.remove()
-  })
-
-  test("switches to literal raw view and parses tags back into structured parts", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const node: ComfyNode = {
-      addDOMWidget: () => ({ name: "unused", value: null }),
-      setDirtyCanvas: () => undefined,
-    }
-    const reference = imageReference()
-    let references = [reference]
+  test("keeps mention ordinals current when references reorder", () => {
+    const references = [imageReference()]
     const serialized = serializePromptDocument({
       ...createEmptyPromptDocument(),
-      parts: [
-        { type: "text", text: "Use " },
+      sections: [
         {
-          type: "mention",
-          referenceId: reference.referenceId,
-          mediaKind: reference.mediaKind,
-          label: reference.label,
+          title: "scene",
+          parts: [
+            {
+              type: "mention",
+              referenceId: "image-a",
+              mediaKind: "image",
+              label: "image1",
+            },
+          ],
         },
       ],
     })
-    const controller = new ReferencePromptController(root, node, () => references, serialized)
-    root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click()
-    const raw = root.querySelector<HTMLElement>("[data-prompt-editor]")
-    expect(raw?.classList.contains("is-raw")).toBe(true)
-    expect(raw?.textContent).toBe("Use <Picture 1>")
-
-    references = [imageReference({ ordinal: 2, tag: "<Picture 2>", label: "image2" })]
+    const { root, controller } = makeController(references, serialized)
+    references[0] = imageReference({ ordinal: 2, tag: "<Picture 2>" })
     controller.refreshReferences()
-    expect(raw?.textContent).toBe("Use <Picture 2>")
-    expect(controller.document.parts[1]).toMatchObject({ referenceId: "image-a" })
-
-    raw!.textContent = "Frame <Picture 2><d>Hello</d>"
-    raw!.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
-    root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click()
-    expect(root.querySelector(".rl-prompt-mention")?.textContent).toContain("@image2")
-    expect(root.querySelector(".rl-prompt-dialogue")?.textContent).toBe("Hello")
-    expect(controller.compiledPrompt).toBe("Frame <Picture 2><d>Hello</d>")
+    expect(controller.compiledPrompt).toBe("scene:\n<Picture 2>")
+    expect(root.querySelector(".rl-prompt-mention")?.getAttribute("title")).toContain("<Picture 2>")
     controller.destroy()
-    root.remove()
   })
 
-  test("creates a dialogue block with # and exits it with Enter", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const node: ComfyNode = {
-      addDOMWidget: () => ({ name: "unused", value: null }),
-      setDirtyCanvas: () => undefined,
-    }
-    const controller = new ReferencePromptController(root, node, () => [], undefined)
-    const editor = root.querySelector<HTMLElement>("[data-prompt-editor]")!
-    editor.focus()
-    placeCaretAtEnd(editor)
-    editor.dispatchEvent(new KeyboardEvent("keydown", { key: "#", bubbles: true }))
-    const dialogue = root.querySelector<HTMLElement>(".rl-prompt-dialogue")
-    expect(dialogue).not.toBeNull()
-    dialogue!.textContent = "Stand down"
-    placeCaretAtEnd(dialogue!)
-    dialogue!.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
-    dialogue!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
-    expect(controller.compiledPrompt).toBe("<d>Stand down</d>")
+  test("uses Shift+Enter for a newline and Enter to finish a section", () => {
+    const { root, controller } = makeController()
+    const scene = sectionBody(root, "scene")
+    inputText(scene, "Line one")
+    expect(press(scene, "Enter", { shiftKey: true })).toBe(false)
+    expect(controller.compiledPrompt).toBe("scene:\nLine one")
+    expect(press(scene, "Enter")).toBe(false)
+    expect(document.activeElement).toBe(sectionEntry(root))
     controller.destroy()
-    root.remove()
   })
 
-  test("autocompletes slash directions and stores an editable directive block", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const node: ComfyNode = {
-      addDOMWidget: () => ({ name: "unused", value: null }),
-      setDirtyCanvas: () => undefined,
-    }
-    const controller = new ReferencePromptController(
-      root,
-      node,
-      () => [imageReference()],
-      undefined,
-    )
-    const editor = root.querySelector<HTMLElement>("[data-prompt-editor]")!
-    editor.textContent = "/st"
-    editor.focus()
-    placeCaretAtEnd(editor)
-    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+  test("inserts dialogue blocks with # inside a section", () => {
+    const { root, controller } = makeController()
+    const scene = sectionBody(root, "scene")
+    placeCaretAtEnd(scene)
+    press(scene, "#")
+    const dialogue = root.querySelector<HTMLElement>('[data-prompt-part="dialogue"]')!
+    inputText(dialogue, "Stand down")
+    expect(controller.compiledPrompt).toBe("scene:\n<d>Stand down</d>")
+    controller.destroy()
+  })
 
-    const option = root.querySelector<HTMLButtonElement>("[data-prompt-directive-index='0']")
-    expect(option?.textContent).toContain("/style")
-    option?.click()
-
-    const directive = root.querySelector<HTMLElement>(".rl-prompt-directive.is-style")
-    expect(directive?.dataset.directiveLabel).toBe("/style")
-    directive!.textContent = "Use @"
-    placeCaretAtEnd(directive!)
-    directive!.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
-    const reference = root.querySelector<HTMLButtonElement>("[data-prompt-reference-index='0']")
-    expect(reference?.textContent).toContain("@image1")
-    reference?.click()
-
-    expect(directive!.querySelector(".rl-prompt-mention")?.textContent).toContain("@image1")
-    expect(controller.compiledPrompt).toBe("<style>Use <Picture 1></style>")
-    expect(JSON.parse(controller.serialize()).parts[0]).toEqual({
-      type: "directive",
-      kind: "style",
-      parts: [
-        { type: "text", text: "Use " },
-        {
-          type: "mention",
-          referenceId: "image-a",
-          mediaKind: "image",
-          label: "image1",
-        },
-      ],
+  test("round-trips arbitrary title cards through raw pseudo-YAML", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      sections: [{ title: "overall_soundscape", parts: [{ type: "text", text: "Wind" }] }],
     })
+    const { root, controller } = makeController([], serialized)
+    root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!.click()
+    const raw = root.querySelector<HTMLElement>("[data-prompt-editor]")!
+    expect(raw.textContent).toBe("overall_soundscape:\nWind")
+    inputText(raw, "overall_soundscape:\nWind and rain\n\ncustom_field:\nValue")
+    root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!.click()
+    expect(sectionBody(root, "overall_soundscape").textContent).toBe("Wind and rain")
+    expect(sectionBody(root, "custom_field").textContent).toBe("Value")
+    expect(controller.document.view).toBe("structured")
     controller.destroy()
-    root.remove()
+  })
+
+  test("removes a section card", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      sections: [{ title: "visual_style", parts: [{ type: "text", text: "Soft" }] }],
+    })
+    const { root, controller } = makeController([], serialized)
+    root
+      .querySelector<HTMLButtonElement>(
+        '[data-prompt-action="remove-section"][data-prompt-section-title="visual_style"]',
+      )!
+      .click()
+    expect(controller.compiledPrompt).toBe("")
+    expect(sectionBody(root, "scene")).toBeTruthy()
+    controller.destroy()
   })
 })

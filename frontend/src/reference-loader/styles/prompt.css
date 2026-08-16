@@ -70,6 +70,105 @@
   font-size: 11px;
 }
 
+.rl-prompt-stack {
+  display: grid;
+  min-width: 0;
+  min-height: 110px;
+  max-height: 100%;
+  align-content: start;
+  gap: 7px;
+  overflow: auto;
+  padding: 1px;
+}
+
+.rl-prompt-section {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--rl-border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--rl-panel) 88%, var(--rl-bg));
+}
+
+.rl-prompt-section:focus-within {
+  border-color: var(--rl-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-accent) 42%, transparent);
+}
+
+.rl-prompt-section__header {
+  display: flex;
+  min-height: 27px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 2px 9px;
+  border-bottom: 1px solid color-mix(in srgb, var(--rl-border) 75%, transparent);
+  background: color-mix(in srgb, var(--rl-bg) 54%, transparent);
+}
+
+.rl-prompt-section__header code {
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--rl-accent) 74%, var(--rl-text));
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rl-prompt-section__header button {
+  width: 23px;
+  height: 23px;
+  flex: none;
+  padding: 0;
+  border-color: transparent;
+  color: var(--rl-muted);
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.rl-prompt-section__header button:hover {
+  color: var(--rl-danger);
+}
+
+.rl-prompt-section__body {
+  min-height: 48px;
+  padding: 7px 9px;
+  outline: none;
+  color: var(--rl-text);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  user-select: text;
+  white-space: pre-wrap;
+}
+
+.rl-prompt-section__body:empty::before,
+.rl-prompt-section-entry:empty::before {
+  color: var(--rl-muted);
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.rl-prompt-section-entry {
+  min-height: 32px;
+  padding: 6px 9px;
+  overflow: hidden;
+  border: 1px dashed var(--rl-border);
+  border-radius: 7px;
+  outline: none;
+  color: var(--rl-text);
+  background: color-mix(in srgb, var(--rl-panel) 65%, transparent);
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.rl-prompt-section-entry:focus {
+  border-color: var(--rl-accent);
+  border-style: solid;
+}
+
 .rl-prompt-mention {
   display: inline-flex;
   max-width: min(240px, 75%);
@@ -152,44 +251,6 @@
   border-color: #e7bdff;
 }
 
-.rl-prompt-directive {
-  display: inline-block;
-  min-width: 110px;
-  min-height: 27px;
-  margin: 1px 3px;
-  padding: 3px 8px;
-  vertical-align: middle;
-  border: 1px solid var(--rl-border);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--rl-panel) 78%, var(--rl-bg));
-  white-space: pre-wrap;
-}
-
-.rl-prompt-directive::before {
-  margin-right: 7px;
-  content: attr(data-directive-label);
-  font-size: 10px;
-  font-weight: 800;
-  opacity: 0.72;
-  pointer-events: none;
-}
-
-.rl-prompt-directive.is-audio {
-  border-color: color-mix(in srgb, #57c88a 68%, var(--rl-border));
-  color: #d7f7e5;
-  background: color-mix(in srgb, #236b45 24%, var(--rl-bg));
-}
-
-.rl-prompt-directive.is-style {
-  border-color: color-mix(in srgb, #7fa8ff 68%, var(--rl-border));
-  color: #e0e9ff;
-  background: color-mix(in srgb, #31589c 24%, var(--rl-bg));
-}
-
-.rl-prompt-directive:focus-within {
-  border-color: color-mix(in srgb, currentColor 82%, #fff);
-}
-
 .rl-prompt-picker {
   position: absolute;
   z-index: 12;
@@ -248,12 +309,32 @@
   font-weight: 800;
 }
 
-.rl-prompt-directive-icon.is-audio {
+.rl-prompt-directive-icon.is-sound {
   background: #236b45;
 }
 
 .rl-prompt-directive-icon.is-style {
   background: #31589c;
+}
+
+.rl-prompt-directive-icon.is-camera {
+  background: #6c3ea5;
+}
+
+.rl-prompt-directive-icon.is-timeline {
+  background: #8a4d1f;
+}
+
+.rl-prompt-directive-icon.is-music {
+  background: #8f3562;
+}
+
+.rl-prompt-directive-icon.is-voice {
+  background: #237078;
+}
+
+.rl-prompt-directive-icon.is-avoid {
+  background: #8b3030;
 }
 
 .rl-prompt-picker button > span:last-child {

@@ -103,10 +103,25 @@ def test_compiles_stable_mentions_against_active_per_type_orders():
         "label": "audio2",
       },
       {"type": "dialogue", "text": "안녕하세요"},
+      {
+        "type": "directive",
+        "kind": "audio",
+        "parts": [
+          {"type": "text", "text": "No music for "},
+          {
+            "type": "mention",
+            "referenceId": "image-a",
+            "mediaKind": "image",
+            "label": "image1",
+          },
+        ],
+      },
+      {"type": "directive", "kind": "style", "text": "Soft 3D"},
     ],
   }
   assert compile_prompt_state(json.dumps(document), reference_state()) == (
     "A <Picture 1> watches <Video 1> with <Audio 1> and <Audio 2><d>안녕하세요</d>"
+    "<audio>No music for <Picture 1></audio><style>Soft 3D</style>"
   )
 
 
@@ -129,3 +144,7 @@ def test_accepts_literal_prompt_strings_and_rejects_invalid_structured_state():
   assert compile_prompt_state("literal text", reference_state()) == "literal text"
   with pytest.raises(PromptContractError, match="prompt.parts"):
     parse_prompt_state(json.dumps({"version": 1, "parts": "invalid"}))
+  with pytest.raises(PromptContractError, match="must be audio or style"):
+    parse_prompt_state(
+      {"version": 1, "parts": [{"type": "directive", "kind": "camera", "text": ""}]}
+    )

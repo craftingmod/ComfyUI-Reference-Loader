@@ -152,6 +152,44 @@
   border-color: #e7bdff;
 }
 
+.rl-prompt-directive {
+  display: inline-block;
+  min-width: 110px;
+  min-height: 27px;
+  margin: 1px 3px;
+  padding: 3px 8px;
+  vertical-align: middle;
+  border: 1px solid var(--rl-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--rl-panel) 78%, var(--rl-bg));
+  white-space: pre-wrap;
+}
+
+.rl-prompt-directive::before {
+  margin-right: 7px;
+  content: attr(data-directive-label);
+  font-size: 10px;
+  font-weight: 800;
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.rl-prompt-directive.is-audio {
+  border-color: color-mix(in srgb, #57c88a 68%, var(--rl-border));
+  color: #d7f7e5;
+  background: color-mix(in srgb, #236b45 24%, var(--rl-bg));
+}
+
+.rl-prompt-directive.is-style {
+  border-color: color-mix(in srgb, #7fa8ff 68%, var(--rl-border));
+  color: #e0e9ff;
+  background: color-mix(in srgb, #31589c 24%, var(--rl-bg));
+}
+
+.rl-prompt-directive:focus-within {
+  border-color: color-mix(in srgb, currentColor 82%, #fff);
+}
+
 .rl-prompt-picker {
   position: absolute;
   z-index: 12;
@@ -195,10 +233,27 @@
 }
 
 .rl-prompt-picker button > img,
-.rl-prompt-picker button > .rl-prompt-reference-icon {
+.rl-prompt-picker button > .rl-prompt-reference-icon,
+.rl-prompt-picker button > .rl-prompt-directive-icon {
   width: 40px;
   height: 40px;
   border-radius: 4px;
+}
+
+.rl-prompt-directive-icon {
+  display: inline-grid;
+  place-items: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rl-prompt-directive-icon.is-audio {
+  background: #236b45;
+}
+
+.rl-prompt-directive-icon.is-style {
+  background: #31589c;
 }
 
 .rl-prompt-picker button > span:last-child {

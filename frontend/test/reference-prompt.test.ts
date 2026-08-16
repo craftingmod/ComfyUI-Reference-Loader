@@ -51,13 +51,34 @@ describe("Reference Prompt state", () => {
           label: "image1",
         },
         { type: "dialogue" as const, text: "안녕하세요" },
+        {
+          type: "directive" as const,
+          kind: "style" as const,
+          parts: [{ type: "text" as const, text: "Soft 3D" }],
+        },
       ],
     }
     const serialized = serializePromptDocument(document)
     expect(deserializePromptDocument(serialized).document).toEqual(document)
     expect(compilePromptDocument(document, [imageReference()])).toBe(
-      "Look at <Picture 1><d>안녕하세요</d>",
+      "Look at <Picture 1><d>안녕하세요</d><style>Soft 3D</style>",
     )
+  })
+
+  test("parses raw audio and style tags back into structured directives", () => {
+    const document = parseRawPrompt("<audio>No music</audio><style>Soft 3D</style>", [])
+    expect(document.parts).toEqual([
+      {
+        type: "directive",
+        kind: "audio",
+        parts: [{ type: "text", text: "No music" }],
+      },
+      {
+        type: "directive",
+        kind: "style",
+        parts: [{ type: "text", text: "Soft 3D" }],
+      },
+    ])
   })
 
   test("parses raw official tags back to stable mentions and preserves unknown tags", () => {
@@ -273,6 +294,57 @@ describe("Reference Prompt editor", () => {
     dialogue!.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
     dialogue!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
     expect(controller.compiledPrompt).toBe("<d>Stand down</d>")
+    controller.destroy()
+    root.remove()
+  })
+
+  test("autocompletes slash directions and stores an editable directive block", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const node: ComfyNode = {
+      addDOMWidget: () => ({ name: "unused", value: null }),
+      setDirtyCanvas: () => undefined,
+    }
+    const controller = new ReferencePromptController(
+      root,
+      node,
+      () => [imageReference()],
+      undefined,
+    )
+    const editor = root.querySelector<HTMLElement>("[data-prompt-editor]")!
+    editor.textContent = "/st"
+    editor.focus()
+    placeCaretAtEnd(editor)
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+
+    const option = root.querySelector<HTMLButtonElement>("[data-prompt-directive-index='0']")
+    expect(option?.textContent).toContain("/style")
+    option?.click()
+
+    const directive = root.querySelector<HTMLElement>(".rl-prompt-directive.is-style")
+    expect(directive?.dataset.directiveLabel).toBe("/style")
+    directive!.textContent = "Use @"
+    placeCaretAtEnd(directive!)
+    directive!.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+    const reference = root.querySelector<HTMLButtonElement>("[data-prompt-reference-index='0']")
+    expect(reference?.textContent).toContain("@image1")
+    reference?.click()
+
+    expect(directive!.querySelector(".rl-prompt-mention")?.textContent).toContain("@image1")
+    expect(controller.compiledPrompt).toBe("<style>Use <Picture 1></style>")
+    expect(JSON.parse(controller.serialize()).parts[0]).toEqual({
+      type: "directive",
+      kind: "style",
+      parts: [
+        { type: "text", text: "Use " },
+        {
+          type: "mention",
+          referenceId: "image-a",
+          mediaKind: "image",
+          label: "image1",
+        },
+      ],
+    })
     controller.destroy()
     root.remove()
   })

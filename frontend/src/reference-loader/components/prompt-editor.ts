@@ -4,13 +4,37 @@ import {
   deserializePromptDocument,
   parseRawPrompt,
   serializePromptDocument,
+  type PromptDirectiveKind,
   type PromptDocument,
+  type PromptInlinePart,
   type PromptMentionPart,
   type PromptPart,
   type PromptReference,
 } from "../prompt-state.ts"
 
 type ReferenceProvider = () => readonly PromptReference[]
+
+interface DirectiveOption {
+  kind: PromptDirectiveKind
+  command: string
+  label: string
+  description: string
+}
+
+const DIRECTIVE_OPTIONS: readonly DirectiveOption[] = [
+  {
+    kind: "audio",
+    command: "audio",
+    label: "Audio",
+    description: "Music, ambience, speech, and sound effects",
+  },
+  {
+    kind: "style",
+    command: "style",
+    label: "Style",
+    description: "Visual rendering and aesthetic direction",
+  },
+]
 
 const CARET_SENTINEL = "\u200b"
 
@@ -54,6 +78,63 @@ function makeDialogueBlock(value = ""): HTMLSpanElement {
   return block
 }
 
+function makeDirectiveBlock(
+  kind: PromptDirectiveKind,
+  parts: readonly PromptInlinePart[] = [],
+  references: ReadonlyMap<string, PromptReference> = new Map(),
+): HTMLSpanElement {
+  const block = document.createElement("span")
+  block.className = `rl-prompt-directive is-${kind}`
+  block.dataset.promptPart = "directive"
+  block.dataset.directiveKind = kind
+  block.dataset.directiveLabel = `/${kind}`
+  block.spellcheck = true
+  for (const part of parts) {
+    if (part.type === "text") appendTextWithBreaks(block, part.text)
+    else
+      block.append(
+        makeMentionChip(part, references.get(referenceKey(part.mediaKind, part.referenceId))),
+      )
+  }
+  if (parts.length === 0) block.append(document.createTextNode(CARET_SENTINEL))
+  return block
+}
+
+function inlinePartsFromContainer(container: Node): PromptInlinePart[] {
+  const parts: PromptInlinePart[] = []
+  const pushText = (value: string): void => {
+    const text = value.replaceAll(CARET_SENTINEL, "")
+    if (!text) return
+    const previous = parts.at(-1)
+    if (previous?.type === "text") previous.text += text
+    else parts.push({ type: "text", text })
+  }
+  const visit = (node: Node): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      pushText(node.textContent ?? "")
+      return
+    }
+    if (!(node instanceof HTMLElement)) return
+    if (node.dataset.promptPart === "mention") {
+      const mediaKind = node.dataset.mediaKind
+      parts.push({
+        type: "mention",
+        referenceId: node.dataset.referenceId ?? "missing",
+        mediaKind: mediaKind === "video" || mediaKind === "audio" ? mediaKind : "image",
+        label: node.dataset.label ?? "reference",
+      })
+      return
+    }
+    if (node.tagName === "BR") {
+      pushText("\n")
+      return
+    }
+    for (const child of node.childNodes) visit(child)
+  }
+  for (const child of container.childNodes) visit(child)
+  return parts
+}
+
 function makeReferenceVisual(reference?: PromptReference): HTMLElement {
   if (reference?.previewUrl && reference.mediaKind !== "audio") {
     const image = document.createElement("img")
@@ -95,14 +176,26 @@ function closestDialogue(editor: HTMLElement, node: Node | null): HTMLElement | 
   return dialogue && editor.contains(dialogue) ? dialogue : undefined
 }
 
+function closestDirective(editor: HTMLElement, node: Node | null): HTMLElement | undefined {
+  const element = node instanceof HTMLElement ? node : node?.parentElement
+  const directive = element?.closest<HTMLElement>('[data-prompt-part="directive"]')
+  return directive && editor.contains(directive) ? directive : undefined
+}
+
+function closestEditableBlock(editor: HTMLElement, node: Node | null): HTMLElement | undefined {
+  return closestDialogue(editor, node) ?? closestDirective(editor, node)
+}
+
 export class ReferencePromptController {
   readonly root: HTMLElement
   #node: ComfyNode
   #references: ReferenceProvider
   #document: PromptDocument
   #destroyController = new AbortController()
-  #mentionRange: Range | undefined
+  #pickerRange: Range | undefined
+  #pickerMode: "reference" | "directive" | undefined
   #pickerReferences: PromptReference[] = []
+  #pickerDirectives: DirectiveOption[] = []
   #pickerIndex = 0
   #composing = false
   #destroyed = false
@@ -175,7 +268,7 @@ export class ReferencePromptController {
       )
       chip.replaceWith(replacement)
     }
-    if (this.#mentionRange) this.#updatePicker()
+    if (this.#pickerRange && this.#pickerMode === "reference") this.#updateReferencePicker()
     this.#setHint()
   }
 
@@ -203,7 +296,7 @@ export class ReferencePromptController {
     this.root.innerHTML = `
       <section class="rl-prompt-panel" aria-label="Reference Prompt editor">
         <header class="rl-prompt-toolbar">
-          <div><strong>Prompt</strong><small>Type @ for media · # for dialogue</small></div>
+          <div><strong>Prompt</strong><small>Type @ for media · # for dialogue · / for direction</small></div>
           <button type="button" data-prompt-action="toggle-view" aria-label="Toggle raw prompt view"></button>
         </header>
         <div class="rl-prompt-editor" data-prompt-editor contenteditable="true" role="textbox" aria-multiline="true" spellcheck="true" data-placeholder="Describe the scene. Type @ to reference media."></div>
@@ -226,7 +319,7 @@ export class ReferencePromptController {
       () => {
         this.#composing = false
         this.#syncDocumentFromEditor()
-        this.#updateMentionQuery()
+        this.#updatePickerQuery()
       },
       { signal },
     )
@@ -261,8 +354,8 @@ export class ReferencePromptController {
     editor.classList.toggle("is-raw", this.#document.view === "raw")
     editor.dataset.placeholder =
       this.#document.view === "raw"
-        ? "Literal prompt with <Picture N>, <Video N>, <Audio N>, and <d> tags."
-        : "Describe the scene. Type @ to reference media."
+        ? "Literal prompt with media, dialogue, audio, and style tags."
+        : "Describe the scene. Type @ for media, # for dialogue, or / for direction."
     editor.spellcheck = this.#document.view !== "raw"
     if (this.#document.view === "raw") {
       editor.textContent = compilePromptDocument(this.#document, this.#references())
@@ -276,6 +369,8 @@ export class ReferencePromptController {
       for (const part of this.#document.parts) {
         if (part.type === "text") appendTextWithBreaks(editor, part.text)
         else if (part.type === "dialogue") editor.append(makeDialogueBlock(part.text))
+        else if (part.type === "directive")
+          editor.append(makeDirectiveBlock(part.kind, part.parts, references))
         else
           editor.append(
             makeMentionChip(part, references.get(referenceKey(part.mediaKind, part.referenceId))),
@@ -327,6 +422,14 @@ export class ReferencePromptController {
         parts.push({ type: "dialogue", text: textContentWithBreaks(node) })
         return
       }
+      if (node.dataset.promptPart === "directive") {
+        parts.push({
+          type: "directive",
+          kind: node.dataset.directiveKind === "style" ? "style" : "audio",
+          parts: inlinePartsFromContainer(node),
+        })
+        return
+      }
       if (node.tagName === "BR") {
         pushText("\n")
         return
@@ -343,7 +446,7 @@ export class ReferencePromptController {
     if (!(event.target instanceof Node) || !this.#editor.contains(event.target)) return
     if (this.#composing) return
     this.#syncDocumentFromEditor()
-    if (this.#document.view === "structured") this.#updateMentionQuery()
+    if (this.#document.view === "structured") this.#updatePickerQuery()
     this.#node.setDirtyCanvas(true, true)
   }
 
@@ -355,9 +458,15 @@ export class ReferencePromptController {
       return
     }
     const option = target.closest<HTMLButtonElement>("[data-prompt-reference-index]")
-    if (!option) return
-    const index = Number(option.dataset.promptReferenceIndex)
-    if (Number.isInteger(index)) this.#insertMention(this.#pickerReferences[index])
+    if (option) {
+      const index = Number(option.dataset.promptReferenceIndex)
+      if (Number.isInteger(index)) this.#insertMention(this.#pickerReferences[index])
+      return
+    }
+    const directive = target.closest<HTMLButtonElement>("[data-prompt-directive-index]")
+    if (!directive) return
+    const index = Number(directive.dataset.promptDirectiveIndex)
+    if (Number.isInteger(index)) this.#insertDirective(this.#pickerDirectives[index])
   }
 
   #onPickerWheel(event: WheelEvent): void {
@@ -383,18 +492,17 @@ export class ReferencePromptController {
   #onKeydown(event: KeyboardEvent): void {
     if (!(event.target instanceof Node) || !this.#editor.contains(event.target)) return
     if (!this.#picker.hidden) {
+      const optionCount = this.#pickerOptionCount()
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault()
         const delta = event.key === "ArrowDown" ? 1 : -1
-        this.#pickerIndex =
-          (this.#pickerIndex + delta + this.#pickerReferences.length) %
-          Math.max(1, this.#pickerReferences.length)
+        this.#pickerIndex = (this.#pickerIndex + delta + optionCount) % Math.max(1, optionCount)
         this.#updatePickerSelection()
         return
       }
-      if (event.key === "Enter" && this.#pickerReferences[this.#pickerIndex]) {
+      if (event.key === "Enter" && optionCount > 0) {
         event.preventDefault()
-        this.#insertMention(this.#pickerReferences[this.#pickerIndex])
+        this.#activatePickerOption()
         return
       }
       if (event.key === "Escape") {
@@ -405,14 +513,14 @@ export class ReferencePromptController {
     }
     if (this.#document.view !== "structured") return
     const selection = globalThis.getSelection?.()
-    const dialogue = closestDialogue(
+    const block = closestEditableBlock(
       this.#editor,
       selection?.rangeCount ? selection.getRangeAt(0).startContainer : null,
     )
-    if (dialogue && event.key === "Enter") {
+    if (block && event.key === "Enter") {
       event.preventDefault()
       if (event.shiftKey) this.#insertLineBreak()
-      else this.#exitDialogue(dialogue)
+      else this.#exitBlock(block)
       this.#syncDocumentFromEditor()
       this.#node.setDirtyCanvas(true, true)
       return
@@ -474,10 +582,10 @@ export class ReferencePromptController {
     selection.addRange(range)
   }
 
-  #exitDialogue(dialogue: HTMLElement): void {
+  #exitBlock(block: HTMLElement): void {
     const selection = globalThis.getSelection?.()
     const trailing = document.createTextNode(CARET_SENTINEL)
-    dialogue.after(trailing)
+    block.after(trailing)
     const range = document.createRange()
     range.setStart(trailing, trailing.data.length)
     range.collapse(true)
@@ -485,7 +593,7 @@ export class ReferencePromptController {
     selection?.addRange(range)
   }
 
-  #updateMentionQuery(): void {
+  #updatePickerQuery(): void {
     const selection = globalThis.getSelection?.()
     if (!selection?.rangeCount || !selection.isCollapsed) {
       this.#closePicker()
@@ -502,19 +610,26 @@ export class ReferencePromptController {
       return
     }
     const before = (container.textContent ?? "").slice(0, caret.startOffset)
-    const match = before.match(/@([^\s@]*)$/u)
-    if (!match) {
+    const mentionMatch = before.match(/@([^\s@]*)$/u)
+    const directiveMatch = closestDirective(this.#editor, container)
+      ? undefined
+      : before.match(/(?:^|\s)(\/([a-z]*))$/iu)
+    if (!mentionMatch && !directiveMatch) {
       this.#closePicker()
       return
     }
     const range = document.createRange()
-    range.setStart(container, caret.startOffset - match[0].length)
+    const token = mentionMatch?.[0] ?? directiveMatch?.[1] ?? ""
+    range.setStart(container, caret.startOffset - token.length)
     range.setEnd(container, caret.startOffset)
-    this.#mentionRange = range
-    this.#updatePicker(match[1] ?? "")
+    this.#pickerRange = range
+    if (mentionMatch) this.#updateReferencePicker(mentionMatch[1] ?? "")
+    else this.#updateDirectivePicker(directiveMatch?.[2] ?? "")
   }
 
-  #updatePicker(query = ""): void {
+  #updateReferencePicker(query = ""): void {
+    this.#pickerMode = "reference"
+    this.#pickerDirectives = []
     const normalized = query.trim().toLocaleLowerCase()
     this.#pickerReferences = this.#references().filter((reference) =>
       [reference.label, reference.filename, reference.tag, reference.mediaKind].some((value) =>
@@ -525,14 +640,53 @@ export class ReferencePromptController {
     this.#renderPicker()
   }
 
+  #updateDirectivePicker(query = ""): void {
+    this.#pickerMode = "directive"
+    this.#pickerReferences = []
+    const normalized = query.trim().toLocaleLowerCase()
+    this.#pickerDirectives = DIRECTIVE_OPTIONS.filter((option) =>
+      [option.command, option.label, option.description].some((value) =>
+        value.toLocaleLowerCase().includes(normalized),
+      ),
+    )
+    this.#pickerIndex = Math.min(this.#pickerIndex, Math.max(0, this.#pickerDirectives.length - 1))
+    this.#renderPicker()
+  }
+
   #renderPicker(): void {
     const picker = this.#picker
     picker.replaceChildren()
     picker.hidden = false
-    if (this.#pickerReferences.length === 0) {
+    if (this.#pickerOptionCount() === 0) {
       const empty = document.createElement("p")
-      empty.textContent = "No active references match."
+      empty.textContent =
+        this.#pickerMode === "directive"
+          ? "No prompt directions match."
+          : "No active references match."
       picker.append(empty)
+      return
+    }
+    if (this.#pickerMode === "directive") {
+      this.#pickerDirectives.forEach((directive, index) => {
+        const button = document.createElement("button")
+        button.type = "button"
+        button.role = "option"
+        button.dataset.promptDirectiveIndex = String(index)
+        button.classList.toggle("is-active", index === this.#pickerIndex)
+        button.setAttribute("aria-selected", String(index === this.#pickerIndex))
+        const icon = document.createElement("span")
+        icon.className = `rl-prompt-directive-icon is-${directive.kind}`
+        icon.textContent = directive.kind === "audio" ? "A" : "S"
+        const copy = document.createElement("span")
+        const label = document.createElement("strong")
+        label.textContent = `/${directive.command}`
+        const detail = document.createElement("small")
+        detail.textContent = directive.description
+        copy.append(label, detail)
+        button.append(icon, copy)
+        picker.append(button)
+      })
+      this.#updatePickerSelection()
       return
     }
     this.#pickerReferences.forEach((reference, index) => {
@@ -557,9 +711,12 @@ export class ReferencePromptController {
 
   #updatePickerSelection(): void {
     for (const option of this.#picker.querySelectorAll<HTMLElement>(
-      "[data-prompt-reference-index]",
+      "[data-prompt-reference-index], [data-prompt-directive-index]",
     )) {
-      const active = Number(option.dataset.promptReferenceIndex) === this.#pickerIndex
+      const optionIndex = Number(
+        option.dataset.promptReferenceIndex ?? option.dataset.promptDirectiveIndex,
+      )
+      const active = optionIndex === this.#pickerIndex
       option.classList.toggle("is-active", active)
       option.setAttribute("aria-selected", String(active))
     }
@@ -569,7 +726,7 @@ export class ReferencePromptController {
   #scrollActivePickerOptionIntoView(): void {
     const picker = this.#picker
     const option = picker.querySelector<HTMLElement>(
-      `[data-prompt-reference-index="${this.#pickerIndex}"]`,
+      `[data-prompt-reference-index="${this.#pickerIndex}"], [data-prompt-directive-index="${this.#pickerIndex}"]`,
     )
     if (!option || picker.clientHeight <= 0) return
     const optionTop = option.offsetTop
@@ -581,7 +738,7 @@ export class ReferencePromptController {
   }
 
   #insertMention(reference: PromptReference | undefined): void {
-    if (!reference || !this.#mentionRange) return
+    if (!reference || !this.#pickerRange) return
     const selection = globalThis.getSelection?.()
     const part: PromptMentionPart = {
       type: "mention",
@@ -591,9 +748,9 @@ export class ReferencePromptController {
     }
     const chip = makeMentionChip(part, reference)
     const trailing = document.createTextNode(CARET_SENTINEL)
-    this.#mentionRange.deleteContents()
-    this.#mentionRange.insertNode(trailing)
-    this.#mentionRange.insertNode(chip)
+    this.#pickerRange.deleteContents()
+    this.#pickerRange.insertNode(trailing)
+    this.#pickerRange.insertNode(chip)
     const range = document.createRange()
     range.setStart(trailing, trailing.data.length)
     range.collapse(true)
@@ -604,9 +761,41 @@ export class ReferencePromptController {
     this.#node.setDirtyCanvas(true, true)
   }
 
+  #insertDirective(directive: DirectiveOption | undefined): void {
+    if (!directive || !this.#pickerRange) return
+    const selection = globalThis.getSelection?.()
+    const block = makeDirectiveBlock(directive.kind)
+    const trailing = document.createTextNode(CARET_SENTINEL)
+    this.#pickerRange.deleteContents()
+    this.#pickerRange.insertNode(trailing)
+    this.#pickerRange.insertNode(block)
+    const range = document.createRange()
+    range.selectNodeContents(block)
+    range.collapse(false)
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    this.#closePicker()
+    this.#syncDocumentFromEditor()
+    this.#node.setDirtyCanvas(true, true)
+  }
+
+  #pickerOptionCount(): number {
+    return this.#pickerMode === "directive"
+      ? this.#pickerDirectives.length
+      : this.#pickerReferences.length
+  }
+
+  #activatePickerOption(): void {
+    if (this.#pickerMode === "directive")
+      this.#insertDirective(this.#pickerDirectives[this.#pickerIndex])
+    else this.#insertMention(this.#pickerReferences[this.#pickerIndex])
+  }
+
   #closePicker(): void {
-    this.#mentionRange = undefined
+    this.#pickerRange = undefined
+    this.#pickerMode = undefined
     this.#pickerReferences = []
+    this.#pickerDirectives = []
     this.#pickerIndex = 0
     const picker = this.root.querySelector<HTMLElement>("[data-prompt-picker]")
     if (picker) {

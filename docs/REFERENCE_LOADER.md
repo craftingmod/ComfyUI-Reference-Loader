@@ -42,6 +42,7 @@ The extra is available on Python versions supported by `rembg` (currently Python
 The Prompt widget is placed directly after Media. Vue Nodes sizes the Media grid row as `max-content` and gives remaining height to Prompt; Legacy Canvas uses the DOM-widget min/max height contract. Both modes avoid a nested Media scrollbar and prevent spare height from becoming a gap before Prompt.
 
 5. Type `#` to create a dialogue block. Use `Shift+Enter` inside the block for a line break and `Enter` to leave it. Use **Raw** to inspect or edit the literal tags.
+   Type `/` to choose an Audio or Style direction block. `/audio` compiles to `<audio>...</audio>` and `/style` compiles to `<style>...</style>` for an upstream prompt-generation LLM.
 6. Drag from any non-control area of a card, or use the arrow buttons, to set order. The card that will exchange position is highlighted while dragging. Images, Videos, and Audio are independently ordered.
 7. Use **I**, **V**, or **A** to include or exclude a card from its matching output channel.
 8. Use an Audio card's **▶/■** button for audio auditioning, or a VIDEO card's **▶/■** button for an on-demand picture-and-sound preview of its applied range. Open **Edit** to crop/flip an image, optionally extract its foreground with `rembg`, paint an erase/restore keep mask, restore a materialized edit to its immutable original, choose transparent or solid background output, or trim and audition one audio/video item by seconds.
@@ -56,6 +57,8 @@ The Prompt editor stores media mentions by stable output ID rather than by their
 The `@` picker lists enabled Images first, Videos second, and Audio last. Image and video entries reuse the bounded proxy thumbnails already loaded for their cards; audio uses a type icon. Disabled references are not offered. If a previously mentioned reference is disabled or removed, its chip is marked unavailable and compiles to its visible `@label` rather than silently binding to a different active item.
 
 Structured dialogue blocks compile as `<d>...</d>`. **Raw** displays the actual `<Picture N>`, `<Video N>`, `<Audio N>`, and dialogue tags. Recognized raw tags are converted back to stable structured parts when returning to the structured view; unknown or out-of-range tags remain literal text.
+
+Structured Audio and Style direction blocks compile as `<audio>...</audio>` and `<style>...</style>`. Type `/` in the structured editor to filter and insert these blocks. Media `@` autocomplete remains available inside a direction block and stores the same stable reference mentions as ordinary scene text. Press `Shift+Enter` for a line break inside a block and press `Enter` to return to ordinary scene text. Raw view recognizes the paired direction tags, including nested official media tags, and restores their editable blocks.
 
 The resulting `prompt` STRING may be connected directly to a model node or passed through an LLM first. For an LLM workflow, give the LLM an instruction to preserve `<Picture N>`, `<Video N>`, `<Audio N>`, and `<d>...</d>` exactly so the final MiniMax tokenizer retains its media bindings.
 

@@ -13,6 +13,7 @@ MAX_PROMPT_STATE_CHARACTERS = 250_000
 MAX_PROMPT_TEXT_CHARACTERS = 100_000
 
 PromptMediaKind = Literal["image", "video", "audio"]
+PromptDirectiveKind = Literal["audio", "style"]
 
 
 class PromptContractError(ValueError):
@@ -21,8 +22,10 @@ class PromptContractError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class PromptPart:
-  type: Literal["text", "dialogue", "mention"]
+  type: Literal["text", "dialogue", "directive", "mention"]
   text: str = ""
+  directive_kind: PromptDirectiveKind | None = None
+  directive_parts: tuple[PromptPart, ...] = ()
   reference_id: str = ""
   media_kind: PromptMediaKind | None = None
   label: str = ""
@@ -62,18 +65,7 @@ def _text(value: Any, path: str, maximum: int) -> str:
   return value
 
 
-def _part(value: Any, index: int) -> PromptPart:
-  path = f"prompt.parts[{index}]"
-  if not isinstance(value, Mapping):
-    raise _error(path, "must be an object")
-  part_type = value.get("type")
-  if part_type in {"text", "dialogue"}:
-    return PromptPart(
-      type=part_type,
-      text=_text(value.get("text"), f"{path}.text", MAX_PROMPT_TEXT_CHARACTERS),
-    )
-  if part_type != "mention":
-    raise _error(f"{path}.type", "must be text, dialogue, or mention")
+def _mention_part(value: Mapping[str, Any], path: str) -> PromptPart:
   reference_id = _text(value.get("referenceId"), f"{path}.referenceId", 160)
   if not reference_id or any(character.isspace() for character in reference_id):
     raise _error(f"{path}.referenceId", "must be a non-empty stable reference ID")
@@ -86,6 +78,58 @@ def _part(value: Any, index: int) -> PromptPart:
     media_kind=media_kind,
     label=_text(value.get("label", ""), f"{path}.label", 255),
   )
+
+
+def _part(value: Any, index: int) -> PromptPart:
+  path = f"prompt.parts[{index}]"
+  if not isinstance(value, Mapping):
+    raise _error(path, "must be an object")
+  part_type = value.get("type")
+  if part_type in {"text", "dialogue"}:
+    return PromptPart(
+      type=part_type,
+      text=_text(value.get("text"), f"{path}.text", MAX_PROMPT_TEXT_CHARACTERS),
+    )
+  if part_type == "directive":
+    directive_kind = value.get("kind")
+    if directive_kind not in {"audio", "style"}:
+      raise _error(f"{path}.kind", "must be audio or style")
+    raw_directive_parts = value.get("parts")
+    if raw_directive_parts is None and "text" in value:
+      raw_directive_parts = [{"type": "text", "text": value.get("text")}]
+    if not isinstance(raw_directive_parts, Sequence) or isinstance(
+      raw_directive_parts, (str, bytes)
+    ):
+      raise _error(f"{path}.parts", "must be an array")
+    directive_parts: list[PromptPart] = []
+    for part_index, raw_inline_part in enumerate(raw_directive_parts):
+      inline_path = f"{path}.parts[{part_index}]"
+      if not isinstance(raw_inline_part, Mapping):
+        raise _error(inline_path, "must be an object")
+      inline_type = raw_inline_part.get("type")
+      if inline_type == "text":
+        directive_parts.append(
+          PromptPart(
+            type="text",
+            text=_text(
+              raw_inline_part.get("text"),
+              f"{inline_path}.text",
+              MAX_PROMPT_TEXT_CHARACTERS,
+            ),
+          )
+        )
+      elif inline_type == "mention":
+        directive_parts.append(_mention_part(raw_inline_part, inline_path))
+      else:
+        raise _error(f"{inline_path}.type", "must be text or mention")
+    return PromptPart(
+      type="directive",
+      directive_kind=directive_kind,
+      directive_parts=tuple(directive_parts),
+    )
+  if part_type != "mention":
+    raise _error(f"{path}.type", "must be text, dialogue, directive, or mention")
+  return _mention_part(value, path)
 
 
 def parse_prompt_state(value: str | Mapping[str, Any]) -> PromptDocument:
@@ -111,7 +155,10 @@ def parse_prompt_state(value: str | Mapping[str, Any]) -> PromptDocument:
   if not isinstance(raw_parts, Sequence) or isinstance(raw_parts, (str, bytes)):
     raise _error("prompt.parts", "must be an array")
   parts = tuple(_part(value, index) for index, value in enumerate(raw_parts))
-  text_length = sum(len(part.text) for part in parts)
+  text_length = sum(
+    len(part.text) + sum(len(inline_part.text) for inline_part in part.directive_parts)
+    for part in parts
+  )
   if text_length > MAX_PROMPT_TEXT_CHARACTERS:
     raise _error(
       "prompt.parts",
@@ -135,18 +182,29 @@ def compile_prompt(document: PromptDocument, references: ReferenceState) -> str:
     for kind, ids in ids_by_kind.items()
   }
   output: list[str] = []
+
+  def compile_part(part: PromptPart) -> str:
+    if part.type == "text":
+      return part.text
+    kind = part.media_kind or "image"
+    ordinal = ordinals[kind].get(part.reference_id)
+    if ordinal is None:
+      return f"@{part.label or part.reference_id}"
+    return f"<{tag_names[kind]} {ordinal}>"
+
   for part in document.parts:
     if part.type == "text":
       output.append(part.text)
     elif part.type == "dialogue":
       output.append(f"<d>{part.text}</d>")
+    elif part.type == "directive":
+      kind = part.directive_kind or "style"
+      content = "".join(
+        compile_part(inline_part) for inline_part in part.directive_parts
+      )
+      output.append(f"<{kind}>{content}</{kind}>")
     else:
-      kind = part.media_kind or "image"
-      ordinal = ordinals[kind].get(part.reference_id)
-      if ordinal is None:
-        output.append(f"@{part.label or part.reference_id}")
-      else:
-        output.append(f"<{tag_names[kind]} {ordinal}>")
+      output.append(compile_part(part))
   return "".join(output)
 
 

@@ -1,6 +1,6 @@
 # Reference Loader
 
-`Reference Loader` is a ComfyUI V3 node for arranging local image, audio, and video references before another node analyzes or generates from them. It owns file ingestion, independent image/video/audio ordering, raw user captions, enable state, and non-destructive edits. It emits one compact reference bundle and does not load an LLM/VLM, rewrite captions, or assemble a generation prompt.
+`Reference Loader` is a ComfyUI V3 node for arranging local image, audio, and video references before another node analyzes or generates from them. It owns file ingestion, independent image/video/audio ordering, raw user captions, enable state, non-destructive edits, and a structured reference-aware prompt. It emits one compact reference bundle and one compiled prompt STRING. It does not load an LLM/VLM or rewrite prompt text itself.
 
 Reference Loader appears under `reference / loader`, Reference Loader Raw Outputs appears under `reference / output`, and MiniMax H3 Reference to Video Wrapper appears under `reference / integration`. A minimal saved graph is available as [`Reference_Loader.json`](../workflows/Reference_Loader.json).
 
@@ -32,13 +32,25 @@ The extra is available on Python versions supported by `rembg` (currently Python
 
 1. Add **Reference Loader** from `reference / loader`.
 2. Click **Add media**, select one or more local image/audio/video files, or drop them onto the Loader.
-3. Enter captions directly on the cards. Captions remain raw strings and are not automatically inserted into any prompt.
-4. Drag from any non-control area of a card, or use the arrow buttons, to set order. The card that will exchange position is highlighted while dragging. Images, Videos, and Audio are independently ordered.
-5. Use **I**, **V**, or **A** to include or exclude a card from its matching output channel.
-6. Use an Audio card's **▶/■** button for audio auditioning, or a VIDEO card's **▶/■** button for an on-demand picture-and-sound preview of its applied range. Open **Edit** to crop/flip an image, optionally extract its foreground with `rembg`, paint an erase/restore keep mask, restore a materialized edit to its immutable original, choose transparent or solid background output, or trim and audition one audio/video item by seconds.
-7. Add **Reference Loader Raw Outputs**, connect the Loader's `references` output to it, then connect the required media and caption lists downstream. Use `manifest_json` when stable IDs or provenance are needed.
+3. Enter captions directly on the cards. Captions remain raw strings and are not automatically inserted into the prompt.
+4. In **Prompt**, type `@` to choose an active image, video, or audio reference. Image and video choices include their loaded proxy thumbnails.
+5. Type `#` to create a dialogue block. Use `Shift+Enter` inside the block for a line break and `Enter` to leave it. Use **Raw** to inspect or edit the literal tags.
+6. Drag from any non-control area of a card, or use the arrow buttons, to set order. The card that will exchange position is highlighted while dragging. Images, Videos, and Audio are independently ordered.
+7. Use **I**, **V**, or **A** to include or exclude a card from its matching output channel.
+8. Use an Audio card's **▶/■** button for audio auditioning, or a VIDEO card's **▶/■** button for an on-demand picture-and-sound preview of its applied range. Open **Edit** to crop/flip an image, optionally extract its foreground with `rembg`, paint an erase/restore keep mask, restore a materialized edit to its immutable original, choose transparent or solid background output, or trim and audition one audio/video item by seconds.
+9. Add **Reference Loader Raw Outputs**, connect the Loader's `references` output to it, then connect the required media and caption lists downstream. Use `manifest_json` when stable IDs or provenance are needed.
 
-Saving the workflow serializes versioned Loader state into the node widget. Reloading restores card order, captions, toggles, edit recipes, trim ranges, and display preferences. Undo/redo is available for board changes and inside each editor; undo history itself is session-local.
+Saving the workflow serializes versioned Loader and Prompt state into separate node widgets. Reloading restores card order, captions, toggles, edit recipes, trim ranges, display preferences, structured prompt parts, and the selected prompt view. Undo/redo is available for board changes and inside each media editor; undo history itself is session-local.
+
+## Structured prompt and media mentions
+
+The Prompt editor stores media mentions by stable output ID rather than by their displayed number. The visible chip labels (`@image1`, `@video1`, and `@audio1`) and their literal tags are recalculated from the currently enabled per-type output order. Reordering an enabled image can therefore change `<Picture 2>` to `<Picture 1>` without changing which saved media item the mention identifies.
+
+The `@` picker lists enabled Images first, Videos second, and Audio last. Image and video entries reuse the bounded proxy thumbnails already loaded for their cards; audio uses a type icon. Disabled references are not offered. If a previously mentioned reference is disabled or removed, its chip is marked unavailable and compiles to its visible `@label` rather than silently binding to a different active item.
+
+Structured dialogue blocks compile as `<d>...</d>`. **Raw** displays the actual `<Picture N>`, `<Video N>`, `<Audio N>`, and dialogue tags. Recognized raw tags are converted back to stable structured parts when returning to the structured view; unknown or out-of-range tags remain literal text.
+
+The resulting `prompt` STRING may be connected directly to a model node or passed through an LLM first. For an LLM workflow, give the LLM an instruction to preserve `<Picture N>`, `<Video N>`, `<Audio N>`, and `<d>...</d>` exactly so the final MiniMax tokenizer retains its media bindings.
 
 ## Board and editor behavior
 
@@ -66,7 +78,7 @@ Workflow restoration initializes every card's loading state before its first ren
 
 ## Output contract
 
-Reference Loader emits one `references` value with the custom type `REFERENCE_LOADER_BUNDLE`. The bundle carries all loaded media, aligned raw captions, and the payload-free manifest as one connection. **Reference Loader Raw Outputs** accepts that bundle and exposes the following standard ComfyUI values.
+Reference Loader emits `references` with the custom type `REFERENCE_LOADER_BUNDLE` and `prompt` as a standard STRING. The bundle carries all loaded media, aligned raw captions, and the payload-free manifest as one connection. **Reference Loader Raw Outputs** accepts that bundle and exposes the following standard ComfyUI values.
 
 All unpacked media and caption outputs are explicit data lists. They are not a same-resolution IMAGE batch and are never montaged or padded. IMAGE items retain their edited/original resolution in Original mode; Limited mode independently downsizes only items above `max_image_pixels`, so output dimensions may still differ.
 
@@ -224,7 +236,7 @@ Limits are validated again by the backend. Audio decoding retains only the selec
 - VIDEO preserves embedded audio while the Audio channel can emit the same soundtrack separately. This is deliberate, not automatic deduplication.
 - For standalone audio containing multiple tracks, waveform preview and AUDIO output use the first supported track. Attached cover art is not treated as a video track during upload inspection.
 - To keep metadata, proxy, derived AUDIO, and native ComfyUI VIDEO selection aligned across supported ComfyUI versions, a VIDEO source must have exactly one primary video track, no attached-picture video track, and at most one decodable audio track.
-- Card selection is single-item in this release. There are no batch edits, shared timeline, transitions, audio mixing, prompt composer, or built-in media analyzer.
+- Card selection is single-item in this release. There are no batch edits, shared timeline, transitions, audio mixing, automatic prompt rewriting, or built-in media analyzer.
 - File ingestion is from local browser files into managed ComfyUI input storage. Arbitrary server paths and remote media URLs are intentionally unsupported.
 - Automatic subject/background removal requires the optional `rembg` extra and may download/load its default model on first use. Erase/Restore remains available for manual refinement or as a dependency-free alternative.
 - There is no montage, padding, sample-rate conversion, or frame-rate conversion. IMAGE execution resizing occurs only when the explicit **Limited** output policy is enabled; explicit edits/trims and EXIF orientation normalization can also change dimensions/orientation, while preview scaling never changes execution media.

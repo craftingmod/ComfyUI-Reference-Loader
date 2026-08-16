@@ -5,6 +5,7 @@ from comfy_api.latest import ComfyExtension, io
 from .nodes import (
   MiniMaxH3ReferenceToVideoWrapperNode,
   ReferenceLoaderNode,
+  ReferenceLoaderOptionsOverrideNode,
   ReferenceLoaderRawOutputsNode,
 )
 from .reference_routes import register_reference_routes
@@ -15,6 +16,7 @@ class ReferenceLoaderExtension(ComfyExtension):
   async def get_node_list(self) -> list[type[io.ComfyNode]]:
     return [
       ReferenceLoaderNode,
+      ReferenceLoaderOptionsOverrideNode,
       ReferenceLoaderRawOutputsNode,
       MiniMaxH3ReferenceToVideoWrapperNode,
     ]
@@ -29,6 +31,7 @@ __all__ = [
   "MiniMaxH3ReferenceToVideoWrapperNode",
   "ReferenceLoaderExtension",
   "ReferenceLoaderNode",
+  "ReferenceLoaderOptionsOverrideNode",
   "ReferenceLoaderRawOutputsNode",
   "comfy_entrypoint",
 ]

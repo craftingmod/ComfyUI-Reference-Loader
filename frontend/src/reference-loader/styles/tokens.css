@@ -1,4 +1,5 @@
 .reference-loader,
+.reference-prompt,
 .rl-modal {
   --rl-bg: color-mix(in srgb, var(--comfy-menu-bg, #17191f) 94%, #000);
   --rl-panel: color-mix(in srgb, var(--comfy-input-bg, #242833) 88%, #000);
@@ -17,7 +18,8 @@
     sans-serif;
 }
 
-.reference-loader {
+.reference-loader,
+.reference-prompt {
   box-sizing: border-box;
   min-width: 360px;
   height: 100%;
@@ -32,6 +34,7 @@
 }
 
 .reference-loader *,
+.reference-prompt *,
 .rl-modal * {
   box-sizing: border-box;
 }
@@ -39,6 +42,10 @@
 .reference-loader input,
 .reference-loader textarea,
 .reference-loader select,
+.reference-prompt button,
+.reference-prompt input,
+.reference-prompt textarea,
+.reference-prompt select,
 .rl-modal button,
 .rl-modal input,
 .rl-modal textarea,
@@ -46,6 +53,7 @@
   font: inherit;
 }
 .reference-loader button,
+.reference-prompt button,
 .rl-file-button,
 .rl-modal button {
   min-height: 26px;
@@ -56,11 +64,13 @@
   cursor: pointer;
 }
 .reference-loader button:hover:not(:disabled),
+.reference-prompt button:hover:not(:disabled),
 .rl-file-button:hover,
 .rl-modal button:hover:not(:disabled) {
   border-color: var(--rl-accent);
 }
 .reference-loader button:disabled,
+.reference-prompt button:disabled,
 .rl-modal button:disabled {
   cursor: default;
   opacity: 0.42;
@@ -68,6 +78,10 @@
 .reference-loader button:focus-visible,
 .reference-loader textarea:focus-visible,
 .reference-loader input:focus-visible,
+.reference-prompt button:focus-visible,
+.reference-prompt textarea:focus-visible,
+.reference-prompt input:focus-visible,
+.reference-prompt [contenteditable="true"]:focus-visible,
 .rl-modal button:focus-visible,
 .rl-modal input:focus-visible,
 .rl-modal select:focus-visible {

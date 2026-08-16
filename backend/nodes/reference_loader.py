@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 
 from comfy_api.latest import io
 
+from ..core.prompt_contract import EMPTY_PROMPT_STATE_JSON, compile_prompt_state
 from ..core.reference_contract import (
   ReferenceContractError,
   execution_fingerprint,
@@ -47,7 +49,7 @@ class ReferenceLoaderNode(io.ComfyNode):
       description=(
         "Orders image, audio, and video references without batching, with optional "
         "downscale-only IMAGE output limiting, "
-        "and emits one bundle for Reference Loader Raw Outputs."
+        "and emits a compact bundle plus a structured reference-aware prompt."
       ),
       search_aliases=["reference", "media loader", "multi image selector"],
       inputs=[
@@ -59,6 +61,19 @@ class ReferenceLoaderNode(io.ComfyNode):
           dynamic_prompts=False,
           socketless=True,
           extra_dict={"widgetType": "REFERENCE_LOADER"},
+        ),
+        io.String.Input(
+          "prompt",
+          display_name="prompt",
+          default=EMPTY_PROMPT_STATE_JSON,
+          multiline=True,
+          dynamic_prompts=False,
+          socketless=True,
+          extra_dict={"widgetType": "REFERENCE_PROMPT"},
+          tooltip=(
+            "Structured prompt with stable media mentions. The prompt output resolves "
+            "them to <Picture N>, <Video N>, and <Audio N> tags."
+          ),
         ),
         io.Boolean.Input(
           "limit_image_pixels",
@@ -171,6 +186,10 @@ class ReferenceLoaderNode(io.ComfyNode):
             "Reference Loader Raw Outputs."
           ),
         ),
+        io.String.Output(
+          "prompt",
+          tooltip="Compiled prompt with MiniMax H3 media and dialogue tags.",
+        ),
       ],
     )
 
@@ -188,6 +207,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     card_aspect: str = "4 / 3",
     preview_fit: str = "contain",
     waveform_pairs: int = 300,
+    prompt: str = EMPTY_PROMPT_STATE_JSON,
   ) -> str:
     _ = (
       grid_columns,
@@ -205,7 +225,11 @@ class ReferenceLoaderNode(io.ComfyNode):
       composite_alpha,
       alpha_background,
     )
-    return execution_fingerprint(state, image_output=output_settings)
+    media_fingerprint = execution_fingerprint(state, image_output=output_settings)
+    compiled_prompt = compile_prompt_state(prompt, state)
+    return hashlib.sha256(
+      f"{media_fingerprint}\0{compiled_prompt}".encode()
+    ).hexdigest()
 
   @classmethod
   def execute(
@@ -221,6 +245,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     card_aspect: str = "4 / 3",
     preview_fit: str = "contain",
     waveform_pairs: int = 300,
+    prompt: str = EMPTY_PROMPT_STATE_JSON,
   ) -> io.NodeOutput:
     _ = (
       grid_columns,
@@ -238,6 +263,7 @@ class ReferenceLoaderNode(io.ComfyNode):
       alpha_background,
     )
     plan = build_reference_output_plan(state)
+    compiled_prompt = compile_prompt_state(prompt, state)
     loaded = load_reference_media(state, image_output=output_settings)
     if len(loaded.images) != len(plan.image_ids):
       raise ReferenceContractError(
@@ -266,8 +292,9 @@ class ReferenceLoaderNode(io.ComfyNode):
         videos=loaded.videos,
         video_captions=plan.video_captions,
         manifest_json=manifest_json,
-      )
+      ),
+      compiled_prompt,
     )
 
 
-__all__ = ["EMPTY_LOADER_STATE_JSON", "ReferenceLoaderNode"]
+__all__ = ["EMPTY_LOADER_STATE_JSON", "EMPTY_PROMPT_STATE_JSON", "ReferenceLoaderNode"]

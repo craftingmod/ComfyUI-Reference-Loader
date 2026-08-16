@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from .reference_contract import (
   ImageOutputSettings,
+  ReferenceContractError,
   ReferenceItem,
   ReferenceState,
   execution_projection,
+  parse_reference_state,
 )
+
+MAX_MANIFEST_CHARACTERS = 1_000_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,8 +126,94 @@ def build_reference_manifest(
   }
 
 
+def parse_reference_manifest_state(value: str | Mapping[str, Any]) -> ReferenceState:
+  """Reconstruct validated Reference Loader state from an emitted manifest."""
+
+  if isinstance(value, str):
+    if len(value) > MAX_MANIFEST_CHARACTERS:
+      raise ReferenceContractError(
+        "manifest: serialized manifest exceeds the size limit"
+      )
+    try:
+      raw = json.loads(value)
+    except (TypeError, ValueError) as exc:
+      raise ReferenceContractError("manifest: must be valid JSON") from exc
+  else:
+    raw = value
+  if not isinstance(raw, Mapping):
+    raise ReferenceContractError("manifest: must contain an object")
+
+  raw_items = raw.get("items")
+  if not isinstance(raw_items, Mapping):
+    raise ReferenceContractError("manifest.items: must contain an object")
+
+  state_items: dict[str, Any] = {}
+  original_ids: set[str] = set()
+  for order_name in ("image_order", "video_order", "audio_order"):
+    order = raw.get(order_name)
+    if not isinstance(order, list) or any(
+      not isinstance(item_id, str) for item_id in order
+    ):
+      raise ReferenceContractError(
+        f"manifest.{order_name}: must contain an array of item IDs"
+      )
+    original_ids.update(order)
+
+  for item_id in original_ids:
+    manifest_item = raw_items.get(item_id)
+    if not isinstance(manifest_item, Mapping):
+      raise ReferenceContractError(
+        f"manifest.items.{item_id}: must contain an original reference object"
+      )
+    caption = manifest_item.get("caption")
+    enabled = manifest_item.get("enabled")
+    if not isinstance(caption, Mapping):
+      raise ReferenceContractError(
+        f"manifest.items.{item_id}.caption: must contain an object"
+      )
+    if not isinstance(enabled, Mapping):
+      raise ReferenceContractError(
+        f"manifest.items.{item_id}.enabled: must contain an object"
+      )
+
+    kind = manifest_item.get("kind")
+    item: dict[str, Any] = {
+      "id": item_id,
+      "kind": kind,
+      "source": manifest_item.get("source"),
+      "caption": caption.get("text"),
+    }
+    if kind == "image":
+      item["imageEnabled"] = enabled.get("image")
+    elif kind == "audio":
+      item["audioEnabled"] = enabled.get("audio")
+    elif kind == "video":
+      item["videoEnabled"] = enabled.get("video")
+      item["audioEnabled"] = enabled.get("audio")
+    if "crop" in manifest_item:
+      item["crop"] = manifest_item["crop"]
+    if "edit" in manifest_item:
+      item["edit"] = manifest_item["edit"]
+    if "audio_caption_override" in manifest_item:
+      item["audioCaptionOverride"] = manifest_item["audio_caption_override"]
+    state_items[item_id] = item
+
+  return parse_reference_state(
+    {
+      "version": raw.get("version"),
+      "items": state_items,
+      "imageOrder": raw.get("image_order"),
+      "videoOrder": raw.get("video_order"),
+      "audioOrder": raw.get("audio_order"),
+      "videoAudioPolicy": raw.get("video_audio_policy"),
+    }
+  )
+
+
 __all__ = [
+  "MAX_MANIFEST_CHARACTERS",
   "ReferenceOutputPlan",
   "build_reference_manifest",
   "build_reference_output_plan",
+  "parse_reference_manifest_state",
 ]

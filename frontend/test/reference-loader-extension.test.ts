@@ -11,6 +11,7 @@ import type {
 import {
   registerReferenceLoader,
   REFERENCE_LOADER_WIDGET_TYPE,
+  REFERENCE_PROMPT_WIDGET_TYPE,
 } from "../src/reference-loader/extension.ts"
 import { loaderReducer } from "../src/reference-loader/reducer.ts"
 import { serializeLoaderState } from "../src/reference-loader/serialization.ts"
@@ -28,6 +29,7 @@ describe("Reference Loader custom widget", () => {
     registerReferenceLoader(app, api)
     const factory = extension?.getCustomWidgets?.()[REFERENCE_LOADER_WIDGET_TYPE]
     expect(factory).toBeDefined()
+    expect(extension?.getCustomWidgets?.()[REFERENCE_PROMPT_WIDGET_TYPE]).toBeDefined()
 
     let domOptions: DomWidgetOptions | undefined
     let valueSetCount = 0

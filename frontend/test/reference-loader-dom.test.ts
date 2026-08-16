@@ -166,6 +166,35 @@ describe("Reference Loader DOM lifecycle", () => {
     expect(
       root.querySelector('.rl-card[data-id="a1"][data-channel="audio"] .rl-output-index'),
     ).toBeNull()
+    expect(
+      controller.promptReferences.map(({ referenceId, mediaKind, tag, label }) => ({
+        referenceId,
+        mediaKind,
+        tag,
+        label,
+      })),
+    ).toEqual([
+      { referenceId: "i1", mediaKind: "image", tag: "<Picture 1>", label: "image1" },
+      { referenceId: "i3", mediaKind: "image", tag: "<Picture 2>", label: "image2" },
+      { referenceId: "v1", mediaKind: "video", tag: "<Video 1>", label: "video1" },
+      {
+        referenceId: "v1:audio",
+        mediaKind: "audio",
+        tag: "<Audio 1>",
+        label: "audio1",
+      },
+      {
+        referenceId: "v2:audio",
+        mediaKind: "audio",
+        tag: "<Audio 2>",
+        label: "audio2",
+      },
+      { referenceId: "a2", mediaKind: "audio", tag: "<Audio 3>", label: "audio3" },
+    ])
+    let referenceNotifications = 0
+    const unsubscribe = controller.subscribePromptReferences(() => {
+      referenceNotifications += 1
+    })
 
     root
       .querySelector<HTMLButtonElement>(
@@ -173,6 +202,14 @@ describe("Reference Loader DOM lifecycle", () => {
       )
       ?.click()
     expect(channelIndices("image")).toEqual(["#1", "#2", "#3"])
+    expect(controller.promptReferences[1]).toMatchObject({
+      referenceId: "i2",
+      tag: "<Picture 2>",
+      label: "image2",
+    })
+    controller.restore(serializeLoaderState(state))
+    expect(referenceNotifications).toBeGreaterThanOrEqual(3)
+    unsubscribe()
     controller.destroy()
     root.remove()
   })

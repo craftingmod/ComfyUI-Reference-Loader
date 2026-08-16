@@ -1,6 +1,6 @@
 # ComfyUI Reference Loader
 
-Reference Loader is a ComfyUI V3 custom node for uploading, arranging, and editing image, audio, and video references. It emits one compact `REFERENCE_LOADER_BUNDLE`; the companion **Reference Loader Raw Outputs** node unpacks aligned media and caption lists plus a payload-free manifest. **MiniMax H3 Reference to Video Wrapper** passes the same bundle to ComfyUI's native MiniMax H3 reference-conditioning implementation without manual list indexing.
+Reference Loader is a ComfyUI V3 custom node for uploading, arranging, and editing image, audio, and video references. It emits one compact `REFERENCE_LOADER_BUNDLE` plus a structured `prompt` STRING; the companion **Reference Loader Raw Outputs** node unpacks aligned media and caption lists plus a payload-free manifest. **MiniMax H3 Reference to Video Wrapper** passes the same bundle to ComfyUI's native MiniMax H3 reference-conditioning implementation without manual list indexing.
 
 The Loader is available under `reference / loader`, **Reference Loader Raw Outputs** is under `reference / output`, and **MiniMax H3 Reference to Video Wrapper** is under `reference / integration`. A minimal workflow is included at [`workflows/Reference_Loader.json`](workflows/Reference_Loader.json).
 
@@ -10,7 +10,9 @@ The Loader is available under `reference / loader`, **Reference Loader Raw Outpu
 - Per-image crop, flip, mask, background, optional `rembg`, and restore-original editing
 - Audio/video trim and playback; VIDEO values retain embedded audio
 - Optional per-image MPixel limiting and alpha compositing at execution
-- One compact Loader output with a dedicated Reference Loader Raw Outputs node
+- Structured prompt editor with thumbnail `@` mentions, dialogue blocks, and literal raw view
+- Stable media mentions compiled to `<Picture N>`, `<Video N>`, and `<Audio N>` tags
+- Compact reference bundle with a dedicated Reference Loader Raw Outputs node
 - Explicit IMAGE/AUDIO/VIDEO lists with index-aligned caption lists after unpacking
 - Managed, content-validated storage under `ComfyUI/input/reference_loader`
 
@@ -26,7 +28,7 @@ pip install ".[rembg]"
 
 ## Outputs
 
-**Reference Loader** emits a single `references` output of type `REFERENCE_LOADER_BUNDLE`. Connect it to **Reference Loader Raw Outputs** when standard ComfyUI values are needed.
+**Reference Loader** emits `references` as `REFERENCE_LOADER_BUNDLE` and a compiled `prompt` STRING. Connect `references` to **Reference Loader Raw Outputs** when standard ComfyUI values are needed. Connect `prompt` through an LLM and then to the MiniMax wrapper, or connect it directly. When an LLM is in the middle, instruct it to preserve `<Picture N>`, `<Video N>`, `<Audio N>`, and `<d>...</d>` exactly.
 
 Connect it to **MiniMax H3 Reference to Video Wrapper** for native MiniMax H3 reference conditioning. The Wrapper retains the native `clip`, `vae`, `audio_vae`, `prompt`, `width`, `height`, `length`, and `ref_image_size` controls and replaces the native `ref_*` Autogrow sockets with `references`. Reference videos are decoded and sampled to the 24 fps IMAGE batch expected by MiniMax H3; no separate sampling node is required.
 
@@ -62,3 +64,7 @@ Build the Registry-style package with `bun run build:custom-node`. See [testing]
 ## License
 
 MIT
+
+## Acknowledgements
+
+The structured dialogue, raw-prompt, and thumbnail mention interaction was informed by [ComfyUI-MiniMaxH3-Easy](https://github.com/nkxx188/ComfyUI-MiniMaxH3-Easy), which is also MIT licensed.

@@ -2,6 +2,7 @@ from .backend import (
   MiniMaxH3ReferenceToVideoWrapperNode,
   ReferenceLoaderExtension,
   ReferenceLoaderNode,
+  ReferenceLoaderOptionsOverrideNode,
   ReferenceLoaderRawOutputsNode,
 )
 
@@ -19,6 +20,7 @@ __all__ = [
   "MiniMaxH3ReferenceToVideoWrapperNode",
   "ReferenceLoaderExtension",
   "ReferenceLoaderNode",
+  "ReferenceLoaderOptionsOverrideNode",
   "ReferenceLoaderRawOutputsNode",
   "comfy_entrypoint",
 ]

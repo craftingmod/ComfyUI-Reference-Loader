@@ -18,4 +18,26 @@ describe("Reference Loader stylesheet", () => {
     expect(first.href).toBe("https://example.test/extensions/comfyui-reference-loader/index.css")
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })
+
+  it("aligns image and audio prompt mentions independently of their child baseline", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
+    ).text()
+    const mentionRule = css.match(/\.rl-prompt-mention\s*\{([^}]*)\}/)?.[1]
+
+    expect(mentionRule).toContain("vertical-align: middle;")
+    expect(mentionRule).not.toMatch(/vertical-align:\s*-?\d/)
+  })
+
+  it("opens the media picker above the prompt as an overlay", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
+    ).text()
+    const pickerRule = css.match(/\.rl-prompt-picker\s*\{([^}]*)\}/)?.[1]
+
+    expect(pickerRule).toContain("position: absolute;")
+    expect(pickerRule).toContain("bottom: calc(100% + 6px);")
+    expect(pickerRule).toContain("overflow: auto;")
+    expect(pickerRule).toContain("overscroll-behavior: contain;")
+  })
 })

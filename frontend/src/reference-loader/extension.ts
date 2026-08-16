@@ -8,9 +8,13 @@ import type {
 } from "../comfyui.ts"
 import { ReferenceLoaderApi } from "./api.ts"
 import { ReferenceLoaderController } from "./components/loader.ts"
+import { ReferencePromptController } from "./components/prompt-editor.ts"
 
 export const REFERENCE_LOADER_WIDGET_TYPE = "REFERENCE_LOADER"
+export const REFERENCE_PROMPT_WIDGET_TYPE = "REFERENCE_PROMPT"
 const controllers = new WeakMap<ComfyNode, ReferenceLoaderController>()
+const promptControllers = new WeakMap<ComfyNode, ReferencePromptController>()
+const promptSubscriptions = new WeakMap<ComfyNode, () => void>()
 const removalHooks = new WeakSet<ComfyNode>()
 const displayProxies = new WeakMap<ComfyNode, NativeDisplayProxy>()
 
@@ -76,32 +80,99 @@ export function registerReferenceLoader(
           widget.onRemove = () => {
             removed = true
             globalThis.clearTimeout(bindingTimer)
+            promptSubscriptions.get(node)?.()
+            promptSubscriptions.delete(node)
             displayProxy?.dispose()
             displayProxies.delete(node)
+            if (controllers.get(node) === controller) controllers.delete(node)
             controller.destroy()
             originalWidgetRemove?.call(widget)
           }
           controllers.set(node, controller)
-
-          if (!removalHooks.has(node)) {
-            removalHooks.add(node)
-            const originalRemoved = node.onRemoved
-            node.onRemoved = function (...args: unknown[]): unknown {
-              controllers.get(this)?.destroy()
-              controllers.delete(this)
-              displayProxies.get(this)?.dispose()
-              displayProxies.delete(this)
-              return originalRemoved?.apply(this, args)
-            }
-          }
+          bindPromptReferences(node)
+          installNodeRemovalHook(node)
           const [width = 560, height = 500] = node.size ?? []
           if (width < 520 || height < 460)
             node.setSize?.([Math.max(width, 560), Math.max(height, 500)])
           return { widget }
         },
+        [REFERENCE_PROMPT_WIDGET_TYPE]: (node, inputName, inputData) => {
+          promptSubscriptions.get(node)?.()
+          promptSubscriptions.delete(node)
+          promptControllers.get(node)?.destroy()
+          const root = document.createElement("div")
+          root.className = "reference-prompt"
+          root.dataset.input = inputName
+          root.addEventListener("pointerdown", (event) => event.stopPropagation())
+          root.addEventListener("wheel", (event) => event.stopPropagation())
+          const controller = new ReferencePromptController(
+            root,
+            node,
+            () => controllers.get(node)?.promptReferences ?? [],
+            initialValue(inputData),
+          )
+          let removed = false
+          const widget = node.addDOMWidget(inputName, REFERENCE_PROMPT_WIDGET_TYPE, root, {
+            serialize: true,
+            hideOnZoom: false,
+            getValue: () => controller.serialize(),
+            setValue: (value) => controller.restore(value),
+            getMinHeight: () => 180,
+            getMaxHeight: () => 480,
+          })
+          widget.serialize = true
+          widget.serializeValue = () => controller.serialize()
+          widget.beforeQueued = () => controller.serialize()
+          const originalWidgetRemove = widget.onRemove
+          widget.onRemove = () => {
+            if (removed) return
+            removed = true
+            promptSubscriptions.get(node)?.()
+            promptSubscriptions.delete(node)
+            if (promptControllers.get(node) === controller) promptControllers.delete(node)
+            controller.destroy()
+            originalWidgetRemove?.call(widget)
+          }
+          promptControllers.set(node, controller)
+          bindPromptReferences(node)
+          installNodeRemovalHook(node)
+          const [width = 560, height = 680] = node.size ?? []
+          if (width < 520 || height < 620)
+            node.setSize?.([Math.max(width, 560), Math.max(height, 680)])
+          return { widget }
+        },
       }
     },
   })
+}
+
+function bindPromptReferences(node: ComfyNode): void {
+  promptSubscriptions.get(node)?.()
+  promptSubscriptions.delete(node)
+  const loader = controllers.get(node)
+  const prompt = promptControllers.get(node)
+  if (!loader || !prompt) return
+  promptSubscriptions.set(
+    node,
+    loader.subscribePromptReferences(() => prompt.refreshReferences()),
+  )
+}
+
+function installNodeRemovalHook(node: ComfyNode): void {
+  if (removalHooks.has(node)) return
+  removalHooks.add(node)
+  const originalRemoved = node.onRemoved
+  node.onRemoved = function (...args: unknown[]): unknown {
+    promptSubscriptions.get(this)?.()
+    promptSubscriptions.delete(this)
+    promptControllers.get(this)?.destroy()
+    promptControllers.delete(this)
+    controllers.get(this)?.destroy()
+    controllers.delete(this)
+    displayProxies.get(this)?.dispose()
+    displayProxies.delete(this)
+    return originalRemoved?.apply(this, args)
+  }
 }
 
 function bindNativeDisplayProxies(
@@ -232,6 +303,12 @@ export function getReferenceLoaderController(
   node: ComfyNode,
 ): ReferenceLoaderController | undefined {
   return controllers.get(node)
+}
+
+export function getReferencePromptController(
+  node: ComfyNode,
+): ReferencePromptController | undefined {
+  return promptControllers.get(node)
 }
 
 export type ReferenceLoaderWidget = ComfyWidget

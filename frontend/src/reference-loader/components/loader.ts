@@ -12,6 +12,7 @@ import {
   undoHistory,
   type HistoryState,
 } from "../history.ts"
+import type { PromptReference } from "../prompt-state.ts"
 import { loaderReducer, type LoaderAction, type LoaderChannel } from "../reducer.ts"
 import { deserializeLoaderState, serializeLoaderState } from "../serialization.ts"
 import {
@@ -241,6 +242,7 @@ export class ReferenceLoaderController {
   #renderFrame: number | undefined
   #destroyed = false
   #changeEvents: LoaderChangeEvents
+  #referenceListeners = new Set<() => void>()
 
   constructor(
     root: HTMLElement,
@@ -275,6 +277,69 @@ export class ReferenceLoaderController {
       previewFit: this.state.ui.previewFit,
       waveformPairs: this.state.ui.waveformPeaks,
     }
+  }
+
+  get promptReferences(): PromptReference[] {
+    const references: PromptReference[] = []
+    let ordinal = 0
+    for (const id of this.state.imageOrder) {
+      const item = this.state.items[id]
+      if (!item || item.kind !== "image" || !item.imageEnabled) continue
+      ordinal += 1
+      references.push({
+        referenceId: id,
+        itemId: id,
+        mediaKind: "image",
+        ordinal,
+        tag: `<Picture ${ordinal}>`,
+        label: `image${ordinal}`,
+        filename: itemFilename(item),
+        ...(this.#runtime.get(id)?.previewUrl
+          ? { previewUrl: this.#runtime.get(id)?.previewUrl }
+          : {}),
+      })
+    }
+    ordinal = 0
+    for (const id of this.state.videoOrder) {
+      const item = this.state.items[id]
+      if (!item || item.kind !== "video" || !item.videoEnabled) continue
+      ordinal += 1
+      references.push({
+        referenceId: id,
+        itemId: id,
+        mediaKind: "video",
+        ordinal,
+        tag: `<Video ${ordinal}>`,
+        label: `video${ordinal}`,
+        filename: itemFilename(item),
+        ...(this.#runtime.get(id)?.previewUrl
+          ? { previewUrl: this.#runtime.get(id)?.previewUrl }
+          : {}),
+      })
+    }
+    ordinal = 0
+    for (const id of this.state.audioOrder) {
+      const item = this.state.items[id]
+      if (!item || !isAudioItem(item) || !item.audioEnabled) continue
+      ordinal += 1
+      references.push({
+        referenceId: item.kind === "video" ? `${id}:audio` : id,
+        itemId: id,
+        mediaKind: "audio",
+        ordinal,
+        tag: `<Audio ${ordinal}>`,
+        label: `audio${ordinal}`,
+        filename: itemFilename(item),
+      })
+    }
+    return references
+  }
+
+  subscribePromptReferences(listener: () => void): () => void {
+    if (this.#destroyed) return () => undefined
+    this.#referenceListeners.add(listener)
+    listener()
+    return () => this.#referenceListeners.delete(listener)
   }
 
   writeDisplayProxy(values: Partial<LoaderDisplayState>): void {
@@ -377,6 +442,7 @@ export class ReferenceLoaderController {
     this.#pending.clear()
     this.#runtime.clear()
     this.#runtimeSequences.clear()
+    this.#referenceListeners.clear()
     this.#dropTarget = undefined
     this.root.replaceChildren()
   }
@@ -414,6 +480,7 @@ export class ReferenceLoaderController {
       </div>`
     this.#drawWaveforms()
     this.#syncPlaybackUi()
+    for (const listener of this.#referenceListeners) listener()
   }
 
   #hydrateRestoredRuntime(force = false): void {

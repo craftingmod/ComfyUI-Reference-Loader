@@ -13,6 +13,10 @@ import {
   REFERENCE_LOADER_WIDGET_TYPE,
   REFERENCE_PROMPT_WIDGET_TYPE,
 } from "../src/reference-loader/extension.ts"
+import {
+  createEmptyPromptDocument,
+  serializePromptDocument,
+} from "../src/reference-loader/prompt-state.ts"
 import { loaderReducer } from "../src/reference-loader/reducer.ts"
 import { serializeLoaderState } from "../src/reference-loader/serialization.ts"
 import { createMediaItem, createEmptyLoaderState } from "../src/reference-loader/types.ts"
@@ -240,5 +244,79 @@ describe("Reference Loader custom widget", () => {
     expect(alphaBackground.value).toBe("#abcdef")
     loaderWidget.onRemove?.()
     expect(vueWidgetGrid.classList.contains("rl-reference-loader-widgets")).toBe(false)
+  })
+
+  test("binds the advanced prompt preset without rewriting prompt state", async () => {
+    let extension: ComfyExtension | undefined
+    const app: ComfyAppLike = {
+      registerExtension(candidate) {
+        extension = candidate
+      },
+    }
+    registerReferenceLoader(app, { fetchApi: async () => new Response("{}") })
+    const factory = extension?.getCustomWidgets?.()[REFERENCE_PROMPT_WIDGET_TYPE]
+    const originalCalls: unknown[] = []
+    const originalPresetCallback: NonNullable<ComfyWidget["callback"]> = (value) => {
+      originalCalls.push(value)
+    }
+    const customCatalog = {
+      version: 1,
+      defaultPresetId: "custom_video",
+      presets: [
+        {
+          id: "custom_video",
+          label: { en: "Custom video", ko: "사용자 비디오" },
+          description: { en: "Loaded from JSON", ko: "JSON에서 불러옴" },
+          defaultSectionTitle: "custom_direction",
+          aliases: [
+            {
+              command: "custom",
+              title: "custom_direction",
+              label: { en: "Custom", ko: "사용자" },
+              description: { en: "Custom field", ko: "사용자 필드" },
+              icon: "C",
+            },
+          ],
+        },
+      ],
+    }
+    const presetWidget: ComfyWidget = {
+      name: "prompt_schema_preset",
+      value: "custom_video",
+      callback: originalPresetCallback,
+    }
+    const promptWidget: ComfyWidget = { name: "prompt", value: "" }
+    let root: HTMLElement | undefined
+    let options: DomWidgetOptions | undefined
+    const node: ComfyNode = {
+      widgets: [promptWidget],
+      addDOMWidget(_name, _type, element, candidateOptions) {
+        root = element
+        options = candidateOptions
+        return promptWidget
+      },
+      setDirtyCanvas: () => undefined,
+    }
+    const serialized = serializePromptDocument(createEmptyPromptDocument())
+    factory?.(
+      node,
+      "prompt",
+      ["STRING", { default: serialized, promptPresets: customCatalog }],
+      app,
+    )
+    node.widgets?.push(presetWidget)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(root?.querySelector("[data-prompt-section='custom_direction']")).toBeTruthy()
+    expect(String(options?.getValue?.())).toBe(serialized)
+    presetWidget.callback?.("freeform")
+    expect(originalCalls).toEqual(["freeform"])
+    expect(presetWidget.value).toBe("custom_video")
+    expect(root?.querySelector("[data-prompt-preset]")?.textContent).toBe("Custom video")
+    expect(root?.querySelector("[data-prompt-section='custom_direction']")).toBeTruthy()
+    expect(String(options?.getValue?.())).toBe(serialized)
+
+    promptWidget.onRemove?.()
+    expect(presetWidget.callback).toBe(originalPresetCallback)
   })
 })

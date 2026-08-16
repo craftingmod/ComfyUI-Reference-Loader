@@ -1,6 +1,14 @@
 import type { ComfyNode } from "../../comfyui.ts"
+import { PROMPT_MESSAGES, detectPromptLocale, localize } from "../prompt-i18n.ts"
 import {
-  PROMPT_SECTION_ALIASES,
+  normalizePromptPresetCatalog,
+  resolvePromptPreset,
+  type PromptAlias,
+  type PromptLocale,
+  type PromptPreset,
+  type PromptPresetCatalog,
+} from "../prompt-presets.ts"
+import {
   compilePromptDocument,
   deserializePromptDocument,
   normalizePromptSectionTitle,
@@ -9,84 +17,49 @@ import {
   type PromptDocument,
   type PromptMentionPart,
   type PromptReference,
-  type PromptSectionAlias,
   type PromptSectionPart,
 } from "../prompt-state.ts"
 
 type ReferenceProvider = () => readonly PromptReference[]
 
-interface AliasOption {
-  command: PromptSectionAlias
-  title: string
-  label: string
-  description: string
-  icon: string
+export interface ReferencePromptControllerOptions {
+  presetId?: unknown
+  presetCatalog?: unknown
+  locale?: PromptLocale
 }
 
-const ALIAS_OPTIONS: readonly AliasOption[] = [
-  {
-    command: "style",
-    title: PROMPT_SECTION_ALIASES.style,
-    label: "Style",
-    description: "Visual rendering and aesthetic direction",
-    icon: "St",
-  },
-  {
-    command: "camera",
-    title: PROMPT_SECTION_ALIASES.camera,
-    label: "Camera",
-    description: "Framing, lens, movement, and transitions",
-    icon: "C",
-  },
-  {
-    command: "timeline",
-    title: PROMPT_SECTION_ALIASES.timeline,
-    label: "Timeline",
-    description: "Action order, shot timing, cuts, and continuity",
-    icon: "T",
-  },
-  {
-    command: "sound",
-    title: PROMPT_SECTION_ALIASES.sound,
-    label: "Sound",
-    description: "Ambience, Foley, effects, and non-verbal sounds",
-    icon: "S",
-  },
-  {
-    command: "music",
-    title: PROMPT_SECTION_ALIASES.music,
-    label: "Music",
-    description: "Audience-only non-diegetic background music",
-    icon: "M",
-  },
-  {
-    command: "voice",
-    title: PROMPT_SECTION_ALIASES.voice,
-    label: "Voice",
-    description: "Speaker timbre, delivery, narration, and voiceover",
-    icon: "V",
-  },
-  {
-    command: "avoid",
-    title: PROMPT_SECTION_ALIASES.avoid,
-    label: "Avoid",
-    description: "Elements and behaviors the rewrite must exclude",
-    icon: "!",
-  },
-]
+const SECTION_COLOR_PALETTE = [
+  "#6ea8fe",
+  "#8f9cf4",
+  "#aa8ee8",
+  "#c787d5",
+  "#d482b2",
+  "#dc927d",
+  "#d8aa66",
+  "#c5b96b",
+  "#6ebfd3",
+  "#64b4bc",
+  "#7ba7d7",
+  "#9b94c9",
+] as const
 
-const CARET_SENTINEL = "\u200b"
+const NATIVE_LINE_BLOCKS = new Set(["DIV", "P"])
 
-function appendTextWithBreaks(container: ParentNode, value: string): void {
-  const lines = value.split("\n")
-  lines.forEach((line, index) => {
-    if (index > 0) container.append(document.createElement("br"))
-    if (line) container.append(document.createTextNode(line))
-  })
+function sectionColor(title: string): { color: string; index: number } {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < title.length; index += 1) {
+    hash ^= title.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  const index = (hash >>> 0) % SECTION_COLOR_PALETTE.length
+  return { color: SECTION_COLOR_PALETTE[index], index }
 }
 
 function textContentWithBreaks(container: Node): string {
   let value = ""
+  const appendStructuralBreak = (): void => {
+    if (value && !value.endsWith("\n")) value += "\n"
+  }
   const visit = (node: Node): void => {
     if (node.nodeType === Node.TEXT_NODE) {
       value += node.textContent ?? ""
@@ -97,10 +70,19 @@ function textContentWithBreaks(container: Node): string {
       value += "\n"
       return
     }
-    for (const child of node.childNodes) visit(child)
+    visitChildren(node)
   }
-  for (const child of container.childNodes) visit(child)
-  return value.replaceAll(CARET_SENTINEL, "")
+  const visitChildren = (parent: Node): void => {
+    const children = Array.from(parent.childNodes)
+    children.forEach((child, index) => {
+      const block = child instanceof HTMLElement && NATIVE_LINE_BLOCKS.has(child.tagName)
+      if (block) appendStructuralBreak()
+      visit(child)
+      if (block && index < children.length - 1) appendStructuralBreak()
+    })
+  }
+  visitChildren(container)
+  return value
 }
 
 function referenceKey(mediaKind: string, referenceId: string): string {
@@ -147,19 +129,22 @@ function makeDialogueBlock(value = ""): HTMLSpanElement {
   block.className = "rl-prompt-dialogue"
   block.dataset.promptPart = "dialogue"
   block.spellcheck = false
-  appendTextWithBreaks(block, value)
-  if (!value) block.append(document.createTextNode(CARET_SENTINEL))
+  if (value) block.append(document.createTextNode(value))
   return block
 }
 
 function sectionPartsFromContainer(container: Node): PromptSectionPart[] {
   const parts: PromptSectionPart[] = []
   const pushText = (value: string): void => {
-    const text = value.replaceAll(CARET_SENTINEL, "")
-    if (!text) return
+    if (!value) return
     const previous = parts.at(-1)
-    if (previous?.type === "text") previous.text += text
-    else parts.push({ type: "text", text })
+    if (previous?.type === "text") previous.text += value
+    else parts.push({ type: "text", text: value })
+  }
+  const pushStructuralBreak = (): void => {
+    if (parts.length === 0) return
+    const previous = parts.at(-1)
+    if (previous?.type !== "text" || !previous.text.endsWith("\n")) pushText("\n")
   }
   const visit = (node: Node): void => {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -185,9 +170,18 @@ function sectionPartsFromContainer(container: Node): PromptSectionPart[] {
       pushText("\n")
       return
     }
-    for (const child of node.childNodes) visit(child)
+    visitChildren(node)
   }
-  for (const child of container.childNodes) visit(child)
+  const visitChildren = (parent: Node): void => {
+    const children = Array.from(parent.childNodes)
+    children.forEach((child, index) => {
+      const block = child instanceof HTMLElement && NATIVE_LINE_BLOCKS.has(child.tagName)
+      if (block) pushStructuralBreak()
+      visit(child)
+      if (block && index < children.length - 1) pushStructuralBreak()
+    })
+  }
+  visitChildren(container)
   return parts
 }
 
@@ -222,8 +216,11 @@ export class ReferencePromptController {
   #pickerRange: Range | undefined
   #pickerMode: "reference" | "alias" | undefined
   #pickerReferences: PromptReference[] = []
-  #pickerAliases: AliasOption[] = []
+  #pickerAliases: PromptAlias[] = []
   #pickerIndex = 0
+  #presetCatalog: PromptPresetCatalog
+  #preset: PromptPreset
+  #locale: PromptLocale
   #composing = false
   #destroyed = false
 
@@ -232,13 +229,21 @@ export class ReferencePromptController {
     node: ComfyNode,
     references: ReferenceProvider,
     serialized: unknown,
+    options: ReferencePromptControllerOptions = {},
   ) {
     this.root = root
     this.#node = node
     this.#references = references
+    this.#presetCatalog = normalizePromptPresetCatalog(options.presetCatalog)
+    this.#preset = resolvePromptPreset(options.presetId, this.#presetCatalog)
+    this.#locale = options.locale ?? detectPromptLocale()
     const parsed = deserializePromptDocument(serialized)
     this.#document = parsed.document
     this.#mount(parsed.issues.join(" "))
+  }
+
+  get presetId(): string {
+    return this.#preset.id
   }
 
   get document(): PromptDocument {
@@ -263,6 +268,16 @@ export class ReferencePromptController {
     this.#closePicker()
     this.#renderEditor()
     this.#setHint(parsed.issues.join(" "))
+  }
+
+  setPreset(value: unknown): void {
+    if (this.#destroyed) return
+    const preset = resolvePromptPreset(value, this.#presetCatalog)
+    if (preset.id === this.#preset.id) return
+    this.#syncDocumentFromEditor()
+    this.#preset = preset
+    this.#closePicker()
+    this.#renderEditor()
   }
 
   refreshReferences(): void {
@@ -320,10 +335,16 @@ export class ReferencePromptController {
 
   #mount(issue: string): void {
     this.root.innerHTML = `
-      <section class="rl-prompt-panel" aria-label="Reference Prompt editor">
+      <section class="rl-prompt-panel" data-prompt-panel>
         <header class="rl-prompt-toolbar">
-          <div><strong>Prompt</strong><small>Stack sections by title · @ media · # dialogue · / alias</small></div>
-          <button type="button" data-prompt-action="toggle-view" aria-label="Toggle raw prompt view"></button>
+          <div>
+            <span class="rl-prompt-toolbar__title">
+              <strong data-prompt-title></strong>
+              <span class="rl-prompt-preset" data-prompt-preset></span>
+            </span>
+            <small data-prompt-subtitle></small>
+          </div>
+          <button type="button" data-prompt-action="toggle-view"></button>
         </header>
         <div data-prompt-workspace></div>
         <div class="rl-prompt-picker" data-prompt-picker role="listbox" hidden></div>
@@ -378,6 +399,18 @@ export class ReferencePromptController {
   }
 
   #renderEditor(): void {
+    const panel = this.root.querySelector<HTMLElement>("[data-prompt-panel]")
+    panel?.setAttribute("aria-label", localize(PROMPT_MESSAGES.editorAria, this.#locale))
+    const title = this.root.querySelector<HTMLElement>("[data-prompt-title]")
+    if (title) title.textContent = localize(PROMPT_MESSAGES.prompt, this.#locale)
+    const subtitle = this.root.querySelector<HTMLElement>("[data-prompt-subtitle]")
+    if (subtitle) subtitle.textContent = localize(PROMPT_MESSAGES.subtitle, this.#locale)
+    const preset = this.root.querySelector<HTMLElement>("[data-prompt-preset]")
+    if (preset) {
+      const presetLabel = localize(this.#preset.label, this.#locale)
+      preset.textContent = presetLabel
+      preset.title = `${localize(PROMPT_MESSAGES.preset, this.#locale)}: ${presetLabel} · ${localize(this.#preset.description, this.#locale)}`
+    }
     const workspace = this.root.querySelector<HTMLElement>("[data-prompt-workspace]")
     if (!workspace) return
     workspace.replaceChildren()
@@ -389,7 +422,7 @@ export class ReferencePromptController {
       editor.role = "textbox"
       editor.ariaMultiLine = "true"
       editor.spellcheck = false
-      editor.dataset.placeholder = "Pseudo-YAML prompt. Every title: line becomes a section."
+      editor.dataset.placeholder = localize(PROMPT_MESSAGES.rawPlaceholder, this.#locale)
       editor.textContent = compilePromptDocument(this.#document, this.#references())
       workspace.append(editor)
     } else {
@@ -399,7 +432,7 @@ export class ReferencePromptController {
       const sections =
         this.#document.sections.length > 0
           ? this.#document.sections
-          : [{ title: "scene", parts: [] as PromptSectionPart[] }]
+          : [{ title: this.#preset.defaultSectionTitle, parts: [] as PromptSectionPart[] }]
       const references = new Map(
         this.#references().map((reference) => [
           referenceKey(reference.mediaKind, reference.referenceId),
@@ -413,16 +446,23 @@ export class ReferencePromptController {
       entry.contentEditable = "true"
       entry.role = "textbox"
       entry.spellcheck = false
-      entry.dataset.placeholder = "Add section: title_tag: or /alias"
-      entry.setAttribute("aria-label", "Add prompt section")
+      entry.dataset.placeholder = localize(PROMPT_MESSAGES.addSectionPlaceholder, this.#locale)
+      entry.setAttribute("aria-label", localize(PROMPT_MESSAGES.addSectionAria, this.#locale))
       stack.append(entry)
       workspace.append(stack)
     }
     const button = this.root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')
     if (button) {
       const raw = this.#document.view === "raw"
-      button.textContent = raw ? "@ Structured" : "</> Raw"
-      button.title = raw ? "Back to section stack" : "Show literal pseudo-YAML prompt"
+      button.textContent = localize(
+        raw ? PROMPT_MESSAGES.structured : PROMPT_MESSAGES.raw,
+        this.#locale,
+      )
+      button.title = localize(
+        raw ? PROMPT_MESSAGES.backToStructured : PROMPT_MESSAGES.showRaw,
+        this.#locale,
+      )
+      button.setAttribute("aria-label", localize(PROMPT_MESSAGES.toggleAria, this.#locale))
       button.setAttribute("aria-pressed", String(raw))
     }
     this.#setHint()
@@ -435,6 +475,9 @@ export class ReferencePromptController {
     const card = document.createElement("section")
     card.className = "rl-prompt-section"
     card.dataset.promptSection = section.title
+    const accent = sectionColor(section.title)
+    card.dataset.promptSectionColorIndex = String(accent.index)
+    card.style.setProperty("--rl-prompt-section-color", accent.color)
     const header = document.createElement("header")
     header.className = "rl-prompt-section__header"
     const title = document.createElement("code")
@@ -443,8 +486,11 @@ export class ReferencePromptController {
     remove.type = "button"
     remove.dataset.promptAction = "remove-section"
     remove.dataset.promptSectionTitle = section.title
-    remove.title = `Remove ${section.title}`
-    remove.setAttribute("aria-label", `Remove ${section.title} section`)
+    remove.title = this.#locale === "ko" ? `${section.title} 제거` : `Remove ${section.title}`
+    remove.setAttribute(
+      "aria-label",
+      this.#locale === "ko" ? `${section.title} 섹션 제거` : `Remove ${section.title} section`,
+    )
     remove.textContent = "×"
     header.append(title, remove)
     const body = document.createElement("div")
@@ -454,9 +500,9 @@ export class ReferencePromptController {
     body.role = "textbox"
     body.ariaMultiLine = "true"
     body.spellcheck = true
-    body.dataset.placeholder = "Write this section. Type @ for media or # for dialogue."
+    body.dataset.placeholder = localize(PROMPT_MESSAGES.bodyPlaceholder, this.#locale)
     for (const part of section.parts) {
-      if (part.type === "text") appendTextWithBreaks(body, part.text)
+      if (part.type === "text") body.append(document.createTextNode(part.text))
       else if (part.type === "dialogue") body.append(makeDialogueBlock(part.text))
       else
         body.append(
@@ -481,7 +527,8 @@ export class ReferencePromptController {
       const title = normalizePromptSectionTitle(body.dataset.promptSectionBody ?? "")
       if (!title) return []
       const parts = sectionPartsFromContainer(body)
-      if (title === "scene" && parts.length === 0 && this.#document.sections.length === 0) return []
+      const hasContent = parts.some((part) => part.type !== "text" || part.text.trim() !== "")
+      if (!hasContent && this.#document.sections.length === 0) return []
       return [{ title, parts }]
     })
     this.#document = { ...this.#document, sections }
@@ -557,20 +604,8 @@ export class ReferencePromptController {
       }
       return
     }
-    const selection = globalThis.getSelection?.()
-    const start = selection?.rangeCount ? selection.getRangeAt(0).startContainer : null
-    const body = closestSectionBody(this.root, start)
+    const body = closestSectionBody(this.root, event.target)
     if (!body) return
-    const dialogue = closestDialogue(body, start)
-    if (event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
-      event.preventDefault()
-      if (event.shiftKey) this.#insertLineBreak()
-      else if (dialogue) this.#exitDialogue(dialogue, body)
-      else this.#entry?.focus()
-      this.#syncDocumentFromEditor()
-      this.#node.setDirtyCanvas(true, true)
-      return
-    }
     if (
       event.key === "#" &&
       !event.ctrlKey &&
@@ -601,11 +636,11 @@ export class ReferencePromptController {
     if (!entry) return
     const value = textContentWithBreaks(entry).trim()
     const alias = value.match(/^\/([a-z]+)$/iu)?.[1]?.toLocaleLowerCase()
-    const aliasTitle = ALIAS_OPTIONS.find((option) => option.command === alias)?.title
+    const aliasTitle = this.#preset.aliases.find((option) => option.command === alias)?.title
     const title =
       aliasTitle ?? (value.endsWith(":") ? normalizePromptSectionTitle(value) : undefined)
     if (!title) {
-      this.#setHint("Use a lowercase title_tag: or choose a /alias.")
+      this.#setHint(localize(PROMPT_MESSAGES.invalidTitle, this.#locale))
       return
     }
     this.#addOrFocusSection(title)
@@ -643,42 +678,13 @@ export class ReferencePromptController {
   #insertDialogue(body: HTMLElement): void {
     const selection = globalThis.getSelection?.()
     const block = makeDialogueBlock()
-    const trailing = document.createTextNode(CARET_SENTINEL)
-    if (!selection?.rangeCount || !body.contains(selection.anchorNode)) body.append(block, trailing)
+    if (!selection?.rangeCount || !body.contains(selection.anchorNode)) body.append(block)
     else {
       const range = selection.getRangeAt(0)
       range.deleteContents()
-      range.insertNode(trailing)
       range.insertNode(block)
     }
     placeCaretAtEnd(block)
-  }
-
-  #insertLineBreak(): void {
-    const selection = globalThis.getSelection?.()
-    if (!selection?.rangeCount) return
-    const range = selection.getRangeAt(0)
-    const br = document.createElement("br")
-    const anchor = document.createTextNode(CARET_SENTINEL)
-    range.deleteContents()
-    range.insertNode(br)
-    br.after(anchor)
-    range.setStart(anchor, anchor.data.length)
-    range.collapse(true)
-    selection.removeAllRanges()
-    selection.addRange(range)
-  }
-
-  #exitDialogue(dialogue: HTMLElement, body: HTMLElement): void {
-    const anchor = document.createTextNode(CARET_SENTINEL)
-    dialogue.after(anchor)
-    const selection = globalThis.getSelection?.()
-    const range = document.createRange()
-    range.setStart(anchor, anchor.data.length)
-    range.collapse(true)
-    selection?.removeAllRanges()
-    selection?.addRange(range)
-    body.focus()
   }
 
   #updatePickerQuery(): void {
@@ -737,10 +743,13 @@ export class ReferencePromptController {
     this.#pickerRange = undefined
     this.#pickerReferences = []
     const normalized = query.trim().toLocaleLowerCase()
-    this.#pickerAliases = ALIAS_OPTIONS.filter((option) =>
-      [option.command, option.title, option.label, option.description].some((value) =>
-        value.toLocaleLowerCase().includes(normalized),
-      ),
+    this.#pickerAliases = this.#preset.aliases.filter((option) =>
+      [
+        option.command,
+        option.title,
+        localize(option.label, this.#locale),
+        localize(option.description, this.#locale),
+      ].some((value) => value.toLocaleLowerCase().includes(normalized)),
     )
     this.#pickerIndex = Math.min(this.#pickerIndex, Math.max(0, this.#pickerAliases.length - 1))
     this.#renderPicker()
@@ -753,7 +762,9 @@ export class ReferencePromptController {
     if (this.#pickerOptionCount() === 0) {
       const empty = document.createElement("p")
       empty.textContent =
-        this.#pickerMode === "alias" ? "No aliases match." : "No references match."
+        this.#pickerMode === "alias"
+          ? localize(PROMPT_MESSAGES.noAliases, this.#locale)
+          : localize(PROMPT_MESSAGES.noReferences, this.#locale)
       picker.append(empty)
       return
     }
@@ -767,11 +778,12 @@ export class ReferencePromptController {
         const icon = document.createElement("span")
         icon.className = `rl-prompt-directive-icon is-${option.command}`
         icon.textContent = option.icon
+        icon.style.background = sectionColor(option.title).color
         const copy = document.createElement("span")
         const label = document.createElement("strong")
         label.textContent = `/${option.command} → ${option.title}:`
         const detail = document.createElement("small")
-        detail.textContent = option.description
+        detail.textContent = `${localize(option.label, this.#locale)} · ${localize(option.description, this.#locale)}`
         copy.append(label, detail)
         button.append(icon, copy)
         picker.append(button)
@@ -822,12 +834,10 @@ export class ReferencePromptController {
       },
       reference,
     )
-    const trailing = document.createTextNode(CARET_SENTINEL)
     this.#pickerRange.deleteContents()
-    this.#pickerRange.insertNode(trailing)
     this.#pickerRange.insertNode(chip)
     const range = document.createRange()
-    range.setStart(trailing, trailing.data.length)
+    range.setStartAfter(chip)
     range.collapse(true)
     selection?.removeAllRanges()
     selection?.addRange(range)
@@ -836,7 +846,7 @@ export class ReferencePromptController {
     this.#node.setDirtyCanvas(true, true)
   }
 
-  #insertAlias(alias: AliasOption | undefined): void {
+  #insertAlias(alias: PromptAlias | undefined): void {
     if (alias) this.#addOrFocusSection(alias.title)
   }
 

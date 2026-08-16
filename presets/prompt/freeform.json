@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "order": 40,
+  "default": false,
+  "id": "freeform",
+  "label": { "en": "Freeform", "ko": "자유 형식" },
+  "description": {
+    "en": "No slash aliases; add any valid title_tag: section directly.",
+    "ko": "슬래시 alias 없이 유효한 title_tag: 섹션을 직접 추가합니다."
+  },
+  "defaultSectionTitle": "scene",
+  "aliases": []
+}

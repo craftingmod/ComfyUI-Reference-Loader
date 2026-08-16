@@ -6,18 +6,6 @@ export const MAX_PROMPT_SECTION_TITLE_CHARACTERS = 64
 export type PromptMediaKind = "image" | "video" | "audio"
 export type PromptViewMode = "structured" | "raw"
 
-export const PROMPT_SECTION_ALIASES = {
-  style: "visual_style",
-  camera: "camera_direction",
-  timeline: "timeline_direction",
-  sound: "sound_effects_and_ambience",
-  music: "non_diegetic_music",
-  voice: "voice_direction",
-  avoid: "negative_constraints",
-} as const
-
-export type PromptSectionAlias = keyof typeof PROMPT_SECTION_ALIASES
-
 export interface PromptTextPart {
   type: "text"
   text: string

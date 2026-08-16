@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test"
 
 import type { ComfyNode } from "../src/comfyui.ts"
-import { ReferencePromptController } from "../src/reference-loader/components/prompt-editor.ts"
+import {
+  ReferencePromptController,
+  type ReferencePromptControllerOptions,
+} from "../src/reference-loader/components/prompt-editor.ts"
 import {
   compilePromptDocument,
   createEmptyPromptDocument,
@@ -28,6 +31,7 @@ function imageReference(overrides: Partial<PromptReference> = {}): PromptReferen
 function makeController(
   references: PromptReference[] = [],
   serialized?: unknown,
+  options: ReferencePromptControllerOptions = {},
 ): { root: HTMLElement; controller: ReferencePromptController; dirty: () => number } {
   const root = document.createElement("div")
   document.body.append(root)
@@ -40,7 +44,7 @@ function makeController(
   }
   return {
     root,
-    controller: new ReferencePromptController(root, node, () => references, serialized),
+    controller: new ReferencePromptController(root, node, () => references, serialized, options),
     dirty: () => dirtyCount,
   }
 }
@@ -85,6 +89,7 @@ function sectionEntry(root: HTMLElement): HTMLElement {
 
 afterEach(() => {
   document.body.replaceChildren()
+  document.documentElement.removeAttribute("lang")
   getSelection()?.removeAllRanges()
 })
 
@@ -195,9 +200,39 @@ describe("Reference Prompt state", () => {
 describe("Reference Prompt section stack", () => {
   test("shows a virtual scene card but keeps an untouched prompt empty", () => {
     const { root, controller } = makeController()
-    expect(sectionBody(root, "scene")).toBeTruthy()
+    const scene = sectionBody(root, "scene")
+    expect(scene).toBeTruthy()
+    const nativeEmptyLine = document.createElement("div")
+    nativeEmptyLine.append(document.createElement("br"))
+    scene.replaceChildren(nativeEmptyLine)
+    scene.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertParagraph" }))
     expect(controller.compiledPrompt).toBe("")
     expect(JSON.parse(controller.serialize()).sections).toEqual([])
+    controller.destroy()
+  })
+
+  test("derives stable preset colors from section titles without serializing them", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      sections: [
+        { title: "scene", parts: [] },
+        { title: "camera_direction", parts: [] },
+        { title: "timeline_direction", parts: [] },
+      ],
+    })
+    const { root, controller } = makeController([], serialized)
+    const scene = root.querySelector<HTMLElement>('[data-prompt-section="scene"]')!
+    const camera = root.querySelector<HTMLElement>('[data-prompt-section="camera_direction"]')!
+    const timeline = root.querySelector<HTMLElement>('[data-prompt-section="timeline_direction"]')!
+
+    expect(scene.dataset.promptSectionColorIndex).toBe("11")
+    expect(scene.style.getPropertyValue("--rl-prompt-section-color")).toBe("#9b94c9")
+    expect(camera.dataset.promptSectionColorIndex).toBe("8")
+    expect(camera.style.getPropertyValue("--rl-prompt-section-color")).toBe("#6ebfd3")
+    expect(timeline.dataset.promptSectionColorIndex).toBe("4")
+    expect(timeline.style.getPropertyValue("--rl-prompt-section-color")).toBe("#d482b2")
+    expect(controller.serialize()).toBe(serialized)
+    expect(controller.serialize()).not.toContain("color")
     controller.destroy()
   })
 
@@ -212,6 +247,60 @@ describe("Reference Prompt section stack", () => {
     expect(controller.compiledPrompt).toBe("visual_style:\nSoft 3D")
     expect(JSON.parse(controller.serialize()).sections[0].title).toBe("visual_style")
     expect(dirty()).toBeGreaterThan(0)
+    controller.destroy()
+  })
+
+  test("uses the selected H3 base default and slash aliases", () => {
+    const { root, controller } = makeController([], undefined, {
+      presetId: "minimax_h3_base",
+    })
+    expect(sectionBody(root, "integrated_multimodal_description")).toBeTruthy()
+    expect(controller.compiledPrompt).toBe("")
+    inputText(sectionEntry(root), "/sound")
+    press(sectionEntry(root), "Enter")
+    inputText(sectionBody(root, "overall_soundscape"), "Steel clashes")
+    expect(controller.compiledPrompt).toBe("overall_soundscape:\nSteel clashes")
+    expect(root.querySelector("[data-prompt-preset]")?.textContent).toBe("MiniMax H3 Base")
+    controller.destroy()
+  })
+
+  test("switches preset policy without transforming existing sections", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      sections: [{ title: "scene", parts: [{ type: "text", text: "Keep me" }] }],
+    })
+    const { root, controller } = makeController([], serialized)
+    controller.setPreset("minimax_h3_reference")
+    expect(sectionBody(root, "scene").textContent).toBe("Keep me")
+    expect(controller.compiledPrompt).toBe("scene:\nKeep me")
+    inputText(sectionEntry(root), "/retention")
+    press(sectionEntry(root), "Enter")
+    expect(sectionBody(root, "retention_analysis")).toBeTruthy()
+    controller.destroy()
+  })
+
+  test("keeps direct title tags available in the alias-free preset", () => {
+    const { root, controller } = makeController([], undefined, { presetId: "freeform" })
+    inputText(sectionEntry(root), "/")
+    expect(root.querySelectorAll("[data-prompt-alias-index]")).toHaveLength(0)
+    expect(root.querySelector("[data-prompt-picker]")?.textContent).toContain("No aliases")
+    inputText(sectionEntry(root), "custom_direction:")
+    press(sectionEntry(root), "Enter")
+    expect(sectionBody(root, "custom_direction")).toBeTruthy()
+    controller.destroy()
+  })
+
+  test("localizes visible editor copy while preserving prompt identifiers", () => {
+    const { root, controller } = makeController([], undefined, {
+      presetId: "minimax_h3_base",
+      locale: "ko",
+    })
+    expect(root.querySelector("[data-prompt-title]")?.textContent).toBe("프롬프트")
+    expect(root.querySelector("[data-prompt-preset]")?.textContent).toBe("MiniMax H3 기본")
+    expect(sectionEntry(root).dataset.placeholder).toContain("섹션 추가")
+    inputText(sectionEntry(root), "/sound")
+    expect(root.querySelector("[data-prompt-picker]")?.textContent).toContain("전체 사운드")
+    expect(sectionBody(root, "integrated_multimodal_description")).toBeTruthy()
     controller.destroy()
   })
 
@@ -283,14 +372,47 @@ describe("Reference Prompt section stack", () => {
     controller.destroy()
   })
 
-  test("uses Shift+Enter for a newline and Enter to finish a section", () => {
+  test("leaves Enter and Shift+Enter to the native section editor", () => {
     const { root, controller } = makeController()
     const scene = sectionBody(root, "scene")
     inputText(scene, "Line one")
-    expect(press(scene, "Enter", { shiftKey: true })).toBe(false)
-    expect(controller.compiledPrompt).toBe("scene:\nLine one")
-    expect(press(scene, "Enter")).toBe(false)
-    expect(document.activeElement).toBe(sectionEntry(root))
+    expect(press(scene, "Enter")).toBe(true)
+    expect(press(scene, "Enter", { shiftKey: true })).toBe(true)
+    expect(document.activeElement).toBe(scene)
+    controller.destroy()
+  })
+
+  test("serializes native contenteditable div, paragraph, br, and blank lines", () => {
+    const { root, controller } = makeController()
+    const scene = sectionBody(root, "scene")
+    const first = document.createTextNode("Line one")
+    const second = document.createElement("div")
+    second.textContent = "Line two"
+    const blank = document.createElement("p")
+    blank.append(document.createElement("br"))
+    const fourth = document.createElement("div")
+    fourth.textContent = "Line four"
+    scene.replaceChildren(first, second, blank, fourth)
+    scene.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertParagraph" }))
+
+    expect(controller.compiledPrompt).toBe("scene:\nLine one\nLine two\n\nLine four")
+    controller.destroy()
+  })
+
+  test("serializes native multiline blocks in Raw view", () => {
+    const { root, controller } = makeController()
+    root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!.click()
+    const raw = root.querySelector<HTMLElement>("[data-prompt-editor]")!
+    const title = document.createElement("div")
+    title.textContent = "scene:"
+    const first = document.createElement("div")
+    first.textContent = "Line one"
+    const second = document.createElement("div")
+    second.textContent = "Line two"
+    raw.replaceChildren(title, first, second)
+    raw.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertParagraph" }))
+
+    expect(controller.compiledPrompt).toBe("scene:\nLine one\nLine two")
     controller.destroy()
   })
 
@@ -301,6 +423,7 @@ describe("Reference Prompt section stack", () => {
     press(scene, "#")
     const dialogue = root.querySelector<HTMLElement>('[data-prompt-part="dialogue"]')!
     inputText(dialogue, "Stand down")
+    expect(press(dialogue, "Enter")).toBe(true)
     expect(controller.compiledPrompt).toBe("scene:\n<d>Stand down</d>")
     controller.destroy()
   })

@@ -11,6 +11,8 @@
 !/backend/**
 !/dist/
 !/dist/**
+!/presets/
+!/presets/**
 
 # Distribution metadata
 !/LICENSE

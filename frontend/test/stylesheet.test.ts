@@ -47,10 +47,14 @@ describe("Reference Loader stylesheet", () => {
     ).text()
     const stackRule = css.match(/\.rl-prompt-stack\s*\{([^}]*)\}/)?.[1]
     const sectionRule = css.match(/\.rl-prompt-section\s*\{([^}]*)\}/)?.[1]
+    const headerRule = css.match(/\.rl-prompt-section__header\s*\{([^}]*)\}/)?.[1]
     const bodyRule = css.match(/\.rl-prompt-section__body\s*\{([^}]*)\}/)?.[1]
 
     expect(stackRule).toContain("display: grid;")
     expect(sectionRule).toContain("overflow: hidden;")
+    expect(sectionRule).toContain("--rl-prompt-section-color: var(--rl-accent);")
+    expect(sectionRule).toContain("var(--rl-prompt-section-color) 32%")
+    expect(headerRule).toContain("var(--rl-prompt-section-color) 10%")
     expect(bodyRule).toContain("white-space: pre-wrap;")
   })
 

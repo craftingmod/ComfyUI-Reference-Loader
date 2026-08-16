@@ -15,12 +15,17 @@ export const REFERENCE_PROMPT_WIDGET_TYPE = "REFERENCE_PROMPT"
 const controllers = new WeakMap<ComfyNode, ReferenceLoaderController>()
 const promptControllers = new WeakMap<ComfyNode, ReferencePromptController>()
 const promptSubscriptions = new WeakMap<ComfyNode, () => void>()
+const promptPresetBindings = new WeakMap<ComfyNode, PromptPresetBinding>()
 const removalHooks = new WeakSet<ComfyNode>()
 const displayProxies = new WeakMap<ComfyNode, NativeDisplayProxy>()
 const VUE_WIDGET_GRID_CLASS = "rl-reference-loader-widgets"
 
 interface NativeDisplayProxy {
   syncFromState(): void
+  dispose(): void
+}
+
+interface PromptPresetBinding {
   dispose(): void
 }
 
@@ -110,6 +115,8 @@ export function registerReferenceLoader(
         [REFERENCE_PROMPT_WIDGET_TYPE]: (node, inputName, inputData) => {
           promptSubscriptions.get(node)?.()
           promptSubscriptions.delete(node)
+          promptPresetBindings.get(node)?.dispose()
+          promptPresetBindings.delete(node)
           promptControllers.get(node)?.destroy()
           const root = document.createElement("div")
           root.className = "reference-prompt"
@@ -121,6 +128,11 @@ export function registerReferenceLoader(
             node,
             () => controllers.get(node)?.promptReferences ?? [],
             initialValue(inputData),
+            {
+              presetId: node.widgets?.find((candidate) => candidate.name === "prompt_schema_preset")
+                ?.value,
+              presetCatalog: promptPresetCatalog(inputData),
+            },
           )
           let removed = false
           const widget = node.addDOMWidget(inputName, REFERENCE_PROMPT_WIDGET_TYPE, root, {
@@ -134,12 +146,20 @@ export function registerReferenceLoader(
           widget.serialize = true
           widget.serializeValue = () => controller.serialize()
           widget.beforeQueued = () => controller.serialize()
+          const presetBindingTimer = globalThis.setTimeout(() => {
+            if (removed) return
+            const binding = bindPromptPresetWidget(node, controller)
+            if (binding) promptPresetBindings.set(node, binding)
+          }, 0)
           const originalWidgetRemove = widget.onRemove
           widget.onRemove = () => {
             if (removed) return
             removed = true
+            globalThis.clearTimeout(presetBindingTimer)
             promptSubscriptions.get(node)?.()
             promptSubscriptions.delete(node)
+            promptPresetBindings.get(node)?.dispose()
+            promptPresetBindings.delete(node)
             if (promptControllers.get(node) === controller) promptControllers.delete(node)
             controller.destroy()
             originalWidgetRemove?.call(widget)
@@ -199,6 +219,8 @@ function installNodeRemovalHook(node: ComfyNode): void {
   node.onRemoved = function (...args: unknown[]): unknown {
     promptSubscriptions.get(this)?.()
     promptSubscriptions.delete(this)
+    promptPresetBindings.get(this)?.dispose()
+    promptPresetBindings.delete(this)
     promptControllers.get(this)?.destroy()
     promptControllers.delete(this)
     controllers.get(this)?.destroy()
@@ -206,6 +228,33 @@ function installNodeRemovalHook(node: ComfyNode): void {
     displayProxies.get(this)?.dispose()
     displayProxies.delete(this)
     return originalRemoved?.apply(this, args)
+  }
+}
+
+function bindPromptPresetWidget(
+  node: ComfyNode,
+  controller: ReferencePromptController,
+): PromptPresetBinding | undefined {
+  const widget = node.widgets?.find((candidate) => candidate.name === "prompt_schema_preset")
+  if (!widget) return undefined
+  const originalCallback = widget.callback
+  const sync = (value: unknown): void => {
+    controller.setPreset(value)
+    widget.value = controller.presetId
+  }
+  const callback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalCallback?.call(widget, value, ...args)
+    sync(value)
+    return result
+  }
+  widget.callback = callback
+  sync(widget.value)
+  return {
+    dispose() {
+      if (widget.callback !== callback) return
+      if (originalCallback) widget.callback = originalCallback
+      else delete widget.callback
+    },
   }
 }
 
@@ -346,6 +395,13 @@ function initialValue(inputData: unknown): unknown {
   if (typeof options !== "object" || options === null) return undefined
   const record = options as Record<string, unknown>
   return record.default ?? record.defaultValue
+}
+
+function promptPresetCatalog(inputData: unknown): unknown {
+  if (!Array.isArray(inputData)) return undefined
+  const options = inputData[1]
+  if (typeof options !== "object" || options === null) return undefined
+  return (options as Record<string, unknown>).promptPresets
 }
 
 export function getReferenceLoaderController(

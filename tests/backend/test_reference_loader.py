@@ -24,6 +24,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     "max_image_pixels",
     "composite_alpha",
     "alpha_background",
+    "prompt_schema_preset",
     "grid_columns",
     "preview_pixels",
     "show_captions",
@@ -35,7 +36,8 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert schema.inputs[0].options["extra_dict"] == {"widgetType": "REFERENCE_LOADER"}
   prompt = schema.inputs[1]
   assert prompt.data_type == "string"
-  assert prompt.options["extra_dict"] == {"widgetType": "REFERENCE_PROMPT"}
+  assert prompt.options["extra_dict"]["widgetType"] == "REFERENCE_PROMPT"
+  assert prompt.options["extra_dict"]["promptPresets"] == module.PROMPT_PRESET_CATALOG
   assert prompt.options["socketless"] is True
   assert prompt.options["dynamic_prompts"] is False
   limit_image_pixels = schema.inputs[2]
@@ -65,25 +67,37 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert alpha_background.options["default"] == "#000000"
   assert alpha_background.options["advanced"] is True
   assert alpha_background.options["socketless"] is False
-  grid_columns = schema.inputs[6]
+  prompt_schema_preset = schema.inputs[6]
+  assert prompt_schema_preset.data_type == "combo"
+  assert prompt_schema_preset.options["display_name"] == "prompt_schema_preset"
+  assert prompt_schema_preset.options["options"] == [
+    "generic",
+    "minimax_h3_base",
+    "minimax_h3_reference",
+    "freeform",
+  ]
+  assert prompt_schema_preset.options["default"] == "generic"
+  assert prompt_schema_preset.options["advanced"] is True
+  assert prompt_schema_preset.options["socketless"] is True
+  grid_columns = schema.inputs[7]
   assert grid_columns.data_type == "int"
   assert grid_columns.options["display_name"] == "grid_columns"
   assert grid_columns.options["default"] == 3
   assert grid_columns.options["advanced"] is True
   assert grid_columns.options["socketless"] is True
-  preview_pixels = schema.inputs[7]
+  preview_pixels = schema.inputs[8]
   assert preview_pixels.data_type == "float"
   assert preview_pixels.options["display_name"] == "preview_pixels (MPixel)"
   assert preview_pixels.options["default"] == 1.0
   assert preview_pixels.options["advanced"] is True
   assert preview_pixels.options["socketless"] is True
-  show_captions = schema.inputs[8]
+  show_captions = schema.inputs[9]
   assert show_captions.data_type == "boolean"
   assert show_captions.options["display_name"] == "show_captions"
   assert show_captions.options["default"] is True
   assert show_captions.options["advanced"] is True
   assert show_captions.options["socketless"] is True
-  two_image_mode = schema.inputs[9]
+  two_image_mode = schema.inputs[10]
   assert two_image_mode.data_type == "boolean"
   assert two_image_mode.options["display_name"] == "two_image_mode"
   assert two_image_mode.options["default"] is False
@@ -91,7 +105,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert two_image_mode.options["label_on"] == "Up to 2"
   assert two_image_mode.options["advanced"] is True
   assert two_image_mode.options["socketless"] is True
-  card_aspect = schema.inputs[10]
+  card_aspect = schema.inputs[11]
   assert card_aspect.data_type == "combo"
   assert card_aspect.options["display_name"] == "card_aspect"
   assert card_aspect.options["options"] == [
@@ -104,14 +118,14 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert card_aspect.options["default"] == "4 / 3"
   assert card_aspect.options["advanced"] is True
   assert card_aspect.options["socketless"] is True
-  preview_fit = schema.inputs[11]
+  preview_fit = schema.inputs[12]
   assert preview_fit.data_type == "combo"
   assert preview_fit.options["display_name"] == "preview_fit"
   assert preview_fit.options["options"] == ["contain", "cover"]
   assert preview_fit.options["default"] == "contain"
   assert preview_fit.options["advanced"] is True
   assert preview_fit.options["socketless"] is True
-  waveform_pairs = schema.inputs[12]
+  waveform_pairs = schema.inputs[13]
   assert waveform_pairs.data_type == "int"
   assert waveform_pairs.options["display_name"] == "waveform_pairs"
   assert waveform_pairs.options["default"] == 300
@@ -277,6 +291,51 @@ def test_reference_loader_rejects_loader_alignment_mismatch(monkeypatch):
     module.ReferenceLoaderNode.execute(module.EMPTY_LOADER_STATE_JSON)
 
 
+def test_prompt_preset_catalog_loads_user_json_and_rejects_invalid_aliases(
+  monkeypatch,
+  tmp_path,
+):
+  module = load_node_module(monkeypatch)
+  preset = {
+    "version": 1,
+    "order": 10,
+    "default": True,
+    "id": "custom_video",
+    "label": {"en": "Custom video", "ko": "사용자 비디오"},
+    "description": {"en": "Custom", "ko": "사용자 정의"},
+    "defaultSectionTitle": "custom_direction",
+    "aliases": [
+      {
+        "command": "custom",
+        "title": "custom_direction",
+        "label": {"en": "Custom", "ko": "사용자"},
+        "description": {"en": "Custom field", "ko": "사용자 필드"},
+        "icon": "C",
+      }
+    ],
+  }
+  directory = tmp_path / "prompt"
+  directory.mkdir()
+  path = directory / "custom_video.json"
+  path.write_text(json.dumps(preset, ensure_ascii=False), encoding="utf-8")
+  assert module.load_prompt_preset_catalog(directory) == {
+    "version": 1,
+    "defaultPresetId": "custom_video",
+    "presets": [
+      {
+        key: value
+        for key, value in preset.items()
+        if key not in {"version", "order", "default"}
+      }
+    ],
+  }
+
+  preset["aliases"][0]["command"] = "not-valid"
+  path.write_text(json.dumps(preset, ensure_ascii=False), encoding="utf-8")
+  with pytest.raises(ValueError, match="invalid alias"):
+    module.load_prompt_preset_catalog(directory)
+
+
 def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
   monkeypatch,
 ):
@@ -300,6 +359,10 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
     card_aspect="16 / 9",
     preview_fit="cover",
     waveform_pairs=1000,
+  )
+  preset_fingerprint = module.ReferenceLoaderNode.fingerprint_inputs(
+    module.EMPTY_LOADER_STATE_JSON,
+    prompt_schema_preset="minimax_h3_base",
   )
   inactive_max_fingerprint = module.ReferenceLoaderNode.fingerprint_inputs(
     module.EMPTY_LOADER_STATE_JSON,
@@ -331,10 +394,11 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
 
   assert len(fingerprint) == 64
   assert display_only_fingerprint == fingerprint
+  assert preset_fingerprint == fingerprint
   assert inactive_max_fingerprint == fingerprint
   assert inactive_background_fingerprint == fingerprint
   assert limited_fingerprint != fingerprint
   assert opaque_fingerprint != fingerprint
   assert opaque_alpha_fingerprint == opaque_fingerprint
   assert prompt_fingerprint != fingerprint
-  assert len(calls) == 8
+  assert len(calls) == 9

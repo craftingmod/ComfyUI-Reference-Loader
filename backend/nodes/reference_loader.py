@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+from pathlib import Path
 
 from comfy_api.latest import io
 
@@ -38,6 +40,107 @@ EMPTY_LOADER_STATE_JSON = json.dumps(
   separators=(",", ":"),
 )
 
+PROMPT_PRESET_DIRECTORY = Path(__file__).resolve().parents[2] / "presets" / "prompt"
+_PROMPT_IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+_PROMPT_ALIAS_PATTERN = re.compile(r"^[a-z]+$")
+
+
+def _is_localized_text(value: object) -> bool:
+  return (
+    isinstance(value, dict)
+    and isinstance(value.get("en"), str)
+    and isinstance(value.get("ko"), str)
+  )
+
+
+def load_prompt_preset_catalog(
+  directory: Path = PROMPT_PRESET_DIRECTORY,
+) -> dict[str, object]:
+  try:
+    paths = sorted(
+      path for path in directory.iterdir() if path.is_file() and path.suffix == ".json"
+    )
+  except OSError as error:
+    raise ValueError(f"Unable to read prompt preset directory: {directory}") from error
+  if not paths:
+    raise ValueError(f"Prompt preset directory contains no JSON files: {directory}")
+  entries: list[tuple[int, str, bool, dict[str, object]]] = []
+  preset_ids: list[str] = []
+  orders: list[int] = []
+  for path in paths:
+    try:
+      preset = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+      raise ValueError(f"Unable to load prompt preset: {path}") from error
+    if not isinstance(preset, dict) or preset.get("version") != 1:
+      raise ValueError(f"Prompt preset must be a version 1 JSON object: {path}")
+    preset_id = preset.get("id")
+    order = preset.get("order")
+    is_default = preset.get("default")
+    default_title = preset.get("defaultSectionTitle")
+    aliases = preset.get("aliases")
+    if (
+      not isinstance(preset_id, str)
+      or _PROMPT_IDENTIFIER_PATTERN.fullmatch(preset_id) is None
+      or not isinstance(order, int)
+      or isinstance(order, bool)
+      or not isinstance(is_default, bool)
+      or not isinstance(default_title, str)
+      or _PROMPT_IDENTIFIER_PATTERN.fullmatch(default_title) is None
+      or not _is_localized_text(preset.get("label"))
+      or not _is_localized_text(preset.get("description"))
+      or not isinstance(aliases, list)
+    ):
+      raise ValueError(f"Prompt preset is invalid: {path}")
+    if path.stem != preset_id:
+      raise ValueError(f"Prompt preset filename must match its ID: {path}")
+    alias_commands: list[str] = []
+    for alias in aliases:
+      if (
+        not isinstance(alias, dict)
+        or not isinstance(alias.get("command"), str)
+        or _PROMPT_ALIAS_PATTERN.fullmatch(alias["command"]) is None
+        or not isinstance(alias.get("title"), str)
+        or _PROMPT_IDENTIFIER_PATTERN.fullmatch(alias["title"]) is None
+        or not _is_localized_text(alias.get("label"))
+        or not _is_localized_text(alias.get("description"))
+        or not isinstance(alias.get("icon"), str)
+      ):
+        raise ValueError(f"Prompt preset {preset_id!r} contains an invalid alias.")
+      alias_commands.append(alias["command"])
+    if len(alias_commands) != len(set(alias_commands)):
+      raise ValueError(
+        f"Prompt preset {preset_id!r} contains duplicate alias commands."
+      )
+    preset_ids.append(preset_id)
+    orders.append(order)
+    entries.append((order, path.name, is_default, preset))
+  if len(preset_ids) != len(set(preset_ids)):
+    raise ValueError("Prompt preset catalog contains duplicate preset IDs.")
+  if len(orders) != len(set(orders)):
+    raise ValueError("Prompt preset files contain duplicate order values.")
+  defaults = [preset["id"] for _, _, is_default, preset in entries if is_default]
+  if len(defaults) != 1:
+    raise ValueError("Exactly one prompt preset file must set default to true.")
+  entries.sort(key=lambda entry: (entry[0], entry[1]))
+  return {
+    "version": 1,
+    "defaultPresetId": defaults[0],
+    "presets": [
+      {
+        key: value
+        for key, value in preset.items()
+        if key not in {"version", "order", "default"}
+      }
+      for _, _, _, preset in entries
+    ],
+  }
+
+
+PROMPT_PRESET_CATALOG = load_prompt_preset_catalog()
+PROMPT_SCHEMA_PRESETS = [preset["id"] for preset in PROMPT_PRESET_CATALOG["presets"]]
+DEFAULT_PROMPT_SCHEMA_PRESET = str(PROMPT_PRESET_CATALOG["defaultPresetId"])
+
 
 class ReferenceLoaderNode(io.ComfyNode):
   @classmethod
@@ -69,7 +172,10 @@ class ReferenceLoaderNode(io.ComfyNode):
           multiline=True,
           dynamic_prompts=False,
           socketless=True,
-          extra_dict={"widgetType": "REFERENCE_PROMPT"},
+          extra_dict={
+            "widgetType": "REFERENCE_PROMPT",
+            "promptPresets": PROMPT_PRESET_CATALOG,
+          },
           tooltip=(
             "Structured prompt with stable media mentions. The prompt output resolves "
             "them to <Picture N>, <Video N>, and <Audio N> tags."
@@ -114,6 +220,18 @@ class ReferenceLoaderNode(io.ComfyNode):
           advanced=True,
           socketless=False,
           tooltip="Fallback color used only when composite_alpha is Opaque.",
+        ),
+        io.Combo.Input(
+          "prompt_schema_preset",
+          display_name="prompt_schema_preset",
+          options=PROMPT_SCHEMA_PRESETS,
+          default=DEFAULT_PROMPT_SCHEMA_PRESET,
+          advanced=True,
+          socketless=True,
+          tooltip=(
+            "UI-only preset for the Prompt default section and slash aliases; "
+            "existing sections and compiled output remain unchanged."
+          ),
         ),
         io.Int.Input(
           "grid_columns",
@@ -201,7 +319,7 @@ class ReferenceLoaderNode(io.ComfyNode):
         ),
         io.String.Output(
           "prompt",
-          tooltip="Compiled prompt with MiniMax H3 media and dialogue tags.",
+          tooltip="Compiled prompt with resolved media and dialogue tags.",
         ),
       ],
     )
@@ -222,6 +340,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     preview_fit: str = "contain",
     waveform_pairs: int = 300,
     prompt: str = EMPTY_PROMPT_STATE_JSON,
+    prompt_schema_preset: str = DEFAULT_PROMPT_SCHEMA_PRESET,
   ) -> str:
     _ = (
       grid_columns,
@@ -231,6 +350,7 @@ class ReferenceLoaderNode(io.ComfyNode):
       card_aspect,
       preview_fit,
       waveform_pairs,
+      prompt_schema_preset,
     )
     state = parse_reference_state(loader_state)
     validate_reference_sources(state)
@@ -262,6 +382,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     preview_fit: str = "contain",
     waveform_pairs: int = 300,
     prompt: str = EMPTY_PROMPT_STATE_JSON,
+    prompt_schema_preset: str = DEFAULT_PROMPT_SCHEMA_PRESET,
   ) -> io.NodeOutput:
     _ = (
       grid_columns,
@@ -271,6 +392,7 @@ class ReferenceLoaderNode(io.ComfyNode):
       card_aspect,
       preview_fit,
       waveform_pairs,
+      prompt_schema_preset,
     )
     state = parse_reference_state(loader_state)
     output_settings = image_output_settings(
@@ -314,4 +436,13 @@ class ReferenceLoaderNode(io.ComfyNode):
     )
 
 
-__all__ = ["EMPTY_LOADER_STATE_JSON", "EMPTY_PROMPT_STATE_JSON", "ReferenceLoaderNode"]
+__all__ = [
+  "DEFAULT_PROMPT_SCHEMA_PRESET",
+  "EMPTY_LOADER_STATE_JSON",
+  "EMPTY_PROMPT_STATE_JSON",
+  "PROMPT_PRESET_CATALOG",
+  "PROMPT_PRESET_DIRECTORY",
+  "PROMPT_SCHEMA_PRESETS",
+  "ReferenceLoaderNode",
+  "load_prompt_preset_catalog",
+]

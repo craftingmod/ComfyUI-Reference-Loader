@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "order": 10,
+  "default": true,
+  "id": "generic",
+  "label": { "en": "Generic video", "ko": "범용 비디오" },
+  "description": {
+    "en": "Model-neutral scene, style, camera, timeline, and audio sections.",
+    "ko": "모델에 종속되지 않은 장면·스타일·카메라·타임라인·오디오 섹션입니다."
+  },
+  "defaultSectionTitle": "scene",
+  "aliases": [
+    {
+      "command": "scene",
+      "title": "scene",
+      "label": { "en": "Scene", "ko": "장면" },
+      "description": {
+        "en": "Subjects, setting, action, and intended result",
+        "ko": "피사체, 배경, 행동과 의도한 결과"
+      },
+      "icon": "Sc"
+    },
+    {
+      "command": "style",
+      "title": "visual_style",
+      "label": { "en": "Style", "ko": "스타일" },
+      "description": {
+        "en": "Visual rendering and aesthetic direction",
+        "ko": "시각적 렌더링과 미적 방향"
+      },
+      "icon": "St"
+    },
+    {
+      "command": "camera",
+      "title": "camera_direction",
+      "label": { "en": "Camera", "ko": "카메라" },
+      "description": {
+        "en": "Framing, lens, movement, and transitions",
+        "ko": "구도, 렌즈, 움직임과 전환"
+      },
+      "icon": "C"
+    },
+    {
+      "command": "timeline",
+      "title": "timeline_direction",
+      "label": { "en": "Timeline", "ko": "타임라인" },
+      "description": {
+        "en": "Action order, shot timing, cuts, and continuity",
+        "ko": "행동 순서, 숏 타이밍, 컷과 연속성"
+      },
+      "icon": "T"
+    },
+    {
+      "command": "sound",
+      "title": "sound_effects_and_ambience",
+      "label": { "en": "Sound", "ko": "효과음·환경음" },
+      "description": {
+        "en": "Ambience, Foley, effects, and non-verbal sounds",
+        "ko": "환경음, 폴리, 효과음과 비언어적 소리"
+      },
+      "icon": "S"
+    },
+    {
+      "command": "music",
+      "title": "non_diegetic_music",
+      "label": { "en": "Music", "ko": "배경음악" },
+      "description": {
+        "en": "Audience-only non-diegetic background music",
+        "ko": "화면 속 인물에게는 들리지 않는 배경음악"
+      },
+      "icon": "M"
+    },
+    {
+      "command": "voice",
+      "title": "voice_direction",
+      "label": { "en": "Voice", "ko": "음성" },
+      "description": {
+        "en": "Speaker timbre, delivery, narration, and voiceover",
+        "ko": "화자 음색, 발화 방식, 내레이션과 보이스오버"
+      },
+      "icon": "V"
+    },
+    {
+      "command": "avoid",
+      "title": "negative_constraints",
+      "label": { "en": "Avoid", "ko": "제외 사항" },
+      "description": {
+        "en": "Elements and behaviors the rewrite must exclude",
+        "ko": "생성 결과에서 제외할 요소와 동작"
+      },
+      "icon": "!"
+    }
+  ]
+}

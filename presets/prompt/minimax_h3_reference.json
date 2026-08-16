@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "order": 30,
+  "default": false,
+  "id": "minimax_h3_reference",
+  "label": { "en": "MiniMax H3 Reference", "ko": "MiniMax H3 참조" },
+  "description": {
+    "en": "Ordered H3 schema for video and audio reference transfer.",
+    "ko": "비디오·오디오 참조 전이를 위한 순서가 지정된 H3 스키마입니다."
+  },
+  "defaultSectionTitle": "detailed_description",
+  "aliases": [
+    {
+      "command": "subjects",
+      "title": "subject_definitions",
+      "label": { "en": "Subjects", "ko": "피사체 정의" },
+      "description": {
+        "en": "Identity and role definitions for referenced subjects",
+        "ko": "참조 피사체의 정체성과 역할 정의"
+      },
+      "icon": "Su"
+    },
+    {
+      "command": "summary",
+      "title": "summary",
+      "label": { "en": "Summary", "ko": "요약" },
+      "description": {
+        "en": "Concise creative goal and reference-transfer summary",
+        "ko": "창작 목표와 참조 전이를 간결하게 요약"
+      },
+      "icon": "Σ"
+    },
+    {
+      "command": "retention",
+      "title": "retention_analysis",
+      "label": { "en": "Retention", "ko": "유지 분석" },
+      "description": {
+        "en": "What each video or audio reference contributes and retains",
+        "ko": "각 비디오·오디오 참조에서 가져오고 유지할 요소"
+      },
+      "icon": "R"
+    },
+    {
+      "command": "description",
+      "title": "detailed_description",
+      "label": { "en": "Description", "ko": "상세 묘사" },
+      "description": {
+        "en": "Detailed visual, motion, camera, timeline, and dialogue direction",
+        "ko": "시각·동작·카메라·타임라인·대사의 상세 지시"
+      },
+      "icon": "D"
+    },
+    {
+      "command": "sound",
+      "title": "overall_soundscape",
+      "label": { "en": "Soundscape", "ko": "전체 사운드" },
+      "description": {
+        "en": "Diegetic ambience, effects, Foley, and audible voices",
+        "ko": "극중 환경음, 효과음, 폴리와 들리는 음성"
+      },
+      "icon": "S"
+    },
+    {
+      "command": "music",
+      "title": "non_diegetic_music",
+      "label": { "en": "Music", "ko": "배경음악" },
+      "description": {
+        "en": "Audience-only non-diegetic music, or an explicit absence",
+        "ko": "비극중 배경음악 또는 음악 없음에 대한 명시"
+      },
+      "icon": "M"
+    }
+  ]
+}

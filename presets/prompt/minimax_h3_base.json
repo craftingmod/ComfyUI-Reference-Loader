@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "order": 20,
+  "default": false,
+  "id": "minimax_h3_base",
+  "label": { "en": "MiniMax H3 Base", "ko": "MiniMax H3 기본" },
+  "description": {
+    "en": "H3 base schema for text, image, first/last-frame, and subject-reference video.",
+    "ko": "텍스트·이미지·첫/마지막 프레임·피사체 참조용 H3 기본 스키마입니다."
+  },
+  "defaultSectionTitle": "integrated_multimodal_description",
+  "aliases": [
+    {
+      "command": "description",
+      "title": "integrated_multimodal_description",
+      "label": { "en": "Description", "ko": "통합 묘사" },
+      "description": {
+        "en": "Integrated visual, motion, camera, timeline, dialogue, and reference direction",
+        "ko": "시각·동작·카메라·타임라인·대사·참조를 통합한 지시"
+      },
+      "icon": "D"
+    },
+    {
+      "command": "sound",
+      "title": "overall_soundscape",
+      "label": { "en": "Soundscape", "ko": "전체 사운드" },
+      "description": {
+        "en": "Diegetic ambience, effects, Foley, and audible voices",
+        "ko": "극중 환경음, 효과음, 폴리와 들리는 음성"
+      },
+      "icon": "S"
+    },
+    {
+      "command": "music",
+      "title": "non_diegetic_music",
+      "label": { "en": "Music", "ko": "배경음악" },
+      "description": {
+        "en": "Audience-only non-diegetic music, or an explicit absence",
+        "ko": "비극중 배경음악 또는 음악 없음에 대한 명시"
+      },
+      "icon": "M"
+    }
+  ]
+}

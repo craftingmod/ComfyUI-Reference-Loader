@@ -1,4 +1,9 @@
-from .backend import ReferenceLoaderExtension, ReferenceLoaderNode
+from .backend import (
+  MiniMaxH3ReferenceToVideoWrapperNode,
+  ReferenceLoaderExtension,
+  ReferenceLoaderNode,
+  ReferenceLoaderRawOutputsNode,
+)
 
 WEB_DIRECTORY = "./dist"
 
@@ -11,7 +16,9 @@ async def comfy_entrypoint() -> ReferenceLoaderExtension:
 
 __all__ = [
   "WEB_DIRECTORY",
+  "MiniMaxH3ReferenceToVideoWrapperNode",
   "ReferenceLoaderExtension",
   "ReferenceLoaderNode",
+  "ReferenceLoaderRawOutputsNode",
   "comfy_entrypoint",
 ]

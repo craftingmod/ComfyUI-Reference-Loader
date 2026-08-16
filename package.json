@@ -1,7 +1,7 @@
 {
   "name": "comfyui-reference-loader",
   "private": true,
-  "description": "ComfyUI reference media loader with aligned image, audio, video, caption, and manifest outputs",
+  "description": "ComfyUI reference media loader with a compact bundle and aligned unpacked outputs",
   "keywords": [
     "comfyui",
     "custom node",

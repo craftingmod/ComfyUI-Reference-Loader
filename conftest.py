@@ -56,15 +56,20 @@ def _install_comfy_api_test_stub() -> None:
   io_module.ComfyNode = ComfyNode
   io_module.NodeOutput = NodeOutput
   io_module.Schema = Schema
+  io_module.Custom = field_type
   for name in (
     "Audio",
     "Boolean",
+    "Clip",
     "Color",
     "Combo",
+    "Conditioning",
     "Float",
     "Image",
     "Int",
+    "Latent",
     "String",
+    "Vae",
     "Video",
   ):
     setattr(io_module, name, field_type(name.lower()))
@@ -79,6 +84,33 @@ def _install_comfy_api_test_stub() -> None:
   sys.modules["comfy_api"] = comfy_api_module
   sys.modules["comfy_api.latest"] = latest_module
   sys.modules["comfy_api.latest.io"] = io_module
+
+  class MiniMaxH3ReferenceToVideo:
+    @classmethod
+    def define_schema(cls):
+      return Schema(
+        inputs=[
+          io_module.Clip.Input("clip"),
+          io_module.Vae.Input("vae"),
+          io_module.Vae.Input("audio_vae"),
+          io_module.String.Input("prompt"),
+          io_module.Int.Input("width"),
+          io_module.Int.Input("height"),
+          io_module.Int.Input("length"),
+          io_module.Combo.Input("ref_image_size"),
+        ],
+        outputs=[
+          io_module.Conditioning.Output("positive"),
+          io_module.Latent.Output("LATENT"),
+        ],
+      )
+
+  comfy_extras_module = types.ModuleType("comfy_extras")
+  minimax_module = types.ModuleType("comfy_extras.nodes_minimax_h3")
+  minimax_module.MiniMaxH3ReferenceToVideo = MiniMaxH3ReferenceToVideo
+  comfy_extras_module.nodes_minimax_h3 = minimax_module
+  sys.modules["comfy_extras"] = comfy_extras_module
+  sys.modules["comfy_extras.nodes_minimax_h3"] = minimax_module
 
   class Routes:
     def __init__(self):

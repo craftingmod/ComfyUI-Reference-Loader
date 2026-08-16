@@ -1,8 +1,8 @@
 # Reference Loader
 
-`Reference Loader` is a ComfyUI V3 node for arranging local image, audio, and video references before another node analyzes or generates from them. It owns file ingestion, independent image/video/audio ordering, raw user captions, enable state, and non-destructive edits. It does not load an LLM/VLM, rewrite captions, or assemble a generation prompt.
+`Reference Loader` is a ComfyUI V3 node for arranging local image, audio, and video references before another node analyzes or generates from them. It owns file ingestion, independent image/video/audio ordering, raw user captions, enable state, and non-destructive edits. It emits one compact reference bundle and does not load an LLM/VLM, rewrite captions, or assemble a generation prompt.
 
-The node appears under `media / reference`. A minimal saved graph is available as [`Reference_Loader.json`](../workflows/Reference_Loader.json).
+Reference Loader appears under `reference / loader`, Reference Loader Raw Outputs appears under `reference / output`, and MiniMax H3 Reference to Video Wrapper appears under `reference / integration`. A minimal saved graph is available as [`Reference_Loader.json`](../workflows/Reference_Loader.json).
 
 ## Installation
 
@@ -30,13 +30,13 @@ The extra is available on Python versions supported by `rembg` (currently Python
 
 ## Quick start
 
-1. Add **Reference Loader** from `media / reference`.
+1. Add **Reference Loader** from `reference / loader`.
 2. Click **Add media**, select one or more local image/audio/video files, or drop them onto the Loader.
 3. Enter captions directly on the cards. Captions remain raw strings and are not automatically inserted into any prompt.
 4. Drag from any non-control area of a card, or use the arrow buttons, to set order. The card that will exchange position is highlighted while dragging. Images, Videos, and Audio are independently ordered.
 5. Use **I**, **V**, or **A** to include or exclude a card from its matching output channel.
 6. Use an Audio card's **▶/■** button for audio auditioning, or a VIDEO card's **▶/■** button for an on-demand picture-and-sound preview of its applied range. Open **Edit** to crop/flip an image, optionally extract its foreground with `rembg`, paint an erase/restore keep mask, restore a materialized edit to its immutable original, choose transparent or solid background output, or trim and audition one audio/video item by seconds.
-7. Connect each media output and its matching caption output to a node that accepts ComfyUI data lists. Use `manifest_json` when stable IDs or provenance are needed.
+7. Add **Reference Loader Raw Outputs**, connect the Loader's `references` output to it, then connect the required media and caption lists downstream. Use `manifest_json` when stable IDs or provenance are needed.
 
 Saving the workflow serializes versioned Loader state into the node widget. Reloading restores card order, captions, toggles, edit recipes, trim ranges, and display preferences. Undo/redo is available for board changes and inside each editor; undo history itself is session-local.
 
@@ -66,7 +66,9 @@ Workflow restoration initializes every card's loading state before its first ren
 
 ## Output contract
 
-All media and caption outputs are explicit data lists. They are not a same-resolution IMAGE batch and are never montaged or padded. IMAGE items retain their edited/original resolution in Original mode; Limited mode independently downsizes only items above `max_image_pixels`, so output dimensions may still differ.
+Reference Loader emits one `references` value with the custom type `REFERENCE_LOADER_BUNDLE`. The bundle carries all loaded media, aligned raw captions, and the payload-free manifest as one connection. **Reference Loader Raw Outputs** accepts that bundle and exposes the following standard ComfyUI values.
+
+All unpacked media and caption outputs are explicit data lists. They are not a same-resolution IMAGE batch and are never montaged or padded. IMAGE items retain their edited/original resolution in Original mode; Limited mode independently downsizes only items above `max_image_pixels`, so output dimensions may still differ.
 
 | Output           | Type        | Ordering and alignment                                                     |
 | ---------------- | ----------- | -------------------------------------------------------------------------- |
@@ -78,7 +80,21 @@ All media and caption outputs are explicit data lists. They are not a same-resol
 | `video_captions` | STRING list | Same length/index as `videos`                                              |
 | `manifest_json`  | STRING      | Payload-free state, source identity, derivation, and active-output mapping |
 
-Disabled references remain in saved state and in the manifest's `items`, but are omitted from the six list outputs. Each media list is independently filtered; an image has no Audio entry, and standalone audio has no Images or Videos entry. If all applicable cards are disabled, that channel emits an empty list.
+Disabled references remain in saved state and in the manifest's `items`, but are omitted from the six list outputs exposed by Reference Loader Raw Outputs. Each media list is independently filtered; an image has no Audio entry, and standalone audio has no Images or Videos entry. If all applicable cards are disabled, that channel emits an empty list.
+
+## MiniMax H3 Reference to Video Wrapper
+
+**MiniMax H3 Reference to Video Wrapper** accepts the Loader's single `references` bundle in place of the native MiniMax H3 node's `ref_images`, `ref_videos`, `ref_video_audios`, and `ref_audios` Autogrow groups. Its remaining inputs and its CONDITIONING/LATENT outputs are reused from ComfyUI's native `MiniMaxH3ReferenceToVideo` schema and execution implementation.
+
+Enabled media is projected according to these rules:
+
+- Image I on: `ref_image_N`.
+- Video V on and A off: `ref_video_N`.
+- Video V and A on: paired `ref_video_N` and `ref_video_audio_N` with the same index.
+- Video V off and A on: standalone `ref_audio_N`.
+- Standalone audio A on: `ref_audio_N`.
+
+Native VIDEO values are decoded through `get_components()`. When the source is not already 24 fps, the Wrapper samples its decoded IMAGE batch on a 24 fps timeline before delegating to MiniMax H3; a separate frame-sampling node is not required. The native H3 limits are enforced: up to 9 images, 3 videos, and 3 standalone audio references. A soundtrack paired with a video uses the corresponding video slot rather than a standalone audio slot.
 
 ### Video audio policy
 
@@ -204,7 +220,7 @@ Limits are validated again by the backend. Audio decoding retains only the selec
 - The custom DOM widget is shipped as one Bun bundle at `dist/index.js` and uses standard modern browser APIs, including modal dialogs, drag/drop, `AbortController`, canvas, and object URLs.
 - Transparent image output is an RGBA tensor (`[1,H,W,4]`). Some IMAGE consumers assume RGB (`[B,H,W,3]`); choose a solid editor background before connecting those nodes.
 - Animated image formats are treated as one still IMAGE rather than a VIDEO sequence.
-- Empty typed lists are valid Loader outputs, but some downstream nodes assume at least one item and may fail. Keep one item enabled or insert an empty-list-aware adapter for those consumers.
+- Empty typed lists from Reference Loader Raw Outputs are valid, but some downstream nodes assume at least one item and may fail. Keep one item enabled or insert an empty-list-aware adapter for those consumers.
 - VIDEO preserves embedded audio while the Audio channel can emit the same soundtrack separately. This is deliberate, not automatic deduplication.
 - For standalone audio containing multiple tracks, waveform preview and AUDIO output use the first supported track. Attached cover art is not treated as a video track during upload inspection.
 - To keep metadata, proxy, derived AUDIO, and native ComfyUI VIDEO selection aligned across supported ComfyUI versions, a VIDEO source must have exactly one primary video track, no attached-picture video track, and at most one decodable audio track.
@@ -217,14 +233,14 @@ Limits are validated again by the backend. Audio decoding retains only the selec
 
 Run this after building a release against the target ComfyUI version:
 
-1. Start ComfyUI, add `Reference Loader`, and confirm the full DOM board appears without a console error.
+1. Start ComfyUI, add `Reference Loader` and `Reference Loader Raw Outputs`, connect `references`, and confirm the full DOM board appears without a console error.
 2. Add two differently sized images, one audio file, one video with sound, and one silent video. Confirm upload progress, image/video previews, Audio-channel waveforms, and metadata; confirm both videos start with **A** off and the silent video's **A** control is unavailable. Enable **A** on the video with sound for the derived-AUDIO checks below.
 3. Give every output item a unique caption. Give the video's Audio card a different caption from its Videos card.
 4. Confirm Images, Videos, and Audio are equal top-level sections stacked vertically, with empty sections rendered compactly. Reorder them independently by dragging from the card surface and by using the footer arrow controls below Caption; verify the prospective destination card is highlighted while the controls remain clickable and do not initiate a drag. Confirm every media preview has a light bottom filename gradient with ellipsis and a full-name tooltip without changing card height, and that filenames remain visible in each detail editor. Toggle each output off and confirm only its media visual becomes moderately desaturated and lightly dimmed while the border, filename, badges, Caption, and controls remain at normal brightness. Confirm each card shows only its section's output toggle, and the overlaid red × removes a shared video from both Videos and Audio.
 5. Confirm the wider image editor opens in View mode with Caption below the viewport. Confirm numeric Viewport controls are hidden and Reset view is beside Undo/Redo. Click the untouched backdrop and confirm the editor closes; reopen it, create an edit, and confirm backdrop clicks are then ignored. Change View Pan/Zoom and confirm Undo remains unchanged; then select Crop and Mask and verify Undo/Redo restores each Interaction mode. Return to Crop. Exercise Custom, Original, square, landscape, and portrait aspect presets; confirm selection fits inward, Undo/Redo restores the preset, Width/Height remain coupled, and every corner preserves the ratio. Return to Custom, then drag inside the crop to move it, drag outside to pan the image, use Ctrl-drag to pan from inside or from Mask mode, and resize from all four corner handles; confirm the source-pixel integer fields follow every change and Pan remains bounded to an image-covered Stage. Then switch to Mask Drawing, flip one image, enable `rembg` removal, and inspect the extracted foreground before Apply becomes available. Paint with Erase and Restore at different brush sizes/opacities, exercise editor-local undo/redo and viewport pan/zoom, then apply a transparent background. Confirm the rembg cache is reused, a content-addressed mask and a new managed PNG/revision are used without changing the original. Reopen Edit, choose **Restore original**, save/reload the workflow, and confirm the original source returns while caption, enable state, and ordering remain intact. Repeat with a solid background for an RGB-only consumer, and verify an installation without the extra reports the optional-dependency error without breaking node registration.
 6. Preview an Audio card and confirm **▶** changes to **■**, Stop returns to the applied trim start, and starting another reference stops the first. Preview a VIDEO and confirm its embedded audio plays with the picture, while starting its Audio card stops the VIDEO and auditions the same range as audio-only. In **Edit**, drag both trim handles, use the numeric fields and Seekbar before/during/after playback, audition the draft selection with the Play/Pause/Resume toggle and Stop, and verify Apply updates output duration while Cancel does not. Confirm playback is disabled for a silent video's Audio card, and the enabled video-derived AUDIO contains the matching trimmed range.
-7. Queue the node and inspect `manifest_json`: list/caption lengths match; order matches the board; disabled items remain under `items`; derived audio uses `<video-id>:audio`; no base64 or absolute path appears.
+7. Queue the connected nodes and inspect `manifest_json` from Reference Loader Raw Outputs: list/caption lengths match; order matches the board; disabled items remain under `items`; derived audio uses `<video-id>:audio`; no base64 or absolute path appears.
 8. Save, reload, and queue the workflow. Confirm state restoration and identical execution order.
-9. Disable every item in one channel and verify the Loader emits an empty list; record whether the intended downstream consumer accepts it.
+9. Disable every item in one channel and verify Reference Loader Raw Outputs emits an empty list; record whether the intended downstream consumer accepts it.
 10. Modify or replace a managed source file outside ComfyUI and confirm the next execution stops on its size/hash identity check, then restore or re-add the source.
 11. Open **Show advanced inputs**, change `grid_columns`, the float `preview_pixels` MPixel value, `show_captions`, `card_aspect`, `preview_fit`, and `waveform_pairs`. Confirm the card grid, proxy requests, image/video ratio and fit, and waveform density update while Audio remains 16:9; hidden captions remain editable through **Edit**, and none of the six display fields changes execution outputs or the fingerprint. Then set `limit_image_pixels` to Limited and enter an exact `max_image_pixels` value below a large source's resolution. Confirm only the IMAGE tensor is downscaled, aspect ratio is retained, and small images are not enlarged. Set `composite_alpha` to Opaque and change `alpha_background`; confirm alpha-bearing outputs become three-channel RGB on that color while RGB inputs are unchanged. Confirm inactive max/background values do not change the fingerprint, while active values do.

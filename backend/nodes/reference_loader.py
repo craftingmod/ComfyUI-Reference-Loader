@@ -15,6 +15,7 @@ from ..core.reference_manifest import (
   build_reference_output_plan,
 )
 from ..core.reference_media import load_reference_media, validate_reference_sources
+from .reference_bundle import REFERENCE_LOADER_BUNDLE_TYPE, ReferenceLoaderBundle
 
 EMPTY_LOADER_STATE_JSON = json.dumps(
   {
@@ -42,11 +43,11 @@ class ReferenceLoaderNode(io.ComfyNode):
     return io.Schema(
       node_id="Alyac_ReferenceLoader",
       display_name="Reference Loader",
-      category="media/reference",
+      category="reference/loader",
       description=(
         "Orders image, audio, and video references without batching, with optional "
         "downscale-only IMAGE output limiting, "
-        "and emits aligned raw caption lists plus a payload-free manifest."
+        "and emits one bundle for Reference Loader Raw Outputs."
       ),
       search_aliases=["reference", "media loader", "multi image selector"],
       inputs=[
@@ -163,13 +164,13 @@ class ReferenceLoaderNode(io.ComfyNode):
         ),
       ],
       outputs=[
-        io.Image.Output("images", is_output_list=True),
-        io.String.Output("image_captions", is_output_list=True),
-        io.Audio.Output("audios", is_output_list=True),
-        io.String.Output("audio_captions", is_output_list=True),
-        io.Video.Output("videos", is_output_list=True),
-        io.String.Output("video_captions", is_output_list=True),
-        io.String.Output("manifest_json"),
+        REFERENCE_LOADER_BUNDLE_TYPE.Output(
+          "references",
+          tooltip=(
+            "Bundled media, aligned captions, and manifest for "
+            "Reference Loader Raw Outputs."
+          ),
+        ),
       ],
     )
 
@@ -257,13 +258,15 @@ class ReferenceLoaderNode(io.ComfyNode):
       separators=(",", ":"),
     )
     return io.NodeOutput(
-      list(loaded.images),
-      list(plan.image_captions),
-      list(loaded.audios),
-      list(plan.audio_captions),
-      list(loaded.videos),
-      list(plan.video_captions),
-      manifest_json,
+      ReferenceLoaderBundle(
+        images=loaded.images,
+        image_captions=plan.image_captions,
+        audios=loaded.audios,
+        audio_captions=plan.audio_captions,
+        videos=loaded.videos,
+        video_captions=plan.video_captions,
+        manifest_json=manifest_json,
+      )
     )
 
 

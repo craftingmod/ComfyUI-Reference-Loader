@@ -17,12 +17,16 @@ def test_python_lane_loads_reference_loader_via_entrypoint():
   node_classes = asyncio.run(extension.get_node_list())
 
   assert [node.define_schema().node_id for node in node_classes] == [
-    "Alyac_ReferenceLoader"
+    "Alyac_ReferenceLoader",
+    "Alyac_ReferenceLoaderRawOutputs",
+    "Alyac_MiniMaxH3ReferenceToVideoWrapper",
   ]
   assert module.WEB_DIRECTORY == "./dist"
   assert module.__all__ == [
     "WEB_DIRECTORY",
+    "MiniMaxH3ReferenceToVideoWrapperNode",
     "ReferenceLoaderExtension",
     "ReferenceLoaderNode",
+    "ReferenceLoaderRawOutputsNode",
     "comfy_entrypoint",
   ]

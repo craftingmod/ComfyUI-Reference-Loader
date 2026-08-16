@@ -1,8 +1,8 @@
 {
   "id": "cd4aa51d-72d0-4d73-b752-2520f25cdffe",
   "revision": 0,
-  "last_node_id": 1,
-  "last_link_id": 0,
+  "last_node_id": 2,
+  "last_link_id": 1,
   "nodes": [
     {
       "id": 1,
@@ -48,6 +48,50 @@
             "name": "show_captions"
           },
           "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "references",
+          "name": "references",
+          "type": "REFERENCE_LOADER_BUNDLE",
+          "links": [1]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Alyac_ReferenceLoader",
+        "referenceLoader": {
+          "showCaptions": true
+        }
+      },
+      "widgets_values": [
+        "{\"version\":1,\"items\":{},\"imageOrder\":[],\"videoOrder\":[],\"audioOrder\":[],\"videoAudioPolicy\":\"preserve\",\"ui\":{\"cardAspectRatio\":\"4 / 3\",\"gridColumns\":3,\"previewMaxPixels\":1000000,\"previewFit\":\"contain\",\"waveformPeaks\":300}}",
+        false,
+        2.0,
+        false,
+        "#000000",
+        3,
+        1.0,
+        true,
+        "4 / 3",
+        "contain",
+        300
+      ]
+    },
+    {
+      "id": 2,
+      "type": "Alyac_ReferenceLoaderRawOutputs",
+      "pos": [700, 80],
+      "size": [300, 180],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "references",
+          "name": "references",
+          "type": "REFERENCE_LOADER_BUNDLE",
+          "link": 1
         }
       ],
       "outputs": [
@@ -101,27 +145,12 @@
         }
       ],
       "properties": {
-        "Node name for S&R": "Alyac_ReferenceLoader",
-        "referenceLoader": {
-          "showCaptions": true
-        }
+        "Node name for S&R": "Alyac_ReferenceLoaderRawOutputs"
       },
-      "widgets_values": [
-        "{\"version\":1,\"items\":{},\"imageOrder\":[],\"videoOrder\":[],\"audioOrder\":[],\"videoAudioPolicy\":\"preserve\",\"ui\":{\"cardAspectRatio\":\"4 / 3\",\"gridColumns\":3,\"previewMaxPixels\":1000000,\"previewFit\":\"contain\",\"waveformPeaks\":300}}",
-        false,
-        2.0,
-        false,
-        "#000000",
-        3,
-        1.0,
-        true,
-        "4 / 3",
-        "contain",
-        300
-      ]
+      "widgets_values": []
     }
   ],
-  "links": [],
+  "links": [[1, 1, 0, 2, 0, "REFERENCE_LOADER_BUNDLE"]],
   "groups": [],
   "config": {},
   "extra": {

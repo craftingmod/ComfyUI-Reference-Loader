@@ -1,8 +1,8 @@
 # ComfyUI Reference Loader
 
-Reference Loader is a ComfyUI V3 custom node for uploading, arranging, editing, and emitting independent image, audio, and video reference lists. It preserves each item's native dimensions, keeps captions aligned with their media outputs, and emits a payload-free manifest for provenance and ordering.
+Reference Loader is a ComfyUI V3 custom node for uploading, arranging, and editing image, audio, and video references. It emits one compact `REFERENCE_LOADER_BUNDLE`; the companion **Reference Loader Raw Outputs** node unpacks aligned media and caption lists plus a payload-free manifest. **MiniMax H3 Reference to Video Wrapper** passes the same bundle to ComfyUI's native MiniMax H3 reference-conditioning implementation without manual list indexing.
 
-The node is available under `media / reference` as **Reference Loader**. A minimal workflow is included at [`workflows/Reference_Loader.json`](workflows/Reference_Loader.json).
+The Loader is available under `reference / loader`, **Reference Loader Raw Outputs** is under `reference / output`, and **MiniMax H3 Reference to Video Wrapper** is under `reference / integration`. A minimal workflow is included at [`workflows/Reference_Loader.json`](workflows/Reference_Loader.json).
 
 ## Features
 
@@ -10,7 +10,8 @@ The node is available under `media / reference` as **Reference Loader**. A minim
 - Per-image crop, flip, mask, background, optional `rembg`, and restore-original editing
 - Audio/video trim and playback; VIDEO values retain embedded audio
 - Optional per-image MPixel limiting and alpha compositing at execution
-- Explicit IMAGE/AUDIO/VIDEO list outputs with index-aligned caption lists
+- One compact Loader output with a dedicated Reference Loader Raw Outputs node
+- Explicit IMAGE/AUDIO/VIDEO lists with index-aligned caption lists after unpacking
 - Managed, content-validated storage under `ComfyUI/input/reference_loader`
 
 ## Installation
@@ -24,6 +25,10 @@ pip install ".[rembg]"
 ```
 
 ## Outputs
+
+**Reference Loader** emits a single `references` output of type `REFERENCE_LOADER_BUNDLE`. Connect it to **Reference Loader Raw Outputs** when standard ComfyUI values are needed.
+
+Connect it to **MiniMax H3 Reference to Video Wrapper** for native MiniMax H3 reference conditioning. The Wrapper retains the native `clip`, `vae`, `audio_vae`, `prompt`, `width`, `height`, `length`, and `ref_image_size` controls and replaces the native `ref_*` Autogrow sockets with `references`. Reference videos are decoded and sampled to the 24 fps IMAGE batch expected by MiniMax H3; no separate sampling node is required.
 
 | Output                      | Contract                                                                |
 | --------------------------- | ----------------------------------------------------------------------- |

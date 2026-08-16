@@ -16,6 +16,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   module = load_node_module(monkeypatch)
   schema = module.ReferenceLoaderNode.define_schema()
   assert schema.node_id == "Alyac_ReferenceLoader"
+  assert schema.category == "reference/loader"
   assert [field.name for field in schema.inputs] == [
     "loader_state",
     "limit_image_pixels",
@@ -104,24 +105,9 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert waveform_pairs.options["step"] == 50
   assert waveform_pairs.options["advanced"] is True
   assert waveform_pairs.options["socketless"] is True
-  assert [field.name for field in schema.outputs] == [
-    "images",
-    "image_captions",
-    "audios",
-    "audio_captions",
-    "videos",
-    "video_captions",
-    "manifest_json",
-  ]
-  assert [field.options.get("is_output_list", False) for field in schema.outputs] == [
-    True,
-    True,
-    True,
-    True,
-    True,
-    True,
-    False,
-  ]
+  assert [field.name for field in schema.outputs] == ["references"]
+  assert schema.outputs[0].data_type == "REFERENCE_LOADER_BUNDLE"
+  assert schema.outputs[0].options.get("is_output_list", False) is False
 
   state = {
     "version": 1,
@@ -157,16 +143,16 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     ),
   )
   output = module.ReferenceLoaderNode.execute(json.dumps(state))
-  assert output[:6] == (
-    ["native-image"],
-    ["caption"],
-    [],
-    [],
-    [],
-    [],
-  )
-  assert json.loads(output[6])["outputs"]["images"] == ["img"]
-  assert json.loads(output[6])["image_output"] == {
+  assert len(output) == 1
+  bundle = output[0]
+  assert bundle.images == ("native-image",)
+  assert bundle.image_captions == ("caption",)
+  assert bundle.audios == ()
+  assert bundle.audio_captions == ()
+  assert bundle.videos == ()
+  assert bundle.video_captions == ()
+  assert json.loads(bundle.manifest_json)["outputs"]["images"] == ["img"]
+  assert json.loads(bundle.manifest_json)["image_output"] == {
     "mode": "original",
     "alphaMode": "preserve",
   }
@@ -174,12 +160,42 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     "mode": "original",
     "alphaMode": "preserve",
   }
+
+  outputs_module = importlib.import_module("backend.nodes.reference_loader_raw_outputs")
+  outputs_schema = outputs_module.ReferenceLoaderRawOutputsNode.define_schema()
+  assert outputs_schema.node_id == "Alyac_ReferenceLoaderRawOutputs"
+  assert outputs_schema.display_name == "Reference Loader Raw Outputs"
+  assert outputs_schema.category == "reference/output"
+  assert [field.name for field in outputs_schema.inputs] == ["references"]
+  assert outputs_schema.inputs[0].data_type == "REFERENCE_LOADER_BUNDLE"
+  assert [field.name for field in outputs_schema.outputs] == [
+    "images",
+    "image_captions",
+    "audios",
+    "audio_captions",
+    "videos",
+    "video_captions",
+    "manifest_json",
+  ]
+  assert [
+    field.options.get("is_output_list", False) for field in outputs_schema.outputs
+  ] == [True, True, True, True, True, True, False]
+  unpacked = outputs_module.ReferenceLoaderRawOutputsNode.execute(bundle)
+  assert unpacked[:6] == (
+    ["native-image"],
+    ["caption"],
+    [],
+    [],
+    [],
+    [],
+  )
+  assert unpacked[6] == bundle.manifest_json
   limited_output = module.ReferenceLoaderNode.execute(
     json.dumps(state),
     limit_image_pixels=True,
     max_image_pixels=3.75,
   )
-  assert json.loads(limited_output[6])["image_output"] == {
+  assert json.loads(limited_output[0].manifest_json)["image_output"] == {
     "mode": "limited",
     "alphaMode": "preserve",
     "maxPixels": 3_750_000,
@@ -194,11 +210,19 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     composite_alpha=True,
     alpha_background="#12345680",
   )
-  assert json.loads(opaque_output[6])["image_output"] == {
+  assert json.loads(opaque_output[0].manifest_json)["image_output"] == {
     "mode": "original",
     "alphaMode": "opaque",
     "alphaBackground": "#123456",
   }
+
+
+def test_reference_loader_raw_outputs_rejects_non_bundle_value(monkeypatch):
+  load_node_module(monkeypatch)
+  outputs_module = importlib.import_module("backend.nodes.reference_loader_raw_outputs")
+
+  with pytest.raises(TypeError, match="REFERENCE_LOADER_BUNDLE"):
+    outputs_module.ReferenceLoaderRawOutputsNode.execute(object())
 
 
 def test_reference_loader_rejects_loader_alignment_mismatch(monkeypatch):

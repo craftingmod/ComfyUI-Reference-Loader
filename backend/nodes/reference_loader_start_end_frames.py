@@ -12,7 +12,7 @@ class ReferenceLoaderStartEndFramesNode(io.ComfyNode):
   def define_schema(cls) -> io.Schema:
     return io.Schema(
       node_id="Alyac_ReferenceLoaderStartEndFrames",
-      display_name="Reference Loader Start/End Frames",
+      display_name="[Reference Loader] Start/End Frames",
       category="reference/output",
       description=(
         "Projects zero, one, or two enabled Reference Loader images into nullable "
@@ -20,6 +20,7 @@ class ReferenceLoaderStartEndFramesNode(io.ComfyNode):
         "and T2V workflows."
       ),
       search_aliases=[
+        "reference loader start end frames",
         "reference loader i2v",
         "reference loader flf2v",
         "first last frame",
@@ -77,7 +78,7 @@ class ReferenceLoaderStartEndFramesNode(io.ComfyNode):
     image_count = len(references.images)
     if image_count > 2:
       raise ValueError(
-        "Reference Loader Start/End Frames accepts at most two enabled images; "
+        "[Reference Loader] Start/End Frames accepts at most two enabled images; "
         f"received {image_count}."
       )
 

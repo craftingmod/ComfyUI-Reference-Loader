@@ -242,13 +242,17 @@ class ReferenceLoaderExportPromptForLLMNode(io.ComfyNode):
   def define_schema(cls) -> io.Schema:
     return io.Schema(
       node_id="Alyac_ReferenceLoaderExportPromptForLLM",
-      display_name="Reference Loader Export Prompt for LLM",
+      display_name="[Reference Loader] Export Prompt for LLM",
       category="reference/output",
       description=(
         "Exports active reference captions and the structured Reference Loader "
         "generation directives as a strict YAML string for an LLM."
       ),
-      search_aliases=["reference llm prompt", "reference yaml export"],
+      search_aliases=[
+        "reference loader export prompt for llm",
+        "reference llm prompt",
+        "reference yaml export",
+      ],
       inputs=[
         REFERENCE_LOADER_BUNDLE_TYPE.Input(
           "references",

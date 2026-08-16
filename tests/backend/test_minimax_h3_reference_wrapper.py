@@ -83,7 +83,7 @@ def test_wrapper_schema_reuses_native_controls(monkeypatch):
   schema = module.MiniMaxH3ReferenceToVideoWrapperNode.define_schema()
 
   assert schema.node_id == "Alyac_MiniMaxH3ReferenceToVideoWrapper"
-  assert schema.display_name == "MiniMax H3 Reference to Video Wrapper"
+  assert schema.display_name == "[Reference Loader] MiniMax H3 Wrapper"
   assert [field.name for field in schema.inputs] == [
     "clip",
     "vae",

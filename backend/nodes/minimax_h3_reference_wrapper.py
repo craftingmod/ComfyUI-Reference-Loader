@@ -178,13 +178,17 @@ class MiniMaxH3ReferenceToVideoWrapperNode(io.ComfyNode):
     inputs = {field.id: field for field in original.inputs}
     return io.Schema(
       node_id="Alyac_MiniMaxH3ReferenceToVideoWrapper",
-      display_name="MiniMax H3 Reference to Video Wrapper",
+      display_name="[Reference Loader] MiniMax H3 Wrapper",
       category="reference/integration",
       description=(
         "Feeds a Reference Loader bundle into ComfyUI's native MiniMax H3 "
         "Reference to Video implementation. Reference videos are sampled at 24 fps."
       ),
-      search_aliases=["reference loader minimax h3", "minimax h3 wrapper"],
+      search_aliases=[
+        "minimax h3 reference to video wrapper",
+        "reference loader minimax h3",
+        "minimax h3 wrapper",
+      ],
       inputs=[
         inputs["clip"],
         inputs["vae"],

@@ -75,7 +75,7 @@ def test_options_override_schema_and_execute_preserve_non_image_media(monkeypatc
   schema = module.ReferenceLoaderOptionsOverrideNode.define_schema()
 
   assert schema.node_id == "Alyac_ReferenceLoaderOptionsOverride"
-  assert schema.display_name == "Reference Loader Options Override"
+  assert schema.display_name == "[Reference Loader] Options Override"
   assert schema.category == "reference/loader"
   assert [field.name for field in schema.inputs] == [
     "references",

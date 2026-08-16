@@ -221,7 +221,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   outputs_module = importlib.import_module("backend.nodes.reference_loader_raw_outputs")
   outputs_schema = outputs_module.ReferenceLoaderRawOutputsNode.define_schema()
   assert outputs_schema.node_id == "Alyac_ReferenceLoaderRawOutputs"
-  assert outputs_schema.display_name == "Reference Loader Media Outputs"
+  assert outputs_schema.display_name == "[Reference Loader] Media Outputs"
   assert outputs_schema.category == "reference/output"
   assert [field.name for field in outputs_schema.inputs] == ["references"]
   assert outputs_schema.inputs[0].data_type == "REFERENCE_LOADER_BUNDLE"

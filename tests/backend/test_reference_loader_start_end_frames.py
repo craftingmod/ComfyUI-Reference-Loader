@@ -21,7 +21,7 @@ def test_start_end_frames_schema_declares_nullable_image_contract():
   schema = module.ReferenceLoaderStartEndFramesNode.define_schema()
 
   assert schema.node_id == "Alyac_ReferenceLoaderStartEndFrames"
-  assert schema.display_name == "Reference Loader Start/End Frames"
+  assert schema.display_name == "[Reference Loader] Start/End Frames"
   assert [field.name for field in schema.inputs] == [
     "references",
     "mode",

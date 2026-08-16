@@ -41,13 +41,17 @@ class ReferenceLoaderOptionsOverrideNode(io.ComfyNode):
   def define_schema(cls) -> io.Schema:
     return io.Schema(
       node_id="Alyac_ReferenceLoaderOptionsOverride",
-      display_name="Reference Loader Options Override",
+      display_name="[Reference Loader] Options Override",
       category="reference/loader",
       description=(
         "Rebuilds Reference Loader IMAGE outputs with backend-only pixel-limit and "
         "alpha-compositing overrides while preserving all references and captions."
       ),
-      search_aliases=["reference options", "reference override"],
+      search_aliases=[
+        "reference loader options override",
+        "reference options",
+        "reference override",
+      ],
       inputs=[
         REFERENCE_LOADER_BUNDLE_TYPE.Input("references"),
         io.Boolean.Input(

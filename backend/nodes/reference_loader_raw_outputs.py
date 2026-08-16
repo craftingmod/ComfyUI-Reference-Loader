@@ -10,7 +10,7 @@ class ReferenceLoaderRawOutputsNode(io.ComfyNode):
   def define_schema(cls) -> io.Schema:
     return io.Schema(
       node_id="Alyac_ReferenceLoaderRawOutputs",
-      display_name="Reference Loader Media Outputs",
+      display_name="[Reference Loader] Media Outputs",
       category="reference/output",
       description=(
         "Unpacks a Reference Loader bundle into aligned image, audio, video, "

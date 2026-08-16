@@ -83,7 +83,7 @@ def test_export_prompt_for_llm_schema_and_strict_yaml():
   schema = module.ReferenceLoaderExportPromptForLLMNode.define_schema()
 
   assert schema.node_id == "Alyac_ReferenceLoaderExportPromptForLLM"
-  assert schema.display_name == "Reference Loader Export Prompt for LLM"
+  assert schema.display_name == "[Reference Loader] Export Prompt for LLM"
   assert schema.category == "reference/output"
   assert [field.name for field in schema.inputs] == [
     "references",

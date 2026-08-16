@@ -226,7 +226,7 @@ def _source(value: Any, path: str, kind: MediaKind) -> ReferenceSource:
     or not pure.parts
     or any(part in {"", ".", ".."} or ":" in part for part in pure.parts)
   ):
-    raise _error(f"{path}.path", "must stay relative to the ComfyUI input loadery")
+    raise _error(f"{path}.path", "must stay relative to the ComfyUI input directory")
   if pure.parts[0].lower() == "input":
     raise _error(f"{path}.path", "must not include an input/ prefix")
 

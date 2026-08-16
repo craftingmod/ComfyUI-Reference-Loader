@@ -24,7 +24,7 @@ describe("Reference Loader DOM lifecycle", () => {
       undefined,
     )
     expect(root.querySelectorAll(".rl-channel")).toHaveLength(3)
-    expect(root.querySelectorAll(".rl-carl-grid.is-empty")).toHaveLength(3)
+    expect(root.querySelectorAll(".rl-card-grid.is-empty")).toHaveLength(3)
     expect(root.querySelectorAll(".rl-grid-add.is-wide")).toHaveLength(3)
     expect(root.querySelector<HTMLInputElement>('[data-upload-kind="image"]')?.accept).toBe(
       "image/*",

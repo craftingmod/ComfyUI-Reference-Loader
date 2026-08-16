@@ -669,7 +669,7 @@ def test_loader_preserves_independent_output_order_and_video_audio(
     lambda path, *_args, **_kwargs: f"audio:{path.name}",
   )
 
-  loaded = reference_media.load_reference_media(state, input_loadery=tmp_path)
+  loaded = reference_media.load_reference_media(state, input_directory=tmp_path)
   assert loaded.images == ("image:img.png",)
   assert loaded.videos == ("video:vid.mp4",)
   assert loaded.audios == ("audio:vid.mp4", "audio:aud.wav")
@@ -724,7 +724,7 @@ def test_materialized_image_edit_does_not_require_the_brush_mask_at_execution(
     ),
   )
 
-  loaded = reference_media.load_reference_media(state, input_loadery=tmp_path)
+  loaded = reference_media.load_reference_media(state, input_directory=tmp_path)
 
   assert loaded.images == ("image",)
   assert seen == [(edits / f"{digest}.png", None)]
@@ -796,7 +796,7 @@ def test_loader_passes_and_enforces_the_aggregate_tensor_memory_budget(
   with pytest.raises(reference_media.ReferenceMediaError, match="aggregate"):
     reference_media.load_reference_media(
       parse_reference_state(raw),
-      input_loadery=tmp_path,
+      input_directory=tmp_path,
     )
 
   assert budgets == [(16, None), (4, None)]
@@ -830,12 +830,12 @@ def test_fingerprint_source_validation_detects_same_size_content_replacement(tmp
     "videoAudioPolicy": "preserve",
   }
   state = parse_reference_state(raw)
-  reference_media.validate_reference_sources(state, input_loadery=tmp_path)
+  reference_media.validate_reference_sources(state, input_directory=tmp_path)
 
   source_path.write_bytes(replacement)
 
   with pytest.raises(reference_media.ReferenceMediaError, match="hash"):
     reference_media.validate_reference_sources(
       state,
-      input_loadery=tmp_path,
+      input_directory=tmp_path,
     )

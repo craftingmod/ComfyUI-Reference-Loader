@@ -44,7 +44,7 @@
   position: relative;
   display: grid;
   place-items: center;
-  aspect-ratio: var(--rl-carl-aspect, 4 / 3);
+  aspect-ratio: var(--rl-card-aspect, 4 / 3);
   overflow: hidden;
   background: #101217;
 }

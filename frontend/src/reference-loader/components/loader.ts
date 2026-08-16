@@ -394,7 +394,7 @@ export class ReferenceLoaderController {
     }
     this.#renderPending = false
     const state = this.state
-    this.root.style.setProperty("--rl-carl-aspect", state.ui.cardAspectRatio)
+    this.root.style.setProperty("--rl-card-aspect", state.ui.cardAspectRatio)
     this.root.style.setProperty("--rl-grid-columns", String(state.ui.gridColumns))
     this.root.style.setProperty("--rl-preview-fit", state.ui.previewFit)
     this.root.innerHTML = `
@@ -476,7 +476,7 @@ export class ReferenceLoaderController {
     }
     return `<section class="rl-channel" data-channel="${channel}" aria-label="${label} references">
       <header><div><strong>${label}</strong><span>${order.length}</span></div><small>${descriptions[channel]}</small></header>
-      <div class="rl-carl-grid${cards ? "" : " is-empty"}" data-drop-zone="${channel}">${cards}${addControl}</div>
+      <div class="rl-card-grid${cards ? "" : " is-empty"}" data-drop-zone="${channel}">${cards}${addControl}</div>
     </section>`
   }
 

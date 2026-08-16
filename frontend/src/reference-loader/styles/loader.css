@@ -118,13 +118,13 @@
   white-space: nowrap;
   color: var(--rl-muted);
 }
-.rl-carl-grid {
+.rl-card-grid {
   display: grid;
   grid-template-columns: repeat(var(--rl-grid-columns, 3), minmax(0, 1fr));
   gap: 6px;
   min-height: 70px;
 }
-.rl-carl-grid.is-empty {
+.rl-card-grid.is-empty {
   min-height: 34px;
 }
 .rl-grid-add {
@@ -164,7 +164,7 @@
   opacity: 0;
   pointer-events: none;
 }
-.reference-loader.is-dragging .rl-carl-grid {
+.reference-loader.is-dragging .rl-card-grid {
   outline: 1px dashed var(--rl-accent);
   outline-offset: 2px;
 }

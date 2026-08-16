@@ -141,7 +141,7 @@ def _input_root() -> Path:
   try:
     import folder_paths
 
-    root = folder_paths.get_input_loadery()
+    root = folder_paths.get_input_directory()
   except Exception as exc:
     raise ReferenceRouteError(
       503,
@@ -177,7 +177,7 @@ def _is_link_like(path: Path) -> bool:
   return bool(attributes & reparse_flag)
 
 
-def _ensure_managed_loadery(*parts: str) -> Path:
+def _ensure_managed_directory(*parts: str) -> Path:
   root = _input_root()
   current = root
   for part in ("reference_loader", *parts):
@@ -890,8 +890,8 @@ def _proxy_payload(source_value: Any, max_pixels_value: Any) -> dict[str, Any]:
   key = _cache_key(
     "image_proxy_v1", {"sha256": source.sha256, "max_pixels": max_pixels}
   )[:32]
-  loadery = _ensure_managed_loadery("cache", "image_proxy")
-  destination = loadery / f"{key}.webp"
+  directory = _ensure_managed_directory("cache", "image_proxy")
+  destination = directory / f"{key}.webp"
   with _cache_lock(key):
     width, height = _load_or_create_proxy(destination, source, kind, max_pixels)
   canonical = ResolvedSource(
@@ -913,8 +913,8 @@ def _load_or_create_background_preview(
   source: ResolvedSource,
 ) -> tuple[Path, int, int, str]:
   key = _cache_key("background_preview_v1", {"sha256": source.sha256})[:32]
-  loadery = _ensure_managed_loadery("cache", "background_preview")
-  destination = loadery / f"{key}.png"
+  directory = _ensure_managed_directory("cache", "background_preview")
+  destination = directory / f"{key}.png"
   with _cache_lock(key):
     if destination.exists() and _is_link_like(destination):
       raise ReferenceRouteError(
@@ -980,8 +980,8 @@ def _background_preview_payload(source_value: Any) -> dict[str, Any]:
     "background_preview_proxy_v1",
     {"sha256": source.sha256, "max_pixels": DEFAULT_PROXY_PIXELS},
   )[:32]
-  loadery = _ensure_managed_loadery("cache", "background_preview")
-  destination = loadery / f"{key}.webp"
+  directory = _ensure_managed_directory("cache", "background_preview")
+  destination = directory / f"{key}.webp"
   preview_source = ResolvedSource(
     foreground,
     f"reference_loader/cache/background_preview/{foreground.name}",
@@ -1228,8 +1228,8 @@ def _waveform_payload(
     "waveform_v1",
     {"sha256": source.sha256, "peak_count": pair_count, "crop": crop_key},
   )
-  loadery = _ensure_managed_loadery("cache", "waveform")
-  destination = loadery / f"{key}.json"
+  directory = _ensure_managed_directory("cache", "waveform")
+  destination = directory / f"{key}.json"
   with _cache_lock(key):
     cached: dict[str, Any] | None = None
     if destination.exists() and _is_link_like(destination):
@@ -1530,8 +1530,8 @@ def _apply_edit_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
       backdrop.alpha_composite(image)
       image = backdrop.convert("RGB")
 
-    edits_loadery = _ensure_managed_loadery("edits")
-    temporary = edits_loadery / f".edit-{secrets.token_hex(12)}.tmp"
+    edits_directory = _ensure_managed_directory("edits")
+    temporary = edits_directory / f".edit-{secrets.token_hex(12)}.tmp"
     try:
       edit_identity = {
         "schema_version": 1,
@@ -1556,7 +1556,7 @@ def _apply_edit_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
           413, "edit_too_large", "The edited image exceeds 256 MiB."
         )
       output_hash = _sha256_file(temporary)
-      destination = edits_loadery / f"{output_hash}.png"
+      destination = edits_directory / f"{output_hash}.png"
       if destination.exists():
         if _is_link_like(destination) or _sha256_file(destination) != output_hash:
           raise ReferenceRouteError(
@@ -1668,7 +1668,7 @@ async def upload_endpoint(request: Any):
       raise _bad_request(
         "invalid_upload", "A single multipart file field named file is required."
       )
-    incoming = await asyncio.to_thread(_ensure_managed_loadery, ".incoming")
+    incoming = await asyncio.to_thread(_ensure_managed_directory, ".incoming")
     temporary = incoming / f"upload-{secrets.token_hex(16)}.part"
     digest = hashlib.sha256()
     size = 0
@@ -1711,7 +1711,7 @@ async def upload_endpoint(request: Any):
       verify_image=True,
     )
     sha256 = digest.hexdigest()
-    sources = await asyncio.to_thread(_ensure_managed_loadery, "sources")
+    sources = await asyncio.to_thread(_ensure_managed_directory, "sources")
     upload_filename = _safe_upload_filename(
       str(part.filename),
       extension=extension,
@@ -1927,8 +1927,8 @@ async def cache_view_endpoint(request: Any):
       raise ReferenceRouteError(
         404, "cache_not_found", "The cached asset was not found."
       )
-    loadery = await asyncio.to_thread(_ensure_managed_loadery, "cache", kind)
-    candidate = loadery / filename
+    directory = await asyncio.to_thread(_ensure_managed_directory, "cache", kind)
+    candidate = directory / filename
     try:
       if candidate.exists() and _is_link_like(candidate):
         raise ReferenceRouteError(
@@ -1939,7 +1939,7 @@ async def cache_view_endpoint(request: Any):
       raise ReferenceRouteError(
         404, "cache_not_found", "The cached asset was not found."
       ) from exc
-    if not _is_relative_to(resolved, loadery) or not resolved.is_file():
+    if not _is_relative_to(resolved, directory) or not resolved.is_file():
       raise ReferenceRouteError(
         404, "cache_not_found", "The cached asset was not found."
       )

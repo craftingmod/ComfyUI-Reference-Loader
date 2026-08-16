@@ -76,7 +76,7 @@ class QueryRequest:
 
 def install_runtime_stubs(monkeypatch, input_root: Path):
   folder_paths = ModuleType("folder_paths")
-  folder_paths.get_input_loadery = lambda: str(input_root)
+  folder_paths.get_input_directory = lambda: str(input_root)
   monkeypatch.setitem(sys.modules, "folder_paths", folder_paths)
 
   aiohttp = ModuleType("aiohttp")
@@ -95,9 +95,9 @@ def write_managed_source(
   input_root: Path, data: bytes, suffix: str
 ) -> tuple[Path, dict]:
   digest = hashlib.sha256(data).hexdigest()
-  loadery = input_root / "reference_loader" / "sources"
-  loadery.mkdir(parents=True, exist_ok=True)
-  path = loadery / f"{digest}.{suffix}"
+  directory = input_root / "reference_loader" / "sources"
+  directory.mkdir(parents=True, exist_ok=True)
+  path = directory / f"{digest}.{suffix}"
   path.write_bytes(data)
   return path, {
     "path": f"reference_loader/sources/{path.name}",

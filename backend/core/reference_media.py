@@ -93,16 +93,16 @@ def _is_reparse_point(path: Path) -> bool:
   return path.is_symlink() or bool(attributes & reparse_flag)
 
 
-def _input_root(input_loadery: str | os.PathLike[str] | None) -> Path:
-  if input_loadery is None:
+def _input_root(input_directory: str | os.PathLike[str] | None) -> Path:
+  if input_directory is None:
     try:
       import folder_paths
 
-      input_loadery = folder_paths.get_input_loadery()
+      input_directory = folder_paths.get_input_directory()
     except Exception as exc:
       raise ReferenceMediaUnavailable("ComfyUI input storage is unavailable.") from exc
   try:
-    root = Path(input_loadery).resolve(strict=True)
+    root = Path(input_directory).resolve(strict=True)
   except (OSError, RuntimeError) as exc:
     raise ReferenceMediaUnavailable("ComfyUI input storage is unavailable.") from exc
   if not root.is_dir():
@@ -139,7 +139,7 @@ def resolve_reference_source(source: ReferenceSource, *, input_root: Path) -> Pa
     raise ReferenceMediaError("A reference source was not found.") from exc
   if not _is_relative_to(resolved, input_root) or not resolved.is_file():
     raise ReferenceMediaError(
-      "A reference source must stay inside the ComfyUI input loadery."
+      "A reference source must stay inside the ComfyUI input directory."
     )
   try:
     actual_size = resolved.stat().st_size
@@ -580,7 +580,7 @@ def _load_video(path: Path, crop: TimeRange | None) -> Any:
 def validate_reference_sources(
   state: ReferenceState,
   *,
-  input_loadery: str | os.PathLike[str] | None = None,
+  input_directory: str | os.PathLike[str] | None = None,
 ) -> None:
   """Strongly validate every source that can contribute to this execution.
 
@@ -589,7 +589,7 @@ def validate_reference_sources(
   files cannot bypass the size/SHA-256 checks in the execution loader.
   """
 
-  root = _input_root(input_loadery)
+  root = _input_root(input_directory)
   sources: set[ReferenceSource] = set()
   for item_id in state.image_order:
     item = state.items[item_id]
@@ -618,7 +618,7 @@ def validate_reference_sources(
 def load_reference_media(
   state: ReferenceState,
   *,
-  input_loadery: str | os.PathLike[str] | None = None,
+  input_directory: str | os.PathLike[str] | None = None,
   image_output: ImageOutputSettings | None = None,
 ) -> LoadedReferenceMedia:
   """Decode active references into independent native ComfyUI list items.
@@ -627,7 +627,7 @@ def load_reference_media(
   the code paths that need them, keeping extension registration dependency-free.
   """
 
-  root = _input_root(input_loadery)
+  root = _input_root(input_directory)
   resolved: dict[ReferenceSource, Path] = {}
 
   def source_path(source: ReferenceSource) -> Path:

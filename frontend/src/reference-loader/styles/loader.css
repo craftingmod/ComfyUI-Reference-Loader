@@ -1,15 +1,42 @@
-.rl-toolbar {
+.rl-media-topbar {
   position: sticky;
   top: -8px;
   z-index: 4;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 7px 12px;
   margin: -8px -8px 0;
   padding: 8px;
+  border-bottom: 1px solid var(--rl-border);
   background: color-mix(in srgb, var(--rl-bg) 94%, transparent);
   backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--rl-border);
+}
+.rl-media-header {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 190px;
+}
+.rl-media-header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+.rl-media-header small {
+  overflow: hidden;
+  color: var(--rl-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rl-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 .rl-toolbar button,
 .rl-file-button {
@@ -38,7 +65,7 @@
   pointer-events: none;
 }
 .rl-toolbar__count {
-  margin-left: auto;
+  flex: none;
   color: var(--rl-muted);
   font-variant-numeric: tabular-nums;
 }

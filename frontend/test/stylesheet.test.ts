@@ -3,6 +3,19 @@ import { afterEach, describe, expect, it } from "bun:test"
 import { STYLESHEET_ID, installStylesheet } from "../src/stylesheet.ts"
 
 describe("Reference Loader stylesheet", () => {
+  it("styles the Media heading like the Prompt heading", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/loader.css", import.meta.url),
+    ).text()
+
+    expect(css).toContain(".rl-media-topbar")
+    expect(css).toContain("flex-wrap: wrap")
+    expect(css).toContain(".rl-media-header")
+    expect(css).toContain(".rl-media-header > div")
+    expect(css).toContain(".rl-media-header small")
+    expect(css).toContain("margin-left: auto")
+  })
+
   it("shows an overlay while external media files are dragged over the loader", async () => {
     const css = await Bun.file(
       new URL("../src/reference-loader/styles/loader.css", import.meta.url),

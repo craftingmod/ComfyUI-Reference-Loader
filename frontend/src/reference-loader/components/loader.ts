@@ -545,13 +545,21 @@ export class ReferenceLoaderController {
     this.root.style.setProperty("--rl-grid-columns", String(state.ui.gridColumns))
     this.root.style.setProperty("--rl-preview-fit", state.ui.previewFit)
     this.root.innerHTML = `
-      <section class="rl-toolbar" aria-label="Reference Loader toolbar">
-        <label class="rl-primary rl-file-button">Add media<input type="file" accept="image/*,audio/*,video/*" multiple></label>
-        <button type="button" data-action="undo" ${canUndo(this.#history) ? "" : "disabled"} title="Undo (Ctrl+Z)">↶ Undo</button>
-        <button type="button" data-action="redo" ${canRedo(this.#history) ? "" : "disabled"} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
-        <button type="button" class="rl-clear" data-action="clear" ${Object.keys(state.items).length > 0 || this.#pending.size > 0 ? "" : "disabled"} title="Clear all references (Undo available)">Clear</button>
-        <span class="rl-toolbar__count">${Object.keys(state.items).length} reference${Object.keys(state.items).length === 1 ? "" : "s"}</span>
-      </section>
+      <div class="rl-media-topbar">
+        <header class="rl-media-header">
+          <div>
+            <strong data-media-title>Media</strong>
+            <small>Add, edit, and order image, video, and audio references.</small>
+          </div>
+          <span class="rl-toolbar__count">${Object.keys(state.items).length} reference${Object.keys(state.items).length === 1 ? "" : "s"}</span>
+        </header>
+        <section class="rl-toolbar" aria-label="Reference Loader toolbar">
+          <label class="rl-primary rl-file-button">Add media<input type="file" accept="image/*,audio/*,video/*" multiple></label>
+          <button type="button" data-action="undo" ${canUndo(this.#history) ? "" : "disabled"} title="Undo (Ctrl+Z)">↶ Undo</button>
+          <button type="button" data-action="redo" ${canRedo(this.#history) ? "" : "disabled"} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+          <button type="button" class="rl-clear" data-action="clear" ${Object.keys(state.items).length > 0 || this.#pending.size > 0 ? "" : "disabled"} title="Clear all references (Undo available)">Clear</button>
+        </section>
+      </div>
       <p class="rl-status" role="status">${escapeHtml(this.#status)}</p>
       ${this.#pendingMarkup()}
       <div class="rl-channels">

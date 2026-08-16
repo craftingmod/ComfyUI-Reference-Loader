@@ -23,6 +23,15 @@ describe("Reference Loader DOM lifecycle", () => {
       new ReferenceLoaderApi(api),
       undefined,
     )
+    expect(root.querySelector("[data-media-title]")?.textContent).toBe("Media")
+    expect(root.querySelector(".rl-media-header small")?.textContent).toContain(
+      "image, video, and audio references",
+    )
+    expect(root.querySelector(".rl-media-header .rl-toolbar__count")?.textContent).toBe(
+      "0 references",
+    )
+    expect(root.querySelector(".rl-media-topbar > .rl-media-header")).not.toBeNull()
+    expect(root.querySelector(".rl-media-topbar > .rl-toolbar")).not.toBeNull()
     expect(root.querySelectorAll(".rl-channel")).toHaveLength(3)
     expect(root.querySelectorAll(".rl-card-grid.is-empty")).toHaveLength(3)
     expect(root.querySelectorAll(".rl-grid-add.is-wide")).toHaveLength(3)

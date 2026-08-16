@@ -168,3 +168,20 @@
   outline: 1px dashed var(--rl-accent);
   outline-offset: 2px;
 }
+
+.reference-loader.is-file-dragging::after {
+  content: "Drop media to add";
+  position: absolute;
+  inset: 8px;
+  z-index: 12;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--rl-accent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--rl-bg) 82%, transparent);
+  color: var(--rl-text);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+}

@@ -3,6 +3,16 @@ import { afterEach, describe, expect, it } from "bun:test"
 import { STYLESHEET_ID, installStylesheet } from "../src/stylesheet.ts"
 
 describe("Reference Loader stylesheet", () => {
+  it("shows an overlay while external media files are dragged over the loader", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/loader.css", import.meta.url),
+    ).text()
+
+    expect(css).toContain(".reference-loader.is-file-dragging::after")
+    expect(css).toContain('content: "Drop media to add"')
+    expect(css).toContain("pointer-events: none")
+  })
+
   afterEach(() => {
     document.getElementById(STYLESHEET_ID)?.remove()
   })

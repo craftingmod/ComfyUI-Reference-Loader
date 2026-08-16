@@ -95,6 +95,76 @@ describe("Reference Loader custom widget", () => {
     expect(removeReceiver).toBe(widget)
   })
 
+  test("accepts media drops on the ComfyUI node and restores existing drop handlers", async () => {
+    let extension: ComfyExtension | undefined
+    const app: ComfyAppLike = {
+      registerExtension(candidate) {
+        extension = candidate
+      },
+    }
+    const api: ComfyApiLike = {
+      fetchApi: async (route) => {
+        if (route.endsWith("/upload")) {
+          return new Response(
+            JSON.stringify({
+              kind: "audio",
+              source: {
+                path: "reference_loader/sources/dropped.wav",
+                mime: "audio/wav",
+                sha256: "a".repeat(64),
+              },
+              metadata: { duration: 1 },
+            }),
+            { status: 201 },
+          )
+        }
+        if (route.endsWith("/metadata"))
+          return new Response(JSON.stringify({ metadata: { duration: 1 } }))
+        if (route.endsWith("/waveform"))
+          return new Response(JSON.stringify({ pairs: [[-0.25, 0.25]], duration: 1 }))
+        return new Response("{}")
+      },
+    }
+    registerReferenceLoader(app, api)
+    const factory = extension?.getCustomWidgets?.()[REFERENCE_LOADER_WIDGET_TYPE]
+    const originalDragOver = () => false
+    const originalDragDrop = async () => false
+    const widget: ComfyWidget = { name: "loader_state", value: "" }
+    let domOptions: DomWidgetOptions | undefined
+    const node: ComfyNode = {
+      addDOMWidget(_name, _type, _element, options) {
+        domOptions = options
+        return widget
+      },
+      onDragOver: originalDragOver,
+      onDragDrop: originalDragDrop,
+      setDirtyCanvas: () => undefined,
+    }
+    factory?.(
+      node,
+      "loader_state",
+      ["STRING", { default: serializeLoaderState(createEmptyLoaderState()) }],
+      app,
+    )
+    const transfer = new DataTransfer()
+    transfer.items.add(new File(["audio"], "dropped.wav", { type: "audio/wav" }))
+    const event = new DragEvent("drop")
+    Object.defineProperty(event, "dataTransfer", { value: transfer })
+
+    expect(node.onDragOver?.(event)).toBe(true)
+    expect(await node.onDragDrop?.(event)).toBe(true)
+    expect(Object.values(JSON.parse(String(domOptions?.getValue?.())).items)).toEqual([
+      expect.objectContaining({
+        kind: "audio",
+        sourceFilename: "dropped.wav",
+      }),
+    ])
+
+    widget.onRemove?.()
+    expect(node.onDragOver).toBe(originalDragOver)
+    expect(node.onDragDrop).toBe(originalDragDrop)
+  })
+
   test("uses native advanced widgets as write-only proxies for Loader state", async () => {
     let extension: ComfyExtension | undefined
     const app: ComfyAppLike = {

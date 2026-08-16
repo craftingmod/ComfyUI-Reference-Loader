@@ -18,6 +18,7 @@ const promptSubscriptions = new WeakMap<ComfyNode, () => void>()
 const promptPresetBindings = new WeakMap<ComfyNode, PromptPresetBinding>()
 const removalHooks = new WeakSet<ComfyNode>()
 const displayProxies = new WeakMap<ComfyNode, NativeDisplayProxy>()
+const nodeFileDropBindings = new WeakMap<ComfyNode, () => void>()
 const VUE_WIDGET_GRID_CLASS = "rl-reference-loader-widgets"
 
 interface NativeDisplayProxy {
@@ -42,6 +43,8 @@ export function registerReferenceLoader(
       return {
         [REFERENCE_LOADER_WIDGET_TYPE]: (node, inputName, inputData) => {
           controllers.get(node)?.destroy()
+          nodeFileDropBindings.get(node)?.()
+          nodeFileDropBindings.delete(node)
           displayProxies.get(node)?.dispose()
           displayProxies.delete(node)
           const root = document.createElement("div")
@@ -61,6 +64,8 @@ export function registerReferenceLoader(
               afterChange: () => referenceApp.canvas?.emitAfterChange?.(),
             },
           )
+          const releaseNodeFileDrop = bindNodeFileDrop(node, controller)
+          nodeFileDropBindings.set(node, releaseNodeFileDrop)
           let displayProxy: NativeDisplayProxy | undefined
           let removed = false
           const contentHeight = () => {
@@ -98,6 +103,9 @@ export function registerReferenceLoader(
             releaseVueWidgetGrid()
             promptSubscriptions.get(node)?.()
             promptSubscriptions.delete(node)
+            releaseNodeFileDrop()
+            if (nodeFileDropBindings.get(node) === releaseNodeFileDrop)
+              nodeFileDropBindings.delete(node)
             displayProxy?.dispose()
             displayProxies.delete(node)
             if (controllers.get(node) === controller) controllers.delete(node)
@@ -223,11 +231,41 @@ function installNodeRemovalHook(node: ComfyNode): void {
     promptPresetBindings.delete(this)
     promptControllers.get(this)?.destroy()
     promptControllers.delete(this)
+    nodeFileDropBindings.get(this)?.()
+    nodeFileDropBindings.delete(this)
     controllers.get(this)?.destroy()
     controllers.delete(this)
     displayProxies.get(this)?.dispose()
     displayProxies.delete(this)
     return originalRemoved?.apply(this, args)
+  }
+}
+
+function bindNodeFileDrop(node: ComfyNode, controller: ReferenceLoaderController): () => void {
+  const originalDragOver = node.onDragOver
+  const originalDragDrop = node.onDragDrop
+  const onDragOver = function (this: ComfyNode, event: DragEvent): boolean {
+    if (controller.acceptsFileDrop(event.dataTransfer)) return true
+    return originalDragOver?.call(this, event) === true
+  }
+  const onDragDrop = async function (this: ComfyNode, event: DragEvent): Promise<boolean> {
+    if (await controller.addDroppedFiles(event.dataTransfer?.files ?? [])) return true
+    return (await originalDragDrop?.call(this, event)) === true
+  }
+  node.onDragOver = onDragOver
+  node.onDragDrop = onDragDrop
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    if (node.onDragOver === onDragOver) {
+      if (originalDragOver) node.onDragOver = originalDragOver
+      else delete node.onDragOver
+    }
+    if (node.onDragDrop === onDragDrop) {
+      if (originalDragDrop) node.onDragDrop = originalDragDrop
+      else delete node.onDragDrop
+    }
   }
 }
 

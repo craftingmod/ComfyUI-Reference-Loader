@@ -73,6 +73,11 @@ function fileMediaKind(file: File): keyof typeof MEDIA_EXTENSIONS | undefined {
   return undefined
 }
 
+function hasFilePayload(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer) return false
+  return dataTransfer.files.length > 0 || [...dataTransfer.types].includes("Files")
+}
+
 function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => {
     const entities: Record<string, string> = {
@@ -378,6 +383,20 @@ export class ReferenceLoaderController {
     return () => this.#referenceListeners.delete(listener)
   }
 
+  acceptsFileDrop(dataTransfer: DataTransfer | null): boolean {
+    if (this.#destroyed || !hasFilePayload(dataTransfer)) return false
+    const files = [...(dataTransfer?.files ?? [])]
+    return files.length === 0 || files.some((file) => fileMediaKind(file) !== undefined)
+  }
+
+  async addDroppedFiles(files: Iterable<File>): Promise<boolean> {
+    if (this.#destroyed) return false
+    const dropped = [...files]
+    if (!dropped.some((file) => fileMediaKind(file) !== undefined)) return false
+    await this.#uploadFiles(dropped)
+    return true
+  }
+
   writeDisplayProxy(values: Partial<LoaderDisplayState>): void {
     if (this.#destroyed) return
     const gridColumns =
@@ -505,6 +524,7 @@ export class ReferenceLoaderController {
     this.#runtimeSequences.clear()
     this.#referenceListeners.clear()
     this.#dropTarget = undefined
+    this.root.classList.remove("is-dragging", "is-file-dragging")
     this.root.replaceChildren()
   }
 
@@ -793,16 +813,18 @@ export class ReferenceLoaderController {
         this.#clearDropTarget()
         this.#drag = undefined
         this.#armedDrag = undefined
-        this.root.classList.remove("is-dragging")
+        this.root.classList.remove("is-dragging", "is-file-dragging")
       },
       { signal },
     )
     this.root.addEventListener(
       "dragover",
       (event) => {
+        const fileDrop = this.acceptsFileDrop(event.dataTransfer)
+        if (!fileDrop && !this.#drag) return
         event.preventDefault()
-        if (event.dataTransfer)
-          event.dataTransfer.dropEffect = event.dataTransfer.files.length ? "copy" : "move"
+        this.root.classList.toggle("is-file-dragging", fileDrop)
+        if (event.dataTransfer) event.dataTransfer.dropEffect = fileDrop ? "copy" : "move"
         this.#updateDropTarget(event)
       },
       { signal },
@@ -811,7 +833,10 @@ export class ReferenceLoaderController {
       "dragleave",
       (event) => {
         const related = event.relatedTarget
-        if (!(related instanceof Node) || !this.root.contains(related)) this.#clearDropTarget()
+        if (!(related instanceof Node) || !this.root.contains(related)) {
+          this.#clearDropTarget()
+          this.root.classList.remove("is-file-dragging")
+        }
       },
       { signal },
     )
@@ -1108,16 +1133,19 @@ export class ReferenceLoaderController {
   }
 
   #onDrop(event: DragEvent): void {
-    event.preventDefault()
     this.#clearDropTarget()
+    this.root.classList.remove("is-file-dragging")
     const files = [...(event.dataTransfer?.files ?? [])]
     if (files.length > 0) {
-      void this.#uploadFiles(files)
+      if (!files.some((file) => fileMediaKind(file) !== undefined)) return
+      event.preventDefault()
+      void this.addDroppedFiles(files)
       return
     }
     const zone = (event.target as Element).closest<HTMLElement>("[data-drop-zone]")
     const channel = zone?.dataset.dropZone as LoaderChannel | undefined
     if (!channel || !this.#drag || this.#drag.channel !== channel) return
+    event.preventDefault()
     const targetCard = (event.target as Element).closest<HTMLElement>(".rl-card")
     const order =
       channel === "image"

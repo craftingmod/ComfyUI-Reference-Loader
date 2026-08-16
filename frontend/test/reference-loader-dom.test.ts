@@ -385,6 +385,70 @@ describe("Reference Loader DOM lifecycle", () => {
     root.remove()
   })
 
+  test("uploads a media file dropped onto the loader and shows drop feedback", async () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const node: ComfyNode = {
+      addWidget: () => ({ name: "unused", value: null }),
+      addDOMWidget: () => ({ name: "unused", value: null }),
+      setDirtyCanvas: () => undefined,
+    }
+    const api: ComfyApiLike = {
+      fetchApi: async (route) => {
+        if (route.endsWith("/upload")) {
+          return new Response(
+            JSON.stringify({
+              kind: "image",
+              source: {
+                path: "reference_loader/sources/dropped.png",
+                mime: "image/png",
+                sha256: "d".repeat(64),
+              },
+              metadata: { width: 2, height: 2 },
+            }),
+            { status: 201 },
+          )
+        }
+        if (route.endsWith("/metadata"))
+          return new Response(JSON.stringify({ metadata: { width: 2, height: 2 } }))
+        if (route.endsWith("/image_proxy"))
+          return new Response(JSON.stringify({ url: "/api/view?filename=dropped.webp" }))
+        return new Response("{}")
+      },
+    }
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi(api),
+      undefined,
+    )
+    const transfer = new DataTransfer()
+    transfer.items.add(new File(["image"], "dropped.png", { type: "image/png" }))
+    const dragover = new DragEvent("dragover", { bubbles: true, cancelable: true })
+    Object.defineProperty(dragover, "dataTransfer", { value: transfer })
+    root.dispatchEvent(dragover)
+
+    expect(dragover.defaultPrevented).toBe(true)
+    expect(root.classList.contains("is-file-dragging")).toBe(true)
+
+    const drop = new DragEvent("drop", { bubbles: true, cancelable: true })
+    Object.defineProperty(drop, "dataTransfer", { value: transfer })
+    root.dispatchEvent(drop)
+    expect(drop.defaultPrevented).toBe(true)
+    expect(root.classList.contains("is-file-dragging")).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(Object.values(controller.state.items)).toEqual([
+      expect.objectContaining({
+        kind: "image",
+        sourceFilename: "dropped.png",
+        source: expect.objectContaining({ path: "reference_loader/sources/dropped.png" }),
+      }),
+    ])
+    controller.destroy()
+    root.remove()
+  })
+
   test("arms native article dragging from the card surface but not its controls", () => {
     const root = document.createElement("div")
     document.body.append(root)

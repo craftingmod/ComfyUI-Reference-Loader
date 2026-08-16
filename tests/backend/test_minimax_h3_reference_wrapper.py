@@ -109,7 +109,7 @@ def test_wrapper_maps_toggle_policy_and_samples_video_at_24fps(monkeypatch):
     vae="vae",
     audio_vae="audio vae",
     references=_bundle(module),
-    prompt="prompt",
+    prompt="<Audio 1> then <Audio 2> and <Audio 3>",
     width=1344,
     height=768,
     length=124,
@@ -118,11 +118,99 @@ def test_wrapper_maps_toggle_policy_and_samples_video_at_24fps(monkeypatch):
 
   assert output == ("conditioning", "latent")
   call = FakeMiniMaxH3.calls[-1]
+  assert call["prompt"] == "<Audio 1> then <Audio 2> and <Audio 3>"
   assert call["ref_images"] == {"ref_image_0": "image"}
   assert call["ref_videos"]["ref_video_0"] == tuple(
     min(29, index * 30 // 24) for index in range(24)
   )
   assert call["ref_video_audios"] == {"ref_video_audio_0": "paired"}
+  assert call["ref_audios"] == {
+    "ref_audio_0": "audio-only video",
+    "ref_audio_1": "standalone",
+  }
+
+
+def test_wrapper_remaps_loader_audio_order_to_h3_presentation_order(monkeypatch):
+  module = importlib.import_module("backend.nodes.minimax_h3_reference_wrapper")
+  FakeMiniMaxH3.calls.clear()
+  monkeypatch.setattr(module, "_minimax_h3_node", lambda: FakeMiniMaxH3)
+  manifest = {
+    "outputs": {
+      "images": [],
+      "videos": ["video-1"],
+      "audios": ["audio-1", "video-1:audio"],
+    }
+  }
+  bundle = module.ReferenceLoaderBundle(
+    images=(),
+    image_captions=(),
+    audios=("standalone", "paired"),
+    audio_captions=("standalone", "paired"),
+    videos=(FakeVideo(24, 24),),
+    video_captions=("video",),
+    manifest_json=json.dumps(manifest),
+  )
+
+  module.MiniMaxH3ReferenceToVideoWrapperNode.execute(
+    clip="clip",
+    vae="vae",
+    audio_vae="audio vae",
+    references=bundle,
+    prompt="Use <Audio 1>, <Audio 2>, and leave <Audio 10> unchanged.",
+    width=1344,
+    height=768,
+    length=124,
+  )
+
+  call = FakeMiniMaxH3.calls[-1]
+  assert call["prompt"] == ("Use <Audio 2>, <Audio 1>, and leave <Audio 10> unchanged.")
+  assert call["ref_video_audios"] == {"ref_video_audio_0": "paired"}
+  assert call["ref_audios"] == {"ref_audio_0": "standalone"}
+
+
+def test_wrapper_remaps_multiple_soundtracks_in_video_order(monkeypatch):
+  module = importlib.import_module("backend.nodes.minimax_h3_reference_wrapper")
+  FakeMiniMaxH3.calls.clear()
+  monkeypatch.setattr(module, "_minimax_h3_node", lambda: FakeMiniMaxH3)
+  manifest = {
+    "outputs": {
+      "images": [],
+      "videos": ["video-2", "video-1"],
+      "audios": [
+        "video-1:audio",
+        "video-3:audio",
+        "video-2:audio",
+        "audio-1",
+      ],
+    }
+  }
+  bundle = module.ReferenceLoaderBundle(
+    images=(),
+    image_captions=(),
+    audios=("video one", "audio-only video", "video two", "standalone"),
+    audio_captions=("video one", "audio-only video", "video two", "standalone"),
+    videos=(FakeVideo(24, 24), FakeVideo(24, 24)),
+    video_captions=("video two", "video one"),
+    manifest_json=json.dumps(manifest),
+  )
+
+  module.MiniMaxH3ReferenceToVideoWrapperNode.execute(
+    clip="clip",
+    vae="vae",
+    audio_vae="audio vae",
+    references=bundle,
+    prompt="<Audio 1> <Audio 2> <Audio 3> <Audio 4>",
+    width=1344,
+    height=768,
+    length=124,
+  )
+
+  call = FakeMiniMaxH3.calls[-1]
+  assert call["prompt"] == "<Audio 2> <Audio 3> <Audio 1> <Audio 4>"
+  assert call["ref_video_audios"] == {
+    "ref_video_audio_0": "video two",
+    "ref_video_audio_1": "video one",
+  }
   assert call["ref_audios"] == {
     "ref_audio_0": "audio-only video",
     "ref_audio_1": "standalone",

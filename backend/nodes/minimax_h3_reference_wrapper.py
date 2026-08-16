@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import json
 import math
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -14,6 +15,8 @@ H3_REFERENCE_FPS = 24
 H3_MAX_IMAGES = 9
 H3_MAX_VIDEOS = 3
 H3_MAX_AUDIOS = 3
+
+_AUDIO_TAG_RE = re.compile(r"<Audio ([1-9][0-9]*)>")
 
 
 def _minimax_h3_node() -> type[io.ComfyNode]:
@@ -72,7 +75,39 @@ def _video_frames_at_24fps(video: Any) -> Any:
   return images[indices]
 
 
-def _reference_inputs(references: ReferenceLoaderBundle) -> tuple[dict[str, Any], ...]:
+def _remap_audio_tags(
+  prompt: str,
+  loader_audio_ids: tuple[str, ...],
+  h3_audio_ids: tuple[str, ...],
+) -> str:
+  """Translate Loader audio ordinals to MiniMax H3 presentation ordinals."""
+
+  h3_ordinals = {
+    audio_id: index for index, audio_id in enumerate(h3_audio_ids, start=1)
+  }
+  ordinal_map = {
+    loader_ordinal: h3_ordinals[audio_id]
+    for loader_ordinal, audio_id in enumerate(loader_audio_ids, start=1)
+  }
+
+  def replace(match: re.Match[str]) -> str:
+    ordinal = int(match.group(1))
+    h3_ordinal = ordinal_map.get(ordinal)
+    return match.group(0) if h3_ordinal is None else f"<Audio {h3_ordinal}>"
+
+  return _AUDIO_TAG_RE.sub(replace, prompt)
+
+
+def _reference_inputs(
+  references: ReferenceLoaderBundle,
+) -> tuple[
+  dict[str, Any],
+  dict[str, Any],
+  dict[str, Any],
+  dict[str, Any],
+  tuple[str, ...],
+  tuple[str, ...],
+]:
   try:
     manifest = json.loads(references.manifest_json)
   except (TypeError, ValueError) as exc:
@@ -91,6 +126,14 @@ def _reference_inputs(references: ReferenceLoaderBundle) -> tuple[dict[str, Any]
 
   audios_by_id = dict(zip(audio_ids, references.audios, strict=True))
   active_video_ids = set(video_ids)
+  paired_audio_ids = tuple(
+    f"{video_id}:audio" for video_id in video_ids if f"{video_id}:audio" in audios_by_id
+  )
+  paired_audio_id_set = set(paired_audio_ids)
+  standalone_audio_ids = tuple(
+    audio_id for audio_id in audio_ids if audio_id not in paired_audio_id_set
+  )
+  h3_audio_ids = paired_audio_ids + standalone_audio_ids
   ref_images = {
     f"ref_image_{index}": image for index, image in enumerate(references.images)
   }
@@ -118,7 +161,14 @@ def _reference_inputs(references: ReferenceLoaderBundle) -> tuple[dict[str, Any]
     raise ValueError(
       f"MiniMax H3 accepts at most {H3_MAX_AUDIOS} standalone reference audios."
     )
-  return ref_images, ref_videos, ref_video_audios, ref_audios
+  return (
+    ref_images,
+    ref_videos,
+    ref_video_audios,
+    ref_audios,
+    audio_ids,
+    h3_audio_ids,
+  )
 
 
 class MiniMaxH3ReferenceToVideoWrapperNode(io.ComfyNode):
@@ -167,12 +217,20 @@ class MiniMaxH3ReferenceToVideoWrapperNode(io.ComfyNode):
   ) -> io.NodeOutput:
     if not isinstance(references, ReferenceLoaderBundle):
       raise TypeError("references must be a REFERENCE_LOADER_BUNDLE value.")
-    ref_images, ref_videos, ref_video_audios, ref_audios = _reference_inputs(references)
+    (
+      ref_images,
+      ref_videos,
+      ref_video_audios,
+      ref_audios,
+      loader_audio_ids,
+      h3_audio_ids,
+    ) = _reference_inputs(references)
+    h3_prompt = _remap_audio_tags(prompt, loader_audio_ids, h3_audio_ids)
     return _minimax_h3_node().execute(
       clip=clip,
       vae=vae,
       audio_vae=audio_vae,
-      prompt=prompt,
+      prompt=h3_prompt,
       width=width,
       height=height,
       length=length,

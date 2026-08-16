@@ -115,6 +115,8 @@ Enabled media is projected according to these rules:
 
 Native VIDEO values are decoded through `get_components()`. When the source is not already 24 fps, the Wrapper samples its decoded IMAGE batch on a 24 fps timeline before delegating to MiniMax H3; a separate frame-sampling node is not required. The native H3 limits are enforced: up to 9 images, 3 videos, and 3 standalone audio references. A soundtrack paired with a video uses the corresponding video slot rather than a standalone audio slot.
 
+The Loader's Audio board retains its independent user-defined order. Native MiniMax H3 instead presents active video soundtracks first in Video order and then presents standalone Audio inputs. Immediately before delegation, the Wrapper remaps valid `<Audio N>` tags from Loader Audio order to this native presentation order. Unknown or out-of-range Audio tags remain literal, while Picture and Video ordinals pass through unchanged.
+
 ### Video audio policy
 
 Version 1 fixes `videoAudioPolicy` to `preserve`:

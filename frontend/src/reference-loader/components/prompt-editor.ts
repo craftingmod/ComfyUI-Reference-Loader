@@ -89,6 +89,19 @@ function referenceKey(mediaKind: string, referenceId: string): string {
   return `${mediaKind}:${referenceId}`
 }
 
+function findOrderedReference(
+  mediaKind: string,
+  label: string,
+  references: readonly PromptReference[],
+): PromptReference | undefined {
+  const match = /^(image|video|audio)([1-9]\d*)$/u.exec(label)
+  if (match?.[1] !== mediaKind) return undefined
+  const ordinal = Number(match[2])
+  return references.find(
+    (reference) => reference.mediaKind === mediaKind && reference.ordinal === ordinal,
+  )
+}
+
 function makeReferenceVisual(reference?: PromptReference): HTMLElement {
   if (reference?.previewUrl && reference.mediaKind !== "audio") {
     const image = document.createElement("img")
@@ -280,16 +293,36 @@ export class ReferencePromptController {
     this.#renderEditor()
   }
 
-  refreshReferences(): void {
+  refreshReferences(bindByOrder = false): void {
     if (this.#destroyed) return
+    const currentReferences = this.#references()
+    if (bindByOrder) {
+      this.#document = {
+        ...this.#document,
+        sections: this.#document.sections.map((section) => ({
+          ...section,
+          parts: section.parts.map((part) => {
+            if (part.type !== "mention") return part
+            const reference = findOrderedReference(part.mediaKind, part.label, currentReferences)
+            return reference
+              ? {
+                  ...part,
+                  referenceId: reference.referenceId,
+                  label: reference.label,
+                }
+              : part
+          }),
+        })),
+      }
+    }
     const raw = this.root.querySelector<HTMLElement>("[data-prompt-editor]")
     if (this.#document.view === "raw") {
       if (raw && document.activeElement !== raw)
-        raw.textContent = compilePromptDocument(this.#document, this.#references())
+        raw.textContent = compilePromptDocument(this.#document, currentReferences)
       return
     }
     const references = new Map(
-      this.#references().map((reference) => [
+      currentReferences.map((reference) => [
         referenceKey(reference.mediaKind, reference.referenceId),
         reference,
       ]),
@@ -298,14 +331,17 @@ export class ReferencePromptController {
       const mediaKind = chip.dataset.mediaKind ?? ""
       const referenceId = chip.dataset.referenceId ?? ""
       const label = chip.dataset.label ?? referenceId
-      const reference = references.get(referenceKey(mediaKind, referenceId))
+      const orderedReference = bindByOrder
+        ? findOrderedReference(mediaKind, label, currentReferences)
+        : undefined
+      const reference = orderedReference ?? references.get(referenceKey(mediaKind, referenceId))
       chip.replaceWith(
         makeMentionChip(
           {
             type: "mention",
-            referenceId,
+            referenceId: reference?.referenceId ?? referenceId,
             mediaKind: mediaKind === "video" || mediaKind === "audio" ? mediaKind : "image",
-            label,
+            label: reference?.label ?? label,
           },
           reference,
         ),

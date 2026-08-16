@@ -372,6 +372,49 @@ describe("Reference Prompt section stack", () => {
     controller.destroy()
   })
 
+  test("rebinds mentions to the current ordinal only when order locking is enabled", () => {
+    const references = [
+      imageReference({
+        referenceId: "replacement",
+        itemId: "replacement",
+        ordinal: 2,
+        tag: "<Picture 2>",
+        label: "image2",
+        filename: "replacement.png",
+      }),
+    ]
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      sections: [
+        {
+          title: "scene",
+          parts: [
+            {
+              type: "mention",
+              referenceId: "original",
+              mediaKind: "image",
+              label: "image2",
+            },
+          ],
+        },
+      ],
+    })
+    const { root, controller } = makeController(references, serialized)
+
+    controller.refreshReferences()
+    expect(controller.compiledPrompt).toBe("scene:\n@image2")
+    expect(JSON.parse(controller.serialize()).sections[0].parts[0].referenceId).toBe("original")
+
+    controller.refreshReferences(true)
+    expect(controller.compiledPrompt).toBe("scene:\n<Picture 2>")
+    expect(JSON.parse(controller.serialize()).sections[0].parts[0]).toMatchObject({
+      referenceId: "replacement",
+      label: "image2",
+    })
+    expect(root.querySelector(".rl-prompt-mention")?.classList.contains("is-stale")).toBe(false)
+    controller.destroy()
+  })
+
   test("leaves Enter and Shift+Enter to the native section editor", () => {
     const { root, controller } = makeController()
     const scene = sectionBody(root, "scene")

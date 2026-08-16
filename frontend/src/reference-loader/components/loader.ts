@@ -46,6 +46,7 @@ export interface LoaderDisplayState {
   previewPixels: number
   showCaptions: boolean
   twoImageMode: boolean
+  promptByOrder: boolean
   cardAspect: string
   previewFit: "contain" | "cover"
   waveformPairs: number
@@ -107,6 +108,12 @@ function twoImageModeProperty(node: ComfyNode): boolean {
   return (value as Record<string, unknown>).twoImageMode === true
 }
 
+export function promptByOrderProperty(node: ComfyNode): boolean {
+  const value = node.properties?.[NODE_PROPERTY_KEY]
+  if (typeof value !== "object" || value === null) return false
+  return (value as Record<string, unknown>).promptByOrder === true
+}
+
 function setShowCaptionsProperty(node: ComfyNode, showCaptions: boolean): void {
   const current = node.properties?.[NODE_PROPERTY_KEY]
   const namespace =
@@ -124,6 +131,16 @@ function setTwoImageModeProperty(node: ComfyNode, twoImageMode: boolean): void {
   node.properties = {
     ...node.properties,
     [NODE_PROPERTY_KEY]: { ...namespace, twoImageMode },
+  }
+}
+
+function setPromptByOrderProperty(node: ComfyNode, promptByOrder: boolean): void {
+  const current = node.properties?.[NODE_PROPERTY_KEY]
+  const namespace =
+    typeof current === "object" && current !== null ? (current as Record<string, unknown>) : {}
+  node.properties = {
+    ...node.properties,
+    [NODE_PROPERTY_KEY]: { ...namespace, promptByOrder },
   }
 }
 
@@ -291,6 +308,7 @@ export class ReferenceLoaderController {
       previewPixels: this.state.ui.previewMaxPixels / 1_000_000,
       showCaptions: showCaptionsProperty(this.#node),
       twoImageMode: twoImageModeProperty(this.#node),
+      promptByOrder: promptByOrderProperty(this.#node),
       cardAspect: this.state.ui.cardAspectRatio,
       previewFit: this.state.ui.previewFit,
       waveformPairs: this.state.ui.waveformPeaks,
@@ -429,6 +447,17 @@ export class ReferenceLoaderController {
         this.#status = twoImageMode
           ? "Two-image mode enabled. Additional Images will be added disabled."
           : "Two-image mode disabled."
+        this.render()
+      }
+    }
+    if (values.promptByOrder !== undefined) {
+      const promptByOrder = Boolean(values.promptByOrder)
+      if (promptByOrder !== promptByOrderProperty(this.#node)) {
+        this.#recordGraphChange(() => setPromptByOrderProperty(this.#node, promptByOrder))
+        this.#node.setDirtyCanvas(true, true)
+        this.#status = promptByOrder
+          ? "Prompt mentions are now locked to their image/video/audio order."
+          : "Prompt mentions are now locked to their original media."
         this.render()
       }
     }

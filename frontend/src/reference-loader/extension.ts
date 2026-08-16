@@ -7,7 +7,7 @@ import type {
   ComfyWidget,
 } from "../comfyui.ts"
 import { ReferenceLoaderApi } from "./api.ts"
-import { ReferenceLoaderController } from "./components/loader.ts"
+import { promptByOrderProperty, ReferenceLoaderController } from "./components/loader.ts"
 import { ReferencePromptController } from "./components/prompt-editor.ts"
 
 export const REFERENCE_LOADER_WIDGET_TYPE = "REFERENCE_LOADER"
@@ -185,7 +185,7 @@ function bindPromptReferences(node: ComfyNode): void {
   if (!loader || !prompt) return
   promptSubscriptions.set(
     node,
-    loader.subscribePromptReferences(() => prompt.refreshReferences()),
+    loader.subscribePromptReferences(() => prompt.refreshReferences(promptByOrderProperty(node))),
   )
 }
 
@@ -266,6 +266,7 @@ function bindNativeDisplayProxies(
   const previewPixels = node.widgets?.find((widget) => widget.name === "preview_pixels")
   const showCaptions = node.widgets?.find((widget) => widget.name === "show_captions")
   const twoImageMode = node.widgets?.find((widget) => widget.name === "two_image_mode")
+  const promptByOrder = node.widgets?.find((widget) => widget.name === "prompt_by_order")
   const cardAspect = node.widgets?.find((widget) => widget.name === "card_aspect")
   const previewFit = node.widgets?.find((widget) => widget.name === "preview_fit")
   const waveformPairs = node.widgets?.find((widget) => widget.name === "waveform_pairs")
@@ -274,6 +275,7 @@ function bindNativeDisplayProxies(
     !previewPixels ||
     !showCaptions ||
     !twoImageMode ||
+    !promptByOrder ||
     !cardAspect ||
     !previewFit ||
     !waveformPairs
@@ -285,6 +287,7 @@ function bindNativeDisplayProxies(
   const originalPreviewCallback = previewPixels.callback
   const originalShowCaptionsCallback = showCaptions.callback
   const originalTwoImageModeCallback = twoImageMode.callback
+  const originalPromptByOrderCallback = promptByOrder.callback
   const originalCardAspectCallback = cardAspect.callback
   const originalPreviewFitCallback = previewFit.callback
   const originalWaveformPairsCallback = waveformPairs.callback
@@ -294,6 +297,7 @@ function bindNativeDisplayProxies(
     previewPixels.value = values.previewPixels
     showCaptions.value = values.showCaptions
     twoImageMode.value = values.twoImageMode
+    promptByOrder.value = values.promptByOrder
     cardAspect.value = values.cardAspect
     previewFit.value = values.previewFit
     waveformPairs.value = values.waveformPairs
@@ -326,6 +330,12 @@ function bindNativeDisplayProxies(
     syncFromState()
     return result
   }
+  const promptByOrderCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalPromptByOrderCallback?.call(promptByOrder, value, ...args)
+    controller.writeDisplayProxy({ promptByOrder: Boolean(value) })
+    syncFromState()
+    return result
+  }
   const cardAspectCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
     const result = originalCardAspectCallback?.call(cardAspect, value, ...args)
     controller.writeDisplayProxy({ cardAspect: String(value) })
@@ -350,6 +360,7 @@ function bindNativeDisplayProxies(
   previewPixels.callback = previewCallback
   showCaptions.callback = showCaptionsCallback
   twoImageMode.callback = twoImageModeCallback
+  promptByOrder.callback = promptByOrderCallback
   cardAspect.callback = cardAspectCallback
   previewFit.callback = previewFitCallback
   waveformPairs.callback = waveformPairsCallback
@@ -372,6 +383,10 @@ function bindNativeDisplayProxies(
       if (twoImageMode.callback === twoImageModeCallback) {
         if (originalTwoImageModeCallback) twoImageMode.callback = originalTwoImageModeCallback
         else delete twoImageMode.callback
+      }
+      if (promptByOrder.callback === promptByOrderCallback) {
+        if (originalPromptByOrderCallback) promptByOrder.callback = originalPromptByOrderCallback
+        else delete promptByOrder.callback
       }
       if (cardAspect.callback === cardAspectCallback) {
         if (originalCardAspectCallback) cardAspect.callback = originalCardAspectCallback

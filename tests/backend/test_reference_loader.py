@@ -29,6 +29,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     "preview_pixels",
     "show_captions",
     "two_image_mode",
+    "prompt_by_order",
     "card_aspect",
     "preview_fit",
     "waveform_pairs",
@@ -105,7 +106,15 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert two_image_mode.options["label_on"] == "Up to 2"
   assert two_image_mode.options["advanced"] is True
   assert two_image_mode.options["socketless"] is True
-  card_aspect = schema.inputs[11]
+  prompt_by_order = schema.inputs[11]
+  assert prompt_by_order.data_type == "boolean"
+  assert prompt_by_order.options["display_name"] == "prompt_by_order"
+  assert prompt_by_order.options["default"] is False
+  assert prompt_by_order.options["label_off"] == "By media"
+  assert prompt_by_order.options["label_on"] == "By order"
+  assert prompt_by_order.options["advanced"] is True
+  assert prompt_by_order.options["socketless"] is True
+  card_aspect = schema.inputs[12]
   assert card_aspect.data_type == "combo"
   assert card_aspect.options["display_name"] == "card_aspect"
   assert card_aspect.options["options"] == [
@@ -118,14 +127,14 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert card_aspect.options["default"] == "4 / 3"
   assert card_aspect.options["advanced"] is True
   assert card_aspect.options["socketless"] is True
-  preview_fit = schema.inputs[12]
+  preview_fit = schema.inputs[13]
   assert preview_fit.data_type == "combo"
   assert preview_fit.options["display_name"] == "preview_fit"
   assert preview_fit.options["options"] == ["contain", "cover"]
   assert preview_fit.options["default"] == "contain"
   assert preview_fit.options["advanced"] is True
   assert preview_fit.options["socketless"] is True
-  waveform_pairs = schema.inputs[13]
+  waveform_pairs = schema.inputs[14]
   assert waveform_pairs.data_type == "int"
   assert waveform_pairs.options["display_name"] == "waveform_pairs"
   assert waveform_pairs.options["default"] == 300
@@ -274,6 +283,20 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     "alphaMode": "opaque",
     "alphaBackground": "#123456",
   }
+  replacement_prompt = json.loads(json.dumps(prompt_state))
+  replacement_prompt["sections"][0]["parts"][1]["referenceId"] = "removed-image"
+  order_bound_output = module.ReferenceLoaderNode.execute(
+    json.dumps(state),
+    prompt=json.dumps(replacement_prompt),
+    prompt_by_order=True,
+  )
+  assert order_bound_output[1] == "scene:\nUse <Picture 1><d>Hello</d>"
+  assert (
+    json.loads(order_bound_output[0].prompt_state_json)["sections"][0]["parts"][1][
+      "referenceId"
+    ]
+    == "img"
+  )
 
 
 def test_reference_loader_raw_outputs_rejects_non_bundle_value(monkeypatch):
@@ -382,6 +405,7 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
     preview_pixels=16.0,
     show_captions=False,
     two_image_mode=True,
+    prompt_by_order=True,
     card_aspect="16 / 9",
     preview_fit="cover",
     waveform_pairs=1000,

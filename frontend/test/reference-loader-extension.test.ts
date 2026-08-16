@@ -112,6 +112,7 @@ describe("Reference Loader custom widget", () => {
     const previewPixels: ComfyWidget = { name: "preview_pixels", value: 1 }
     const showCaptions: ComfyWidget = { name: "show_captions", value: true }
     const twoImageMode: ComfyWidget = { name: "two_image_mode", value: false }
+    const promptByOrder: ComfyWidget = { name: "prompt_by_order", value: false }
     const cardAspect: ComfyWidget = { name: "card_aspect", value: "4 / 3" }
     const previewFit: ComfyWidget = { name: "preview_fit", value: "contain" }
     const waveformPairs: ComfyWidget = { name: "waveform_pairs", value: 300 }
@@ -131,6 +132,7 @@ describe("Reference Loader custom widget", () => {
         previewPixels,
         showCaptions,
         twoImageMode,
+        promptByOrder,
         cardAspect,
         previewFit,
         waveformPairs,
@@ -178,6 +180,11 @@ describe("Reference Loader custom widget", () => {
     expect(
       (node.properties?.referenceLoader as Record<string, unknown> | undefined)?.twoImageMode,
     ).toBe(true)
+    promptByOrder.callback?.(true)
+    expect(promptByOrder.value).toBe(true)
+    expect(
+      (node.properties?.referenceLoader as Record<string, unknown> | undefined)?.promptByOrder,
+    ).toBe(true)
     cardAspect.callback?.("9 / 16")
     previewFit.callback?.("cover")
     waveformPairs.callback?.(750)
@@ -200,6 +207,7 @@ describe("Reference Loader custom widget", () => {
     previewPixels.value = 16
     showCaptions.value = true
     twoImageMode.value = false
+    promptByOrder.value = false
     cardAspect.value = "16 / 9"
     previewFit.value = "cover"
     waveformPairs.value = 1000
@@ -212,6 +220,7 @@ describe("Reference Loader custom widget", () => {
     expect(previewPixels.value).toBe(4)
     expect(showCaptions.value).toBe(false)
     expect(twoImageMode.value).toBe(true)
+    expect(promptByOrder.value).toBe(true)
     expect(cardAspect.value).toBe("1 / 1")
     expect(previewFit.value).toBe("contain")
     expect(waveformPairs.value).toBe(450)
@@ -223,6 +232,7 @@ describe("Reference Loader custom widget", () => {
     previewPixels.value = 12
     showCaptions.value = true
     twoImageMode.value = false
+    promptByOrder.value = false
     cardAspect.value = "16 / 9"
     previewFit.value = "cover"
     waveformPairs.value = 1000
@@ -235,6 +245,7 @@ describe("Reference Loader custom widget", () => {
     expect(previewPixels.value).toBe(4)
     expect(showCaptions.value).toBe(false)
     expect(twoImageMode.value).toBe(true)
+    expect(promptByOrder.value).toBe(true)
     expect(cardAspect.value).toBe("1 / 1")
     expect(previewFit.value).toBe("contain")
     expect(waveformPairs.value).toBe(450)

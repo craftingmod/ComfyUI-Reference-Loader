@@ -4,8 +4,10 @@ import pytest
 
 from backend.core.prompt_contract import (
   PromptContractError,
+  compile_prompt,
   compile_prompt_state,
   parse_prompt_state,
+  rebind_prompt_mentions_by_order,
 )
 from backend.core.reference_contract import parse_reference_state
 
@@ -152,6 +154,42 @@ def test_unavailable_mentions_remain_visible_without_rebinding_to_another_item()
     ],
   }
   assert compile_prompt_state(document, reference_state()) == "scene:\n@disabled-image"
+
+
+def test_rebinds_standard_mention_labels_to_current_output_positions():
+  document = parse_prompt_state(
+    {
+      "version": 3,
+      "sections": [
+        {
+          "title": "scene",
+          "parts": [
+            {
+              "type": "mention",
+              "referenceId": "removed-image",
+              "mediaKind": "image",
+              "label": "image1",
+            },
+            {"type": "text", "text": " and "},
+            {
+              "type": "mention",
+              "referenceId": "removed-audio",
+              "mediaKind": "audio",
+              "label": "audio2",
+            },
+          ],
+        }
+      ],
+    }
+  )
+
+  rebound = rebind_prompt_mentions_by_order(document, reference_state())
+
+  assert rebound.sections[0].parts[0].reference_id == "image-a"
+  assert rebound.sections[0].parts[2].reference_id == "audio-a"
+  assert compile_prompt(rebound, reference_state()) == (
+    "scene:\n<Picture 1> and <Audio 2>"
+  )
 
 
 def test_accepts_literal_prompt_strings_and_rejects_invalid_structured_state():

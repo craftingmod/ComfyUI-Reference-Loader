@@ -11,6 +11,7 @@ from ..core.prompt_contract import (
   EMPTY_PROMPT_STATE_JSON,
   compile_prompt,
   parse_prompt_state,
+  rebind_prompt_mentions_by_order,
   serialize_prompt_document,
 )
 from ..core.reference_contract import (
@@ -284,6 +285,19 @@ class ReferenceLoaderNode(io.ComfyNode):
             "for I2V and FLF2V workflows."
           ),
         ),
+        io.Boolean.Input(
+          "prompt_by_order",
+          display_name="prompt_by_order",
+          default=False,
+          label_on="By order",
+          label_off="By media",
+          advanced=True,
+          socketless=True,
+          tooltip=(
+            "Keep imageN, videoN, and audioN prompt mentions attached to their "
+            "current output positions when references are replaced or reordered."
+          ),
+        ),
         io.Combo.Input(
           "card_aspect",
           display_name="card_aspect",
@@ -341,6 +355,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     preview_pixels: float = 1.0,
     show_captions: bool = True,
     two_image_mode: bool = False,
+    prompt_by_order: bool = False,
     card_aspect: str = "4 / 3",
     preview_fit: str = "contain",
     waveform_pairs: int = 300,
@@ -367,6 +382,8 @@ class ReferenceLoaderNode(io.ComfyNode):
     )
     media_fingerprint = execution_fingerprint(state, image_output=output_settings)
     prompt_document = parse_prompt_state(prompt)
+    if prompt_by_order:
+      prompt_document = rebind_prompt_mentions_by_order(prompt_document, state)
     prompt_state_json = serialize_prompt_document(prompt_document)
     compiled_prompt = compile_prompt(prompt_document, state)
     return hashlib.sha256(
@@ -385,6 +402,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     preview_pixels: float = 1.0,
     show_captions: bool = True,
     two_image_mode: bool = False,
+    prompt_by_order: bool = False,
     card_aspect: str = "4 / 3",
     preview_fit: str = "contain",
     waveform_pairs: int = 300,
@@ -410,6 +428,8 @@ class ReferenceLoaderNode(io.ComfyNode):
     )
     plan = build_reference_output_plan(state)
     prompt_document = parse_prompt_state(prompt)
+    if prompt_by_order:
+      prompt_document = rebind_prompt_mentions_by_order(prompt_document, state)
     compiled_prompt = compile_prompt(prompt_document, state)
     loaded = load_reference_media(state, image_output=output_settings)
     if len(loaded.images) != len(plan.image_ids):

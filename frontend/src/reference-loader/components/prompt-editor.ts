@@ -282,6 +282,7 @@ export class ReferencePromptController {
     this.#locale = options.locale ?? detectPromptLocale()
     const parsed = deserializePromptDocument(serialized)
     this.#document = parsed.document
+    this.#document.subjects = this.#orderedSubjects(this.#document.sections)
     this.#recoveredFromVersion = parsed.recoveredFromVersion
     this.#mount(parsed.issues.join(" "))
   }
@@ -309,6 +310,7 @@ export class ReferencePromptController {
     if (this.#destroyed) return
     const parsed = deserializePromptDocument(serialized)
     this.#document = parsed.document
+    this.#document.subjects = this.#orderedSubjects(this.#document.sections)
     this.#recoveredFromVersion = parsed.recoveredFromVersion
     this.#closePicker()
     this.#renderEditor()
@@ -623,13 +625,16 @@ export class ReferencePromptController {
     if (this.#destroyed) return
     if (this.#document.view === "raw") {
       const editor = this.root.querySelector<HTMLElement>("[data-prompt-editor]")
-      if (editor)
-        this.#document = parseRawPrompt(
+      if (editor) {
+        const parsed = parseRawPrompt(
           textContentWithBreaks(editor),
           this.#references(),
           "raw",
           this.#document.subjects,
         )
+        parsed.subjects = this.#orderedSubjects(parsed.sections, parsed.subjects)
+        this.#document = parsed
+      }
       return
     }
     const sections = Array.from(
@@ -649,7 +654,10 @@ export class ReferencePromptController {
     }
   }
 
-  #orderedSubjects(sections: readonly { title: string; parts: readonly PromptSectionPart[] }[]) {
+  #orderedSubjects(
+    sections: readonly { title: string; parts: readonly PromptSectionPart[] }[],
+    subjects: readonly PromptSubject[] = this.#document.subjects,
+  ): PromptSubject[] {
     const sourceSections =
       this.#preset.subjectMode === "definitions"
         ? sections.filter((section) => section.title === "subject_definitions")
@@ -661,14 +669,11 @@ export class ReferencePromptController {
           orderedIds.push(part.subjectId)
       }
     }
-    const byId = new Map(this.#document.subjects.map((subject) => [subject.subjectId, subject]))
-    return [
-      ...orderedIds.flatMap((subjectId) => {
-        const subject = byId.get(subjectId)
-        return subject ? [subject] : []
-      }),
-      ...this.#document.subjects.filter((subject) => !orderedIds.includes(subject.subjectId)),
-    ]
+    const byId = new Map(subjects.map((subject) => [subject.subjectId, subject]))
+    return orderedIds.flatMap((subjectId) => {
+      const subject = byId.get(subjectId)
+      return subject ? [subject] : []
+    })
   }
 
   #onInput(event: Event): void {
@@ -819,7 +824,12 @@ export class ReferencePromptController {
 
   #removeSection(title: string): void {
     this.#syncDocumentFromEditor()
-    this.#document.sections = this.#document.sections.filter((section) => section.title !== title)
+    const sections = this.#document.sections.filter((section) => section.title !== title)
+    this.#document = {
+      ...this.#document,
+      subjects: this.#orderedSubjects(sections),
+      sections,
+    }
     this.#closePicker()
     this.#renderEditor()
     this.#node.setDirtyCanvas(true, true)

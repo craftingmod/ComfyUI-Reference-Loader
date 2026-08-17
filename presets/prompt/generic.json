@@ -12,6 +12,16 @@
   "subjectMode": "anywhere",
   "aliases": [
     {
+      "command": "subjects",
+      "title": "subject_definitions",
+      "label": { "en": "Subjects", "ko": "피사체 정의" },
+      "description": {
+        "en": "Reusable subject identities, roles, and media references",
+        "ko": "재사용할 피사체의 정체성, 역할과 미디어 참조"
+      },
+      "icon": "Su"
+    },
+    {
       "command": "scene",
       "title": "scene",
       "label": { "en": "Scene", "ko": "장면" },

@@ -46,6 +46,13 @@ describe("Reference Prompt presets", () => {
     expect(resolvePromptPreset("freeform").subjectMode).toBe("disabled")
   })
 
+  test("offers subject_definitions in the Generic preset", () => {
+    expect(resolvePromptPreset("generic").aliases[0]).toMatchObject({
+      command: "subjects",
+      title: "subject_definitions",
+    })
+  })
+
   test("provides valid unique aliases and complete Korean and English copy", () => {
     for (const preset of PROMPT_PRESETS) {
       expect(isPromptSectionTitle(preset.defaultSectionTitle)).toBe(true)

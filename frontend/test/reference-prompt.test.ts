@@ -499,6 +499,47 @@ describe("Reference Prompt section stack", () => {
     controller.destroy()
   })
 
+  test("removes a Subject from the picker after its final chip is deleted", () => {
+    const { root, controller } = makeController()
+    const scene = sectionBody(root, "scene")
+    inputText(scene, "Meet #place")
+    press(scene, "Enter")
+
+    inputText(sectionEntry(root), "/camera")
+    press(sectionEntry(root), "Enter")
+    const camera = sectionBody(root, "camera_direction")
+    inputText(camera, "Show #place")
+    press(camera, "Enter")
+    expect(JSON.parse(controller.serialize()).subjects).toHaveLength(1)
+
+    const renderedScene = sectionBody(root, "scene")
+    inputText(renderedScene, "Meet elsewhere")
+    expect(JSON.parse(controller.serialize()).subjects).toHaveLength(1)
+    inputText(camera, "Show elsewhere")
+    expect(JSON.parse(controller.serialize()).subjects).toEqual([])
+
+    inputText(renderedScene, "Search #pla")
+    expect(root.querySelector("[data-prompt-subject-index]")).toBeNull()
+    expect(root.querySelector("[data-prompt-subject-create]")).not.toBeNull()
+    controller.destroy()
+  })
+
+  test("prunes an already orphaned Subject when restoring saved state", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      subjects: [{ subjectId: "orphan-id", label: "orphan" }],
+      sections: [{ title: "scene", parts: [{ type: "text", text: "No subjects" }] }],
+    })
+    const { root, controller } = makeController([], serialized)
+    expect(JSON.parse(controller.serialize()).subjects).toEqual([])
+
+    const scene = sectionBody(root, "scene")
+    inputText(scene, "Search #orph")
+    expect(root.querySelector("[data-prompt-subject-index]")).toBeNull()
+    expect(root.querySelector("[data-prompt-subject-create]")).not.toBeNull()
+    controller.destroy()
+  })
+
   test("creates H3 Reference Subjects only in subject_definitions", () => {
     const { root, controller } = makeController([], undefined, {
       presetId: "minimax_h3_reference",

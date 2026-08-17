@@ -51,6 +51,7 @@ describe("Reference Loader stylesheet", () => {
     const mentionRule = css.match(/\.rl-prompt-mention\s*\{([^}]*)\}/)?.[1]
 
     expect(mentionRule).toContain("vertical-align: middle;")
+    expect(mentionRule).toContain("margin: 1px 2px;")
     expect(mentionRule).not.toMatch(/vertical-align:\s*-?\d/)
   })
 

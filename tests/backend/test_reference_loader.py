@@ -181,13 +181,16 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     ),
   )
   prompt_state = {
-    "version": 3,
+    "version": 4,
     "view": "structured",
+    "subjects": [{"subjectId": "fighter", "label": "fighter"}],
     "sections": [
       {
         "title": "scene",
         "parts": [
           {"type": "text", "text": "Use "},
+          {"type": "subject", "subjectId": "fighter", "label": "fighter"},
+          {"type": "text", "text": " from "},
           {
             "type": "mention",
             "referenceId": "img",
@@ -210,10 +213,11 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert bundle.videos == ()
   assert bundle.video_captions == ()
   assert json.loads(bundle.prompt_state_json) == {
-    "version": 3,
+    "version": 4,
+    "subjects": prompt_state["subjects"],
     "sections": prompt_state["sections"],
   }
-  assert bundle.compiled_prompt == "scene:\nUse <Picture 1>"
+  assert bundle.compiled_prompt == "scene:\nUse <Subject 1> from <Picture 1>"
   assert json.loads(bundle.manifest_json)["outputs"]["images"] == ["img"]
   assert json.loads(bundle.manifest_json)["image_output"] == {
     "mode": "original",
@@ -281,15 +285,17 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     "alphaBackground": "#123456",
   }
   replacement_prompt = json.loads(json.dumps(prompt_state))
-  replacement_prompt["sections"][0]["parts"][1]["referenceId"] = "removed-image"
+  replacement_prompt["sections"][0]["parts"][3]["referenceId"] = "removed-image"
   order_bound_output = module.ReferenceLoaderNode.execute(
     json.dumps(state),
     prompt=json.dumps(replacement_prompt),
     prompt_by_order=True,
   )
-  assert order_bound_output[0].compiled_prompt == "scene:\nUse <Picture 1>"
   assert (
-    json.loads(order_bound_output[0].prompt_state_json)["sections"][0]["parts"][1][
+    order_bound_output[0].compiled_prompt == "scene:\nUse <Subject 1> from <Picture 1>"
+  )
+  assert (
+    json.loads(order_bound_output[0].prompt_state_json)["sections"][0]["parts"][3][
       "referenceId"
     ]
     == "img"
@@ -332,7 +338,8 @@ def test_reference_loader_raw_prompt_extracts_compiled_bundle_prompt(monkeypatch
     manifest_json=json.dumps(manifest.build_reference_manifest(state)),
     prompt_state_json=json.dumps(
       {
-        "version": 3,
+        "version": 4,
+        "subjects": [],
         "sections": [
           {
             "title": "scene",
@@ -409,6 +416,7 @@ def test_prompt_preset_catalog_loads_user_json_and_rejects_invalid_aliases(
     "label": {"en": "Custom video", "ko": "사용자 비디오"},
     "description": {"en": "Custom", "ko": "사용자 정의"},
     "defaultSectionTitle": "custom_direction",
+    "subjectMode": "disabled",
     "aliases": [
       {
         "command": "custom",
@@ -499,7 +507,7 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
   )
   raw_view_fingerprint = module.ReferenceLoaderNode.fingerprint_inputs(
     module.EMPTY_LOADER_STATE_JSON,
-    prompt=json.dumps({"version": 3, "view": "raw", "sections": []}),
+    prompt=json.dumps({"version": 4, "view": "raw", "subjects": [], "sections": []}),
   )
 
   assert len(fingerprint) == 64

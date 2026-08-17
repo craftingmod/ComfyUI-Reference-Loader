@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import {
   createEmptyPromptDocument,
+  deserializePromptDocument,
   serializePromptDocument,
 } from "../src/reference-loader/prompt-state.ts"
 import { loaderReducer } from "../src/reference-loader/reducer.ts"
@@ -99,5 +100,26 @@ describe("Reference Loader snapshots", () => {
         settings: { ...settings, maxImagePixels: Number.NaN },
       }),
     ).toThrow("max_image_pixels must be a finite number")
+  })
+
+  test("preserves a legacy Prompt snapshot for Raw recovery by the editor", () => {
+    const serialized = serializeReferenceLoaderSnapshot({
+      loaderState: serializeLoaderState(createEmptyLoaderState()),
+      promptState: serializePromptDocument(createEmptyPromptDocument()),
+      settings: { ...settings, twoImageMode: false },
+    })
+    const snapshot = JSON.parse(serialized)
+    snapshot.prompt_state = {
+      version: 3,
+      sections: [{ title: "scene", parts: [{ type: "text", text: "Legacy snapshot" }] }],
+    }
+
+    const parsed = parseReferenceLoaderSnapshot(JSON.stringify(snapshot))
+    const recovered = deserializePromptDocument(parsed.promptState)
+    expect(recovered.recoveredFromVersion).toBe(3)
+    expect(recovered.document.view).toBe("raw")
+    expect(recovered.document.sections[0]?.parts).toEqual([
+      { type: "text", text: "Legacy snapshot" },
+    ])
   })
 })

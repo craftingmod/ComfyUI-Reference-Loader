@@ -151,12 +151,62 @@ describe("Reference Prompt state", () => {
     ])
   })
 
-  test("rejects the previous version without migration", () => {
+  test("recovers the previous section state as Raw without discarding legacy parts", () => {
     const result = deserializePromptDocument(
-      JSON.stringify({ version: 2, parts: [{ type: "text", text: "legacy" }] }),
+      JSON.stringify({
+        version: 3,
+        view: "structured",
+        sections: [
+          {
+            title: "scene",
+            parts: [
+              { type: "text", text: "Say " },
+              { type: "dialogue", text: "Hello" },
+              {
+                type: "mention",
+                referenceId: "image-a",
+                mediaKind: "image",
+                label: "image1",
+              },
+            ],
+          },
+        ],
+      }),
     )
-    expect(result.document).toEqual(createEmptyPromptDocument())
-    expect(result.issues).toEqual(["Prompt state was invalid."])
+    expect(result.recoveredFromVersion).toBe(3)
+    expect(result.document.view).toBe("raw")
+    expect(result.document.subjects).toEqual([])
+    expect(result.issues).toEqual([])
+    expect(compilePromptDocument(result.document, [imageReference()])).toBe(
+      "scene:\nSay <d>Hello</d><Picture 1>",
+    )
+    expect(JSON.parse(serializePromptDocument(result.document)).version).toBe(4)
+  })
+
+  test("recovers the original flat Prompt state and its directives as Raw", () => {
+    const result = deserializePromptDocument({
+      version: 1,
+      parts: [
+        { type: "text", text: "Opening " },
+        {
+          type: "directive",
+          kind: "audio",
+          parts: [
+            { type: "text", text: "Rain near " },
+            {
+              type: "mention",
+              referenceId: "image-a",
+              mediaKind: "image",
+              label: "image1",
+            },
+          ],
+        },
+      ],
+    })
+    expect(result.recoveredFromVersion).toBe(1)
+    expect(compilePromptDocument(result.document, [imageReference()])).toBe(
+      "scene:\nOpening <audio>Rain near <Picture 1></audio>",
+    )
   })
 
   test("parses official tags to stable mentions and keeps former dialogue tags as text", () => {
@@ -194,9 +244,59 @@ describe("Reference Prompt state", () => {
     }
     expect(compilePromptDocument(prompt, [imageReference()])).toBe("scene:\n@old-image")
   })
+
+  test("round-trips stable Subject parts and parses their Raw ordinals", () => {
+    const prompt = {
+      ...createEmptyPromptDocument(),
+      subjects: [
+        { subjectId: "woman-id", label: "woman" },
+        { subjectId: "cafe-id", label: "cafe" },
+      ],
+      sections: [
+        {
+          title: "scene",
+          parts: [
+            { type: "subject" as const, subjectId: "woman-id", label: "woman" },
+            { type: "text" as const, text: " enters " },
+            { type: "subject" as const, subjectId: "cafe-id", label: "cafe" },
+          ],
+        },
+      ],
+    }
+    expect(deserializePromptDocument(serializePromptDocument(prompt)).document).toEqual(prompt)
+    expect(compilePromptDocument(prompt, [])).toBe("scene:\n<Subject 1> enters <Subject 2>")
+    expect(
+      parseRawPrompt("scene:\n<Subject 2> greets <Subject 1>", [], "raw", prompt.subjects)
+        .sections[0]?.parts,
+    ).toEqual([
+      { type: "subject", subjectId: "cafe-id", label: "cafe" },
+      { type: "text", text: " greets " },
+      { type: "subject", subjectId: "woman-id", label: "woman" },
+    ])
+  })
 })
 
 describe("Reference Prompt section stack", () => {
+  test("opens a legacy Prompt in Raw and allows conversion to the current Structured state", () => {
+    const legacy = JSON.stringify({
+      version: 3,
+      sections: [{ title: "scene", parts: [{ type: "text", text: "Recovered scene" }] }],
+    })
+    const { root, controller } = makeController([], legacy, { locale: "ko" })
+    expect(root.querySelector<HTMLElement>("[data-prompt-editor]")?.textContent).toBe(
+      "scene:\nRecovered scene",
+    )
+    expect(root.querySelector<HTMLElement>("[data-prompt-hint]")?.textContent).toContain(
+      "이전 Prompt v3을 Raw로 복구",
+    )
+
+    root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!.click()
+    expect(sectionBody(root, "scene").textContent).toBe("Recovered scene")
+    expect(root.querySelector<HTMLElement>("[data-prompt-hint]")?.textContent).toBe("")
+    expect(JSON.parse(controller.serialize())).toMatchObject({ version: 4, view: "structured" })
+    controller.destroy()
+  })
+
   test("shows a virtual scene card but keeps an untouched prompt empty", () => {
     const { root, controller } = makeController()
     const scene = sectionBody(root, "scene")
@@ -365,6 +465,66 @@ describe("Reference Prompt section stack", () => {
       type: "mention",
       referenceId: "image-a",
     })
+    controller.destroy()
+  })
+
+  test("creates and reuses stable # Subjects in the Generic preset", () => {
+    const { root, controller } = makeController()
+    const scene = sectionBody(root, "scene")
+    inputText(scene, "Meet #woman")
+    expect(root.querySelectorAll("[data-prompt-subject-create]")).toHaveLength(1)
+    expect(press(scene, "Enter")).toBe(false)
+    expect(root.querySelector(".rl-prompt-subject")?.textContent).toContain("#woman")
+
+    inputText(sectionEntry(root), "/camera")
+    press(sectionEntry(root), "Enter")
+    const camera = sectionBody(root, "camera_direction")
+    inputText(camera, "Follow #wom")
+    expect(root.querySelectorAll("[data-prompt-subject-index]")).toHaveLength(1)
+    expect(press(camera, "Enter")).toBe(false)
+
+    const serialized = JSON.parse(controller.serialize())
+    expect(serialized.subjects).toHaveLength(1)
+    expect(serialized.sections[0].parts[1]).toMatchObject({
+      type: "subject",
+      subjectId: serialized.subjects[0].subjectId,
+      label: "woman",
+    })
+    expect(controller.compiledPrompt).toBe(
+      "scene:\nMeet <Subject 1>\n\ncamera_direction:\nFollow <Subject 1>",
+    )
+    root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')!.click()
+    expect(JSON.parse(controller.serialize()).subjects).toEqual([])
+    expect(controller.compiledPrompt).toBe("")
+    controller.destroy()
+  })
+
+  test("creates H3 Reference Subjects only in subject_definitions", () => {
+    const { root, controller } = makeController([], undefined, {
+      presetId: "minimax_h3_reference",
+    })
+    const description = sectionBody(root, "detailed_description")
+    inputText(description, "Use #hero")
+    expect(root.querySelector("[data-prompt-subject-create]")).toBeNull()
+
+    inputText(sectionEntry(root), "/subjects")
+    press(sectionEntry(root), "Enter")
+    const definitions = sectionBody(root, "subject_definitions")
+    inputText(definitions, "#hero")
+    expect(root.querySelectorAll("[data-prompt-subject-create]")).toHaveLength(1)
+    press(definitions, "Enter")
+    expect(JSON.parse(controller.serialize()).subjects[0].label).toBe("hero")
+    controller.destroy()
+  })
+
+  test("keeps # literal when Subject authoring is disabled", () => {
+    const { root, controller } = makeController([], undefined, { presetId: "freeform" })
+    const scene = sectionBody(root, "scene")
+    inputText(scene, "Keep #literal")
+    expect(root.querySelector("[data-prompt-subject-index]")).toBeNull()
+    expect(root.querySelector("[data-prompt-subject-create]")).toBeNull()
+    expect(controller.compiledPrompt).toBe("scene:\nKeep #literal")
+    expect(JSON.parse(controller.serialize()).subjects).toEqual([])
     controller.destroy()
   })
 

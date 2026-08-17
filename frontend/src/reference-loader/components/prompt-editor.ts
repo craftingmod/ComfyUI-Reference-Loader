@@ -18,6 +18,8 @@ import {
   type PromptMentionPart,
   type PromptReference,
   type PromptSectionPart,
+  type PromptSubject,
+  type PromptSubjectPart,
 } from "../prompt-state.ts"
 
 type ReferenceProvider = () => readonly PromptReference[]
@@ -137,6 +139,42 @@ function makeMentionChip(part: PromptMentionPart, reference?: PromptReference): 
   return chip
 }
 
+function makeSubjectChip(
+  part: PromptSubjectPart,
+  subject: PromptSubject | undefined,
+  ordinal: number | undefined,
+): HTMLSpanElement {
+  const label = (subject?.label ?? part.label) || part.subjectId
+  const chip = document.createElement("span")
+  chip.className = `rl-prompt-mention rl-prompt-subject${subject ? "" : " is-stale"}`
+  chip.contentEditable = "false"
+  chip.dataset.promptPart = "subject"
+  chip.dataset.subjectId = part.subjectId
+  chip.dataset.label = label
+  chip.title = subject ? `<Subject ${ordinal}> · #${label}` : `Unavailable subject: ${label}`
+  const icon = document.createElement("span")
+  icon.className = "rl-prompt-subject-icon"
+  icon.textContent = ordinal === undefined ? "S?" : `S${ordinal}`
+  icon.setAttribute("aria-hidden", "true")
+  const copy = document.createElement("span")
+  copy.className = "rl-prompt-mention__label"
+  copy.textContent = `#${label}`
+  chip.append(icon, copy)
+  return chip
+}
+
+function normalizeSubjectLabel(value: string): string | undefined {
+  const label = value.trim()
+  return label.length > 0 && label.length <= 64 && /^[\p{L}\p{N}][\p{L}\p{N}_-]*$/u.test(label)
+    ? label
+    : undefined
+}
+
+function createSubjectId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.()
+  return uuid ? `subject-${uuid}` : `subject-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
 function sectionPartsFromContainer(container: Node): PromptSectionPart[] {
   const parts: PromptSectionPart[] = []
   const pushText = (value: string): void => {
@@ -163,6 +201,14 @@ function sectionPartsFromContainer(container: Node): PromptSectionPart[] {
         referenceId: node.dataset.referenceId ?? "missing",
         mediaKind: mediaKind === "video" || mediaKind === "audio" ? mediaKind : "image",
         label: node.dataset.label ?? "reference",
+      })
+      return
+    }
+    if (node.dataset.promptPart === "subject") {
+      parts.push({
+        type: "subject",
+        subjectId: node.dataset.subjectId ?? "missing",
+        label: node.dataset.label ?? "subject",
       })
       return
     }
@@ -208,13 +254,16 @@ export class ReferencePromptController {
   #document: PromptDocument
   #destroyController = new AbortController()
   #pickerRange: Range | undefined
-  #pickerMode: "reference" | "alias" | undefined
+  #pickerMode: "reference" | "subject" | "alias" | undefined
   #pickerReferences: PromptReference[] = []
+  #pickerSubjects: PromptSubject[] = []
+  #pickerCreateSubject: string | undefined
   #pickerAliases: PromptAlias[] = []
   #pickerIndex = 0
   #presetCatalog: PromptPresetCatalog
   #preset: PromptPreset
   #locale: PromptLocale
+  #recoveredFromVersion: number | undefined
   #composing = false
   #destroyed = false
 
@@ -233,6 +282,7 @@ export class ReferencePromptController {
     this.#locale = options.locale ?? detectPromptLocale()
     const parsed = deserializePromptDocument(serialized)
     this.#document = parsed.document
+    this.#recoveredFromVersion = parsed.recoveredFromVersion
     this.#mount(parsed.issues.join(" "))
   }
 
@@ -259,6 +309,7 @@ export class ReferencePromptController {
     if (this.#destroyed) return
     const parsed = deserializePromptDocument(serialized)
     this.#document = parsed.document
+    this.#recoveredFromVersion = parsed.recoveredFromVersion
     this.#closePicker()
     this.#renderEditor()
     this.#setHint(parsed.issues.join(" "))
@@ -412,7 +463,13 @@ export class ReferencePromptController {
     const hint = this.root.querySelector<HTMLElement>("[data-prompt-hint]")
     if (!hint) return
     const stale = this.root.querySelectorAll(".rl-prompt-mention.is-stale").length
-    hint.textContent = issue || (stale ? `${stale} unavailable reference mention.` : "")
+    const recovery = this.#recoveredFromVersion
+      ? localize(PROMPT_MESSAGES.legacyRecovered, this.#locale).replace(
+          "{version}",
+          String(this.#recoveredFromVersion),
+        )
+      : ""
+    hint.textContent = issue || recovery || (stale ? `${stale} unavailable reference mention.` : "")
     hint.hidden = !hint.textContent
   }
 
@@ -422,7 +479,13 @@ export class ReferencePromptController {
     const title = this.root.querySelector<HTMLElement>("[data-prompt-title]")
     if (title) title.textContent = localize(PROMPT_MESSAGES.prompt, this.#locale)
     const subtitle = this.root.querySelector<HTMLElement>("[data-prompt-subtitle]")
-    if (subtitle) subtitle.textContent = localize(PROMPT_MESSAGES.subtitle, this.#locale)
+    if (subtitle)
+      subtitle.textContent = localize(
+        this.#preset.subjectMode === "disabled"
+          ? PROMPT_MESSAGES.subtitle
+          : PROMPT_MESSAGES.subtitleWithSubjects,
+        this.#locale,
+      )
     const preset = this.root.querySelector<HTMLElement>("[data-prompt-preset]")
     if (preset) {
       const presetLabel = localize(this.#preset.label, this.#locale)
@@ -457,7 +520,14 @@ export class ReferencePromptController {
           reference,
         ]),
       )
-      for (const section of sections) stack.append(this.#makeSectionCard(section, references))
+      const subjects = new Map(
+        this.#document.subjects.map((subject, index) => [
+          subject.subjectId,
+          { subject, ordinal: index + 1 },
+        ]),
+      )
+      for (const section of sections)
+        stack.append(this.#makeSectionCard(section, references, subjects))
       const entry = document.createElement("div")
       entry.className = "rl-prompt-section-entry"
       entry.dataset.promptSectionEntry = ""
@@ -499,6 +569,7 @@ export class ReferencePromptController {
   #makeSectionCard(
     section: { title: string; parts: readonly PromptSectionPart[] },
     references: ReadonlyMap<string, PromptReference>,
+    subjects: ReadonlyMap<string, { subject: PromptSubject; ordinal: number }>,
   ): HTMLElement {
     const card = document.createElement("section")
     card.className = "rl-prompt-section"
@@ -528,10 +599,18 @@ export class ReferencePromptController {
     body.role = "textbox"
     body.ariaMultiLine = "true"
     body.spellcheck = true
-    body.dataset.placeholder = localize(PROMPT_MESSAGES.bodyPlaceholder, this.#locale)
+    body.dataset.placeholder = localize(
+      this.#preset.subjectMode === "disabled"
+        ? PROMPT_MESSAGES.bodyPlaceholder
+        : PROMPT_MESSAGES.bodyPlaceholderWithSubjects,
+      this.#locale,
+    )
     for (const part of section.parts) {
       if (part.type === "text") body.append(document.createTextNode(part.text))
-      else
+      else if (part.type === "subject") {
+        const resolved = subjects.get(part.subjectId)
+        body.append(makeSubjectChip(part, resolved?.subject, resolved?.ordinal))
+      } else
         body.append(
           makeMentionChip(part, references.get(referenceKey(part.mediaKind, part.referenceId))),
         )
@@ -545,7 +624,12 @@ export class ReferencePromptController {
     if (this.#document.view === "raw") {
       const editor = this.root.querySelector<HTMLElement>("[data-prompt-editor]")
       if (editor)
-        this.#document = parseRawPrompt(textContentWithBreaks(editor), this.#references(), "raw")
+        this.#document = parseRawPrompt(
+          textContentWithBreaks(editor),
+          this.#references(),
+          "raw",
+          this.#document.subjects,
+        )
       return
     }
     const sections = Array.from(
@@ -558,7 +642,33 @@ export class ReferencePromptController {
       if (!hasContent && this.#document.sections.length === 0) return []
       return [{ title, parts }]
     })
-    this.#document = { ...this.#document, sections }
+    this.#document = {
+      ...this.#document,
+      subjects: this.#orderedSubjects(sections),
+      sections,
+    }
+  }
+
+  #orderedSubjects(sections: readonly { title: string; parts: readonly PromptSectionPart[] }[]) {
+    const sourceSections =
+      this.#preset.subjectMode === "definitions"
+        ? sections.filter((section) => section.title === "subject_definitions")
+        : sections
+    const orderedIds: string[] = []
+    for (const section of sourceSections) {
+      for (const part of section.parts) {
+        if (part.type === "subject" && !orderedIds.includes(part.subjectId))
+          orderedIds.push(part.subjectId)
+      }
+    }
+    const byId = new Map(this.#document.subjects.map((subject) => [subject.subjectId, subject]))
+    return [
+      ...orderedIds.flatMap((subjectId) => {
+        const subject = byId.get(subjectId)
+        return subject ? [subject] : []
+      }),
+      ...this.#document.subjects.filter((subject) => !orderedIds.includes(subject.subjectId)),
+    ]
   }
 
   #onInput(event: Event): void {
@@ -591,6 +701,16 @@ export class ReferencePromptController {
     if (reference) {
       const index = Number(reference.dataset.promptReferenceIndex)
       if (Number.isInteger(index)) this.#insertMention(this.#pickerReferences[index])
+      return
+    }
+    const subject = target.closest<HTMLButtonElement>("[data-prompt-subject-index]")
+    if (subject) {
+      const index = Number(subject.dataset.promptSubjectIndex)
+      if (Number.isInteger(index)) this.#insertSubject(this.#pickerSubjects[index])
+      return
+    }
+    if (target.closest<HTMLButtonElement>("[data-prompt-subject-create]")) {
+      this.#createAndInsertSubject(this.#pickerCreateSubject)
       return
     }
     const alias = target.closest<HTMLButtonElement>("[data-prompt-alias-index]")
@@ -641,6 +761,7 @@ export class ReferencePromptController {
 
   #toggleView(): void {
     this.#syncDocumentFromEditor()
+    this.#recoveredFromVersion = undefined
     this.#document = {
       ...this.#document,
       view: this.#document.view === "raw" ? "structured" : "raw",
@@ -652,8 +773,8 @@ export class ReferencePromptController {
 
   #clearPrompt(): void {
     this.#syncDocumentFromEditor()
-    if (this.#document.sections.length === 0) return
-    this.#document = { ...this.#document, sections: [] }
+    if (this.#document.sections.length === 0 && this.#document.subjects.length === 0) return
+    this.#document = { ...this.#document, subjects: [], sections: [] }
     this.#closePicker()
     this.#renderEditor()
     this.#setHint(localize(PROMPT_MESSAGES.cleared, this.#locale))
@@ -726,28 +847,59 @@ export class ReferencePromptController {
       return
     }
     const before = (container.textContent ?? "").slice(0, caret.startOffset)
-    const match = before.match(/@([^\s@]*)$/u)
-    if (!match) {
-      this.#closePicker()
-      return
-    }
+    const referenceMatch = before.match(/@([^\s@]*)$/u)
+    const subjectMatch =
+      this.#preset.subjectMode === "disabled" ? undefined : before.match(/#([^\s#]*)$/u)
+    const match = referenceMatch ?? subjectMatch
+    if (!match) return this.#closePicker()
     const range = document.createRange()
     range.setStart(container, caret.startOffset - (match[0]?.length ?? 0))
     range.setEnd(container, caret.startOffset)
     this.#pickerRange = range
-    this.#updateReferencePicker(match[1] ?? "")
+    if (referenceMatch) this.#updateReferencePicker(match[1] ?? "")
+    else
+      this.#updateSubjectPicker(subjectMatch?.[1] ?? "", closestSectionBody(this.root, container))
   }
 
   #updateReferencePicker(query = ""): void {
     this.#pickerMode = "reference"
+    this.#pickerSubjects = []
+    this.#pickerCreateSubject = undefined
     this.#pickerAliases = []
-    const normalized = query.trim().toLocaleLowerCase()
+    const normalized = query.trim().toLowerCase()
     this.#pickerReferences = this.#references().filter((reference) =>
       [reference.label, reference.filename, reference.tag, reference.mediaKind].some((value) =>
-        value.toLocaleLowerCase().includes(normalized),
+        value.toLowerCase().includes(normalized),
       ),
     )
     this.#pickerIndex = Math.min(this.#pickerIndex, Math.max(0, this.#pickerReferences.length - 1))
+    this.#renderPicker()
+  }
+
+  #updateSubjectPicker(query: string, body: HTMLElement | undefined): void {
+    this.#pickerMode = "subject"
+    this.#pickerReferences = []
+    this.#pickerAliases = []
+    const normalized = query.trim().toLocaleLowerCase()
+    this.#pickerSubjects = this.#document.subjects.filter((subject, index) =>
+      [subject.label, `subject${index + 1}`, `<Subject ${index + 1}>`].some((value) =>
+        value.toLocaleLowerCase().includes(normalized),
+      ),
+    )
+    const label = normalizeSubjectLabel(query)
+    const creationAllowed =
+      this.#preset.subjectMode === "anywhere" ||
+      (this.#preset.subjectMode === "definitions" &&
+        body?.dataset.promptSectionBody === "subject_definitions")
+    this.#pickerCreateSubject =
+      creationAllowed &&
+      label &&
+      !this.#document.subjects.some(
+        (subject) => subject.label.toLowerCase() === label.toLowerCase(),
+      )
+        ? label
+        : undefined
+    this.#pickerIndex = Math.min(this.#pickerIndex, Math.max(0, this.#pickerOptionCount() - 1))
     this.#renderPicker()
   }
 
@@ -755,6 +907,8 @@ export class ReferencePromptController {
     this.#pickerMode = "alias"
     this.#pickerRange = undefined
     this.#pickerReferences = []
+    this.#pickerSubjects = []
+    this.#pickerCreateSubject = undefined
     const normalized = query.trim().toLocaleLowerCase()
     this.#pickerAliases = this.#preset.aliases.filter((option) =>
       [
@@ -777,7 +931,9 @@ export class ReferencePromptController {
       empty.textContent =
         this.#pickerMode === "alias"
           ? localize(PROMPT_MESSAGES.noAliases, this.#locale)
-          : localize(PROMPT_MESSAGES.noReferences, this.#locale)
+          : this.#pickerMode === "subject"
+            ? localize(PROMPT_MESSAGES.noSubjects, this.#locale)
+            : localize(PROMPT_MESSAGES.noReferences, this.#locale)
       picker.append(empty)
       return
     }
@@ -801,6 +957,49 @@ export class ReferencePromptController {
         button.append(icon, copy)
         picker.append(button)
       })
+    } else if (this.#pickerMode === "subject") {
+      this.#pickerSubjects.forEach((subject, index) => {
+        const ordinal = this.#document.subjects.findIndex(
+          (candidate) => candidate.subjectId === subject.subjectId,
+        )
+        const button = document.createElement("button")
+        button.type = "button"
+        button.role = "option"
+        button.dataset.promptSubjectIndex = String(index)
+        button.classList.toggle("is-active", index === this.#pickerIndex)
+        const icon = document.createElement("span")
+        icon.className = "rl-prompt-subject-icon"
+        icon.textContent = `S${ordinal + 1}`
+        const copy = document.createElement("span")
+        const label = document.createElement("strong")
+        label.textContent = `#${subject.label}`
+        const detail = document.createElement("small")
+        detail.textContent = `<Subject ${ordinal + 1}>`
+        copy.append(label, detail)
+        button.append(icon, copy)
+        picker.append(button)
+      })
+      if (this.#pickerCreateSubject) {
+        const button = document.createElement("button")
+        button.type = "button"
+        button.role = "option"
+        button.dataset.promptSubjectCreate = ""
+        button.classList.toggle("is-active", this.#pickerIndex === this.#pickerSubjects.length)
+        const icon = document.createElement("span")
+        icon.className = "rl-prompt-subject-icon is-create"
+        icon.textContent = "+S"
+        const copy = document.createElement("span")
+        const label = document.createElement("strong")
+        label.textContent = localize(PROMPT_MESSAGES.createSubject, this.#locale).replace(
+          "{label}",
+          this.#pickerCreateSubject,
+        )
+        const detail = document.createElement("small")
+        detail.textContent = localize(PROMPT_MESSAGES.createSubjectDetail, this.#locale)
+        copy.append(label, detail)
+        button.append(icon, copy)
+        picker.append(button)
+      }
     } else {
       this.#pickerReferences.forEach((reference, index) => {
         const button = document.createElement("button")
@@ -824,9 +1023,16 @@ export class ReferencePromptController {
 
   #updatePickerSelection(): void {
     for (const option of this.#picker.querySelectorAll<HTMLElement>(
-      "[data-prompt-reference-index], [data-prompt-alias-index]",
+      "[data-prompt-reference-index], [data-prompt-subject-index], [data-prompt-subject-create], [data-prompt-alias-index]",
     )) {
-      const index = Number(option.dataset.promptReferenceIndex ?? option.dataset.promptAliasIndex)
+      const index = Number(
+        option.dataset.promptReferenceIndex ??
+          option.dataset.promptAliasIndex ??
+          option.dataset.promptSubjectIndex ??
+          (option.hasAttribute("data-prompt-subject-create")
+            ? this.#pickerSubjects.length
+            : undefined),
+      )
       const active = index === this.#pickerIndex
       option.classList.toggle("is-active", active)
       option.setAttribute("aria-selected", String(active))
@@ -859,17 +1065,57 @@ export class ReferencePromptController {
     this.#node.setDirtyCanvas(true, true)
   }
 
+  #insertSubject(subject: PromptSubject | undefined): void {
+    if (!subject || !this.#pickerRange) return
+    const ordinal =
+      this.#document.subjects.findIndex((candidate) => candidate.subjectId === subject.subjectId) +
+      1
+    const chip = makeSubjectChip(
+      { type: "subject", subjectId: subject.subjectId, label: subject.label },
+      subject,
+      ordinal,
+    )
+    const selection = globalThis.getSelection?.()
+    this.#pickerRange.deleteContents()
+    this.#pickerRange.insertNode(chip)
+    const range = document.createRange()
+    range.setStartAfter(chip)
+    range.collapse(true)
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    this.#closePicker()
+    this.#syncDocumentFromEditor()
+    this.#node.setDirtyCanvas(true, true)
+  }
+
+  #createAndInsertSubject(label: string | undefined): void {
+    if (!label) return
+    let subjectId = createSubjectId()
+    while (this.#document.subjects.some((subject) => subject.subjectId === subjectId))
+      subjectId = createSubjectId()
+    const subject = { subjectId, label }
+    this.#document.subjects.push(subject)
+    this.#insertSubject(subject)
+  }
+
   #insertAlias(alias: PromptAlias | undefined): void {
     if (alias) this.#addOrFocusSection(alias.title)
   }
 
   #pickerOptionCount(): number {
-    return this.#pickerMode === "alias" ? this.#pickerAliases.length : this.#pickerReferences.length
+    if (this.#pickerMode === "alias") return this.#pickerAliases.length
+    if (this.#pickerMode === "subject")
+      return this.#pickerSubjects.length + (this.#pickerCreateSubject ? 1 : 0)
+    return this.#pickerReferences.length
   }
 
   #activatePickerOption(): void {
     if (this.#pickerMode === "alias") this.#insertAlias(this.#pickerAliases[this.#pickerIndex])
-    else this.#insertMention(this.#pickerReferences[this.#pickerIndex])
+    else if (this.#pickerMode === "subject") {
+      if (this.#pickerIndex < this.#pickerSubjects.length)
+        this.#insertSubject(this.#pickerSubjects[this.#pickerIndex])
+      else this.#createAndInsertSubject(this.#pickerCreateSubject)
+    } else this.#insertMention(this.#pickerReferences[this.#pickerIndex])
   }
 
   #onPickerWheel(event: WheelEvent): void {
@@ -889,6 +1135,8 @@ export class ReferencePromptController {
     this.#pickerRange = undefined
     this.#pickerMode = undefined
     this.#pickerReferences = []
+    this.#pickerSubjects = []
+    this.#pickerCreateSubject = undefined
     this.#pickerAliases = []
     this.#pickerIndex = 0
     const picker = this.root.querySelector<HTMLElement>("[data-prompt-picker]")

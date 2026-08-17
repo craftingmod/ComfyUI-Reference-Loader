@@ -84,6 +84,7 @@ def load_prompt_preset_catalog(
     order = preset.get("order")
     is_default = preset.get("default")
     default_title = preset.get("defaultSectionTitle")
+    subject_mode = preset.get("subjectMode")
     aliases = preset.get("aliases")
     if (
       not isinstance(preset_id, str)
@@ -93,6 +94,7 @@ def load_prompt_preset_catalog(
       or not isinstance(is_default, bool)
       or not isinstance(default_title, str)
       or _PROMPT_IDENTIFIER_PATTERN.fullmatch(default_title) is None
+      or subject_mode not in {"anywhere", "definitions", "disabled"}
       or not _is_localized_text(preset.get("label"))
       or not _is_localized_text(preset.get("description"))
       or not isinstance(aliases, list)

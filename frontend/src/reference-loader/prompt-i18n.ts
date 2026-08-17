@@ -6,6 +6,10 @@ export const PROMPT_MESSAGES = {
     en: "Stack sections by title · @ media · / alias",
     ko: "제목별 섹션 · @ 미디어 · / alias",
   },
+  subtitleWithSubjects: {
+    en: "Stack sections by title · @ media · # subjects · / alias",
+    ko: "제목별 섹션 · @ 미디어 · # 피사체 · / alias",
+  },
   preset: { en: "Preset", ko: "프리셋" },
   editorAria: { en: "Reference Prompt editor", ko: "참조 프롬프트 편집기" },
   toggleAria: { en: "Toggle raw prompt view", ko: "Raw 프롬프트 보기 전환" },
@@ -32,6 +36,10 @@ export const PROMPT_MESSAGES = {
     en: "Write this section. Type @ for media.",
     ko: "섹션 내용을 입력하세요. 미디어는 @을 사용합니다.",
   },
+  bodyPlaceholderWithSubjects: {
+    en: "Write this section. Type @ for media or # for subjects.",
+    ko: "섹션 내용을 입력하세요. 미디어는 @, 피사체는 #을 사용합니다.",
+  },
   structured: { en: "@ Structured", ko: "@ 구조화" },
   raw: { en: "</> Raw", ko: "</> Raw" },
   backToStructured: { en: "Back to section stack", ko: "섹션 Stack으로 돌아가기" },
@@ -42,6 +50,19 @@ export const PROMPT_MESSAGES = {
   },
   noAliases: { en: "No aliases match.", ko: "일치하는 alias가 없습니다." },
   noReferences: { en: "No references match.", ko: "일치하는 참조가 없습니다." },
+  noSubjects: {
+    en: "No subjects match. Type a name where subject creation is allowed.",
+    ko: "일치하는 피사체가 없습니다. 피사체를 만들 수 있는 섹션에서 이름을 입력하세요.",
+  },
+  createSubject: { en: "Create #{label}", ko: "#{label} 만들기" },
+  createSubjectDetail: {
+    en: "Adds a stable subject reference",
+    ko: "안정적인 피사체 참조를 추가합니다.",
+  },
+  legacyRecovered: {
+    en: "Legacy Prompt v{version} was recovered as Raw. Review it before switching to Structured.",
+    ko: "이전 Prompt v{version}을 Raw로 복구했습니다. Structured로 전환하기 전에 내용을 확인하세요.",
+  },
 } satisfies Record<string, LocalizedText>
 
 export function detectPromptLocale(): PromptLocale {

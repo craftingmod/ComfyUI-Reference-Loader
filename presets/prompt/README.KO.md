@@ -23,6 +23,7 @@ JSON을 변경한 뒤에는 Frontend를 다시 빌드할 필요가 없지만, Co
     "ko": "비디오 모델용 사용자 정의 섹션입니다."
   },
   "defaultSectionTitle": "scene",
+  "subjectMode": "disabled",
   "aliases": [
     {
       "command": "scene",
@@ -43,16 +44,17 @@ JSON을 변경한 뒤에는 Frontend를 다시 빌드할 필요가 없지만, Co
 
 ## 프리셋 필드
 
-| 필드                  | 형식                             | 필수 | 설명                                                                          |
-| --------------------- | -------------------------------- | ---- | ----------------------------------------------------------------------------- |
-| `version`             | 정수 `1`                         | 예   | 현재 프리셋 파일 규격 버전입니다.                                             |
-| `order`               | 정수                             | 예   | Advanced Inputs Combo에서 표시되는 순서입니다. 모든 파일에서 고유해야 합니다. |
-| `default`             | Boolean                          | 예   | 기본 프리셋 여부입니다. 디렉터리 전체에서 정확히 하나만 `true`여야 합니다.    |
-| `id`                  | 문자열                           | 예   | 저장되는 프리셋 ID입니다. 파일명과 일치해야 합니다.                           |
-| `label`               | `{ "en": string, "ko": string }` | 예   | Prompt 상단 프리셋 배지에 표시되는 이름입니다.                                |
-| `description`         | `{ "en": string, "ko": string }` | 예   | 프리셋의 용도를 설명하는 도움말입니다.                                        |
-| `defaultSectionTitle` | 문자열                           | 예   | 비어 있는 Prompt에 가상으로 표시할 기본 섹션 제목입니다.                      |
-| `aliases`             | 배열                             | 예   | `/` 자동 완성으로 생성할 섹션 목록입니다. 빈 배열도 허용됩니다.               |
+| 필드                  | 형식                                  | 필수 | 설명                                                                          |
+| --------------------- | ------------------------------------- | ---- | ----------------------------------------------------------------------------- |
+| `version`             | 정수 `1`                              | 예   | 현재 프리셋 파일 규격 버전입니다.                                             |
+| `order`               | 정수                                  | 예   | Advanced Inputs Combo에서 표시되는 순서입니다. 모든 파일에서 고유해야 합니다. |
+| `default`             | Boolean                               | 예   | 기본 프리셋 여부입니다. 디렉터리 전체에서 정확히 하나만 `true`여야 합니다.    |
+| `id`                  | 문자열                                | 예   | 저장되는 프리셋 ID입니다. 파일명과 일치해야 합니다.                           |
+| `label`               | `{ "en": string, "ko": string }`      | 예   | Prompt 상단 프리셋 배지에 표시되는 이름입니다.                                |
+| `description`         | `{ "en": string, "ko": string }`      | 예   | 프리셋의 용도를 설명하는 도움말입니다.                                        |
+| `defaultSectionTitle` | 문자열                                | 예   | 비어 있는 Prompt에 가상으로 표시할 기본 섹션 제목입니다.                      |
+| `subjectMode`         | `anywhere`, `definitions`, `disabled` | 예   | `#` Subject label을 생성할 수 있는 범위를 지정합니다.                         |
+| `aliases`             | 배열                                  | 예   | `/` 자동 완성으로 생성할 섹션 목록입니다. 빈 배열도 허용됩니다.               |
 
 ## Alias 필드
 
@@ -130,8 +132,9 @@ JSON은 주석과 trailing comma를 지원하지 않습니다. UTF-8로 저장�
 3. 아직 사용되지 않은 `order`를 지정합니다.
 4. 일반적인 추가 프리셋은 `default`를 `false`로 둡니다.
 5. `defaultSectionTitle`과 `aliases`를 대상 모델 규격에 맞게 수정합니다.
-6. 모든 `label`과 `description`에 `en`, `ko` 문자열을 작성합니다.
-7. ComfyUI를 재시작하고 Reference Loader의 Advanced Inputs에서 프리셋과 `/` 자동 완성을 확인합니다.
+6. 용도에 맞는 `subjectMode` 정책을 선택합니다.
+7. 모든 `label`과 `description`에 `en`, `ko` 문자열을 작성합니다.
+8. ComfyUI를 재시작하고 Reference Loader의 Advanced Inputs에서 프리셋과 자동 완성을 확인합니다.
 
 기본 프리셋을 바꾸려면 기존 기본 파일의 `default`를 `false`로 바꾼 뒤 새 기본 파일 하나만 `true`로 설정해야 합니다.
 
@@ -141,9 +144,10 @@ JSON은 주석과 trailing comma를 지원하지 않습니다. UTF-8로 저장�
 
 - 비어 있는 Prompt의 기본 섹션
 - `/` 자동 완성 항목
+- `#` Subject label을 생성할 수 있는 위치
 - 프리셋 배지 및 한·영 설명
 
-프리셋을 전환해도 이미 작성된 섹션을 이름 변경, 재정렬 또는 삭제하지 않으며, 최종 Prompt나 실행 fingerprint를 직접 변경하지 않습니다. `@` 미디어 참조와 `#` 대사 입력도 모든 프리셋에서 동일하게 작동합니다.
+`subjectMode`는 모든 섹션에서 Subject를 만들 수 있는 `anywhere`, `subject_definitions`에서만 만들고 다른 섹션에서는 재사용하는 `definitions`, `#`를 일반 텍스트로 두는 `disabled` 중 하나입니다. 프리셋을 전환해도 이미 작성된 섹션이나 Subject를 이름 변경, 재정렬 또는 삭제하지 않습니다. `@` 미디어 참조는 모든 프리셋에서 동일하게 작동합니다.
 
 ## 오류 확인
 
@@ -152,6 +156,7 @@ JSON은 주석과 trailing comma를 지원하지 않습니다. UTF-8로 저장�
 - `.json` 파일이 하나 이상 존재하는지
 - 모든 파일의 `version`이 `1`인지
 - 파일명과 `id`가 일치하는지
+- 각 파일의 `subjectMode`가 허용된 값인지
 - `order`와 `id`가 중복되지 않았는지
 - 정확히 하나의 파일만 `default: true`인지
 - 각 프리셋 안에서 `command`가 중복되지 않았는지

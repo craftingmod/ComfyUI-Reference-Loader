@@ -9,6 +9,7 @@
     "ko": "모델에 종속되지 않은 장면·스타일·카메라·타임라인·오디오 섹션입니다."
   },
   "defaultSectionTitle": "scene",
+  "subjectMode": "anywhere",
   "aliases": [
     {
       "command": "scene",

@@ -4,6 +4,7 @@ import minimaxH3BasePreset from "../../../presets/prompt/minimax_h3_base.json"
 import minimaxH3ReferencePreset from "../../../presets/prompt/minimax_h3_reference.json"
 
 export type PromptLocale = "en" | "ko"
+export type PromptSubjectMode = "anywhere" | "definitions" | "disabled"
 
 export interface LocalizedText {
   en: string
@@ -23,6 +24,7 @@ export interface PromptPreset {
   label: LocalizedText
   description: LocalizedText
   defaultSectionTitle: string
+  subjectMode: PromptSubjectMode
   aliases: readonly PromptAlias[]
 }
 
@@ -70,6 +72,9 @@ function parsePreset(value: unknown): PromptPreset | undefined {
     !isLocalizedText(value.description) ||
     typeof value.defaultSectionTitle !== "string" ||
     !/^[a-z][a-z0-9_]*$/u.test(value.defaultSectionTitle) ||
+    (value.subjectMode !== "anywhere" &&
+      value.subjectMode !== "definitions" &&
+      value.subjectMode !== "disabled") ||
     !Array.isArray(value.aliases)
   )
     return undefined
@@ -83,6 +88,7 @@ function parsePreset(value: unknown): PromptPreset | undefined {
     label: value.label,
     description: value.description,
     defaultSectionTitle: value.defaultSectionTitle,
+    subjectMode: value.subjectMode,
     aliases: parsedAliases,
   }
 }

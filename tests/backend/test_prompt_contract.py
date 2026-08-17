@@ -73,13 +73,19 @@ def reference_state():
 
 def test_compiles_stable_mentions_against_active_per_type_orders():
   document = {
-    "version": 3,
+    "version": 4,
     "view": "structured",
+    "subjects": [
+      {"subjectId": "woman", "label": "woman"},
+      {"subjectId": "station", "label": "station"},
+    ],
     "sections": [
       {
         "title": "integrated_multimodal_description",
         "parts": [
           {"type": "text", "text": "A "},
+          {"type": "subject", "subjectId": "woman", "label": "woman"},
+          {"type": "text", "text": " from "},
           {
             "type": "mention",
             "referenceId": "image-a",
@@ -130,7 +136,7 @@ def test_compiles_stable_mentions_against_active_per_type_orders():
   }
   assert compile_prompt_state(json.dumps(document), reference_state()) == (
     "integrated_multimodal_description:\n"
-    "A <Picture 1> watches <Video 1> with <Audio 1> and <Audio 2>안녕하세요"
+    "A <Subject 1> from <Picture 1> watches <Video 1> with <Audio 1> and <Audio 2>안녕하세요"
     "\n\nvisual_style:\nSoft 3D"
     "\n\noverall_soundscape:\nNo music for <Picture 1>"
   )
@@ -138,7 +144,8 @@ def test_compiles_stable_mentions_against_active_per_type_orders():
 
 def test_unavailable_mentions_remain_visible_without_rebinding_to_another_item():
   document = {
-    "version": 3,
+    "version": 4,
+    "subjects": [],
     "sections": [
       {
         "title": "scene",
@@ -159,7 +166,8 @@ def test_unavailable_mentions_remain_visible_without_rebinding_to_another_item()
 def test_rebinds_standard_mention_labels_to_current_output_positions():
   document = parse_prompt_state(
     {
-      "version": 3,
+      "version": 4,
+      "subjects": [],
       "sections": [
         {
           "title": "scene",
@@ -197,15 +205,22 @@ def test_accepts_literal_prompt_strings_and_rejects_invalid_structured_state():
     compile_prompt_state("literal text", reference_state()) == "scene:\nliteral text"
   )
   with pytest.raises(PromptContractError, match="prompt.sections"):
-    parse_prompt_state(json.dumps({"version": 3, "sections": "invalid"}))
+    parse_prompt_state(
+      json.dumps({"version": 4, "subjects": [], "sections": "invalid"})
+    )
   with pytest.raises(PromptContractError, match="lowercase snake_case"):
     parse_prompt_state(
-      {"version": 3, "sections": [{"title": "Bad Title", "parts": []}]}
+      {
+        "version": 4,
+        "subjects": [],
+        "sections": [{"title": "Bad Title", "parts": []}],
+      }
     )
-  with pytest.raises(PromptContractError, match="must be text or mention"):
+  with pytest.raises(PromptContractError, match="must be text, mention, or subject"):
     parse_prompt_state(
       {
-        "version": 3,
+        "version": 4,
+        "subjects": [],
         "sections": [
           {
             "title": "scene",
@@ -214,18 +229,27 @@ def test_accepts_literal_prompt_strings_and_rejects_invalid_structured_state():
         ],
       }
     )
+  with pytest.raises(PromptContractError, match="letters, numbers"):
+    parse_prompt_state(
+      {
+        "version": 4,
+        "subjects": [{"subjectId": "bad", "label": "bad label"}],
+        "sections": [],
+      }
+    )
 
 
-def test_rejects_version_2_prompt_state_without_migration():
-  with pytest.raises(PromptContractError, match="prompt.version: must equal 3"):
-    parse_prompt_state({"version": 2, "parts": []})
+def test_rejects_version_3_prompt_state_without_migration():
+  with pytest.raises(PromptContractError, match="prompt.version: must equal 4"):
+    parse_prompt_state({"version": 3, "subjects": [], "sections": []})
 
 
 def test_rejects_duplicate_section_titles():
   with pytest.raises(PromptContractError, match="must be unique"):
     parse_prompt_state(
       {
-        "version": 3,
+        "version": 4,
+        "subjects": [],
         "sections": [
           {"title": "scene", "parts": []},
           {"title": "scene", "parts": []},

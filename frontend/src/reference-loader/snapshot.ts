@@ -1,5 +1,5 @@
 import type { ComfyNode } from "../comfyui.ts"
-import { validatePromptDocument } from "./prompt-state.ts"
+import { deserializePromptDocument, validatePromptDocument } from "./prompt-state.ts"
 import { deserializeLoaderState, serializeLoaderState } from "./serialization.ts"
 
 export const REFERENCE_LOADER_SNAPSHOT_FORMAT = "reference-loader-snapshot" as const
@@ -139,7 +139,7 @@ export function parseReferenceLoaderSnapshot(value: string): ParsedReferenceLoad
   const loader = deserializeLoaderState(raw.loader_state)
   if (loader.issues.length > 0)
     throw new Error(`Snapshot Loader state is invalid: ${loader.issues.join(" ")}`)
-  const prompt = validatePromptDocument(raw.prompt_state)
+  const prompt = deserializePromptDocument(JSON.stringify(raw.prompt_state))
   if (prompt.issues.length > 0)
     throw new Error(`Snapshot Prompt state is invalid: ${prompt.issues.join(" ")}`)
   const settings = parseSettings(raw.node_settings)
@@ -148,7 +148,9 @@ export function parseReferenceLoaderSnapshot(value: string): ParsedReferenceLoad
     throw new Error("Snapshot enables two-image mode with more than two enabled Images.")
   return {
     loaderState,
-    promptState: JSON.stringify(prompt.document),
+    promptState: prompt.recoveredFromVersion
+      ? JSON.stringify(raw.prompt_state)
+      : JSON.stringify(prompt.document),
     settings,
   }
 }

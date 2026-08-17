@@ -9,6 +9,7 @@
     "ko": "텍스트·이미지·첫/마지막 프레임·피사체 참조용 H3 기본 스키마입니다."
   },
   "defaultSectionTitle": "integrated_multimodal_description",
+  "subjectMode": "disabled",
   "aliases": [
     {
       "command": "description",

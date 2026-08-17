@@ -353,6 +353,7 @@ describe("Reference Loader custom widget", () => {
           label: { en: "Custom video", ko: "사용자 비디오" },
           description: { en: "Loaded from JSON", ko: "JSON에서 불러옴" },
           defaultSectionTitle: "custom_direction",
+          subjectMode: "disabled",
           aliases: [
             {
               command: "custom",

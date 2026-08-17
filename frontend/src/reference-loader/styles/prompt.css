@@ -239,6 +239,12 @@
   text-decoration: line-through;
 }
 
+.rl-prompt-subject {
+  border-color: color-mix(in srgb, #c18cff 72%, var(--rl-border));
+  color: #e7c9ff;
+  background: color-mix(in srgb, #7b42a8 22%, var(--rl-bg));
+}
+
 .rl-prompt-mention > img,
 .rl-prompt-reference-icon {
   width: 23px;
@@ -246,6 +252,18 @@
   flex: none;
   object-fit: cover;
   background: #101217;
+}
+
+.rl-prompt-subject-icon {
+  display: inline-grid;
+  width: 23px;
+  height: 23px;
+  flex: none;
+  place-items: center;
+  color: #fff;
+  background: #69328f;
+  font-size: 10px;
+  font-weight: 800;
 }
 
 .rl-prompt-reference-icon {
@@ -324,10 +342,15 @@
 
 .rl-prompt-picker button > img,
 .rl-prompt-picker button > .rl-prompt-reference-icon,
-.rl-prompt-picker button > .rl-prompt-directive-icon {
+.rl-prompt-picker button > .rl-prompt-directive-icon,
+.rl-prompt-picker button > .rl-prompt-subject-icon {
   width: 40px;
   height: 40px;
   border-radius: 4px;
+}
+
+.rl-prompt-picker .rl-prompt-subject-icon.is-create {
+  background: #315d4a;
 }
 
 .rl-prompt-directive-icon {

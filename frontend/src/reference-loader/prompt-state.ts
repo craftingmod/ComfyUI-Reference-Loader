@@ -1,7 +1,8 @@
-export const PROMPT_STATE_VERSION = 3 as const
+export const PROMPT_STATE_VERSION = 4 as const
 export const MAX_PROMPT_STATE_CHARACTERS = 250_000
 export const MAX_PROMPT_TEXT_CHARACTERS = 100_000
 export const MAX_PROMPT_SECTION_TITLE_CHARACTERS = 64
+export const MAX_PROMPT_SUBJECT_LABEL_CHARACTERS = 64
 
 export type PromptMediaKind = "image" | "video" | "audio"
 export type PromptViewMode = "structured" | "raw"
@@ -18,7 +19,18 @@ export interface PromptMentionPart {
   label: string
 }
 
-export type PromptSectionPart = PromptTextPart | PromptMentionPart
+export interface PromptSubjectPart {
+  type: "subject"
+  subjectId: string
+  label: string
+}
+
+export type PromptSectionPart = PromptTextPart | PromptMentionPart | PromptSubjectPart
+
+export interface PromptSubject {
+  subjectId: string
+  label: string
+}
 
 export interface PromptSection {
   title: string
@@ -28,6 +40,7 @@ export interface PromptSection {
 export interface PromptDocument {
   version: typeof PROMPT_STATE_VERSION
   view: PromptViewMode
+  subjects: PromptSubject[]
   sections: PromptSection[]
 }
 
@@ -45,10 +58,11 @@ export interface PromptReference {
 export interface PromptValidationResult {
   document: PromptDocument
   issues: string[]
+  recoveredFromVersion?: number
 }
 
 export function createEmptyPromptDocument(): PromptDocument {
-  return { version: PROMPT_STATE_VERSION, view: "structured", sections: [] }
+  return { version: PROMPT_STATE_VERSION, view: "structured", subjects: [], sections: [] }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -104,6 +118,29 @@ function validateMention(
   }
 }
 
+function validateSubjectPart(
+  value: Record<string, unknown>,
+  path: string,
+  issues: string[],
+): PromptSubjectPart | undefined {
+  const subjectId = value.subjectId
+  const label = value.label
+  if (
+    typeof subjectId !== "string" ||
+    subjectId.length === 0 ||
+    subjectId.length > 160 ||
+    /\s/u.test(subjectId) ||
+    typeof label !== "string" ||
+    label.trim().length === 0 ||
+    label.length > MAX_PROMPT_SUBJECT_LABEL_CHARACTERS ||
+    !/^[\p{L}\p{N}][\p{L}\p{N}_-]*$/u.test(label.trim())
+  ) {
+    issues.push(`${path} was discarded.`)
+    return undefined
+  }
+  return { type: "subject", subjectId, label: label.trim() }
+}
+
 export function validatePromptDocument(value: unknown): PromptValidationResult {
   if (
     !isRecord(value) ||
@@ -113,6 +150,31 @@ export function validatePromptDocument(value: unknown): PromptValidationResult {
     return { document: createEmptyPromptDocument(), issues: ["Prompt state was invalid."] }
   }
   const issues: string[] = []
+  const subjects: PromptSubject[] = []
+  const subjectIds = new Set<string>()
+  const subjectLabels = new Set<string>()
+  if (!Array.isArray(value.subjects)) {
+    issues.push("Prompt subjects were reset.")
+  } else {
+    for (const [subjectIndex, rawSubject] of value.subjects.entries()) {
+      const path = `Prompt subject ${subjectIndex}`
+      const subject = isRecord(rawSubject)
+        ? validateSubjectPart({ ...rawSubject, type: "subject" }, path, issues)
+        : undefined
+      if (!subject) {
+        if (!isRecord(rawSubject)) issues.push(`${path} was discarded.`)
+        continue
+      }
+      const normalizedLabel = subject.label.toLowerCase()
+      if (subjectIds.has(subject.subjectId) || subjectLabels.has(normalizedLabel)) {
+        issues.push(`${path} was discarded because its ID or label was duplicated.`)
+        continue
+      }
+      subjectIds.add(subject.subjectId)
+      subjectLabels.add(normalizedLabel)
+      subjects.push({ subjectId: subject.subjectId, label: subject.label })
+    }
+  }
   const sections: PromptSection[] = []
   const sectionByTitle = new Map<string, PromptSection>()
   let textLength = 0
@@ -153,6 +215,11 @@ export function validatePromptDocument(value: unknown): PromptValidationResult {
         if (mention) parts.push(mention)
         continue
       }
+      if (rawPart.type === "subject") {
+        const subject = validateSubjectPart(rawPart, path, issues)
+        if (subject) parts.push(subject)
+        continue
+      }
       issues.push(`${path} was discarded.`)
     }
 
@@ -174,6 +241,7 @@ export function validatePromptDocument(value: unknown): PromptValidationResult {
     document: {
       version: PROMPT_STATE_VERSION,
       view: value.view === "raw" ? "raw" : "structured",
+      subjects,
       sections,
     },
     issues,
@@ -184,10 +252,102 @@ export function serializePromptDocument(document: PromptDocument): string {
   return JSON.stringify(validatePromptDocument(document).document)
 }
 
+function recoverLegacyPromptDocument(
+  value: Record<string, unknown>,
+  version: number,
+): PromptValidationResult {
+  let textLength = 0
+  let truncated = false
+  const appendText = (parts: PromptSectionPart[], value: string): void => {
+    const remaining = Math.max(0, MAX_PROMPT_TEXT_CHARACTERS - textLength)
+    const text = value.slice(0, remaining)
+    textLength += text.length
+    if (text.length !== value.length) truncated = true
+    if (text) parts.push({ type: "text", text })
+  }
+  const appendPart = (parts: PromptSectionPart[], rawPart: unknown): void => {
+    if (!isRecord(rawPart)) {
+      appendText(parts, JSON.stringify(rawPart) ?? String(rawPart))
+      return
+    }
+    if (rawPart.type === "text" && typeof rawPart.text === "string") {
+      appendText(parts, rawPart.text)
+      return
+    }
+    if (rawPart.type === "dialogue" && typeof rawPart.text === "string") {
+      appendText(parts, `<d>${rawPart.text}</d>`)
+      return
+    }
+    if (rawPart.type === "mention") {
+      const mention = validateMention(rawPart, "Legacy Prompt mention", [])
+      if (mention) {
+        parts.push(mention)
+        return
+      }
+    }
+    if (rawPart.type === "directive" && (rawPart.kind === "audio" || rawPart.kind === "style")) {
+      appendText(parts, `<${rawPart.kind}>`)
+      const nested = Array.isArray(rawPart.parts)
+        ? rawPart.parts
+        : typeof rawPart.text === "string"
+          ? [{ type: "text", text: rawPart.text }]
+          : []
+      for (const part of nested) appendPart(parts, part)
+      appendText(parts, `</${rawPart.kind}>`)
+      return
+    }
+    appendText(parts, JSON.stringify(rawPart) ?? "")
+  }
+  const recoverParts = (rawParts: unknown): PromptSectionPart[] => {
+    const parts: PromptSectionPart[] = []
+    if (Array.isArray(rawParts)) for (const part of rawParts) appendPart(parts, part)
+    else appendText(parts, JSON.stringify(rawParts) ?? "")
+    return mergeTextParts(parts)
+  }
+
+  const sections: PromptSection[] = []
+  if (Array.isArray(value.sections)) {
+    for (const rawSection of value.sections) {
+      if (isRecord(rawSection) && isPromptSectionTitle(rawSection.title)) {
+        sections.push({ title: rawSection.title, parts: recoverParts(rawSection.parts) })
+      } else {
+        sections.push({ title: "legacy_prompt", parts: recoverParts([rawSection]) })
+      }
+    }
+  } else if (Array.isArray(value.parts)) {
+    sections.push({ title: "scene", parts: recoverParts(value.parts) })
+  } else {
+    sections.push({ title: "legacy_prompt", parts: recoverParts([value]) })
+  }
+
+  return {
+    document: {
+      version: PROMPT_STATE_VERSION,
+      view: "raw",
+      subjects: [],
+      sections,
+    },
+    issues: truncated
+      ? [`Legacy Prompt text exceeded ${MAX_PROMPT_TEXT_CHARACTERS} characters and was truncated.`]
+      : [],
+    recoveredFromVersion: version,
+  }
+}
+
 export function deserializePromptDocument(value: unknown): PromptValidationResult {
   if (value === undefined || value === null || value === "")
     return { document: createEmptyPromptDocument(), issues: [] }
-  if (typeof value !== "string") return validatePromptDocument(value)
+  if (typeof value !== "string") {
+    if (
+      isRecord(value) &&
+      typeof value.version === "number" &&
+      Number.isInteger(value.version) &&
+      value.version > 0 &&
+      value.version < PROMPT_STATE_VERSION
+    )
+      return recoverLegacyPromptDocument(value, value.version)
+    return validatePromptDocument(value)
+  }
   if (value.length > MAX_PROMPT_STATE_CHARACTERS) {
     return {
       document: createEmptyPromptDocument(),
@@ -195,13 +355,23 @@ export function deserializePromptDocument(value: unknown): PromptValidationResul
     }
   }
   try {
-    return validatePromptDocument(JSON.parse(value) as unknown)
+    const parsed = JSON.parse(value) as unknown
+    if (
+      isRecord(parsed) &&
+      typeof parsed.version === "number" &&
+      Number.isInteger(parsed.version) &&
+      parsed.version > 0 &&
+      parsed.version < PROMPT_STATE_VERSION
+    )
+      return recoverLegacyPromptDocument(parsed, parsed.version)
+    return validatePromptDocument(parsed)
   } catch {
     const text = value.slice(0, MAX_PROMPT_TEXT_CHARACTERS)
     return {
       document: {
         version: PROMPT_STATE_VERSION,
         view: "structured",
+        subjects: [],
         sections: text ? [{ title: "scene", parts: [{ type: "text", text }] }] : [],
       },
       issues: [],
@@ -216,10 +386,15 @@ function mentionFallback(part: PromptMentionPart): string {
 function compileSectionParts(
   parts: readonly PromptSectionPart[],
   active: ReadonlyMap<string, PromptReference>,
+  subjects: ReadonlyMap<string, number>,
 ): string {
   return parts
     .map((part) => {
       if (part.type === "text") return part.text
+      if (part.type === "subject") {
+        const ordinal = subjects.get(part.subjectId)
+        return ordinal === undefined ? `#${part.label || part.subjectId}` : `<Subject ${ordinal}>`
+      }
       return active.get(`${part.mediaKind}:${part.referenceId}`)?.tag ?? mentionFallback(part)
     })
     .join("")
@@ -233,9 +408,12 @@ export function compilePromptDocument(
   const active = new Map(
     references.map((reference) => [`${reference.mediaKind}:${reference.referenceId}`, reference]),
   )
+  const subjects = new Map(
+    document.subjects.map((subject, index) => [subject.subjectId, index + 1]),
+  )
   return document.sections
     .map((section) => {
-      const content = compileSectionParts(section.parts, active)
+      const content = compileSectionParts(section.parts, active, subjects)
       return content ? `${section.title}:\n${content}` : `${section.title}:`
     })
     .join("\n\n")
@@ -258,9 +436,20 @@ function officialTagMatch(
   return { raw: match[0], mediaKind, ordinal }
 }
 
+function subjectTagMatch(
+  value: string,
+  cursor: number,
+): { raw: string; ordinal: number } | undefined {
+  const match = value.slice(cursor).match(/^<\s*subject\s+(\d+)\s*>/iu)
+  if (!match) return undefined
+  const ordinal = Number(match[1])
+  return Number.isInteger(ordinal) && ordinal > 0 ? { raw: match[0], ordinal } : undefined
+}
+
 function parseSectionParts(
   value: string,
   references: readonly PromptReference[],
+  subjects: readonly PromptSubject[],
 ): PromptSectionPart[] {
   const parts: PromptSectionPart[] = []
   const pushText = (chunk: string): void => {
@@ -273,25 +462,34 @@ function parseSectionParts(
   let cursor = 0
   while (cursor < value.length) {
     const tag = officialTagMatch(value, cursor)
-    if (!tag) {
+    const subjectTag = subjectTagMatch(value, cursor)
+    if (!tag && !subjectTag) {
       cursor += 1
       continue
     }
     if (plainStart < cursor) pushText(value.slice(plainStart, cursor))
-    const reference = references.find(
-      (candidate) => candidate.mediaKind === tag.mediaKind && candidate.ordinal === tag.ordinal,
-    )
-    if (reference) {
-      parts.push({
-        type: "mention",
-        referenceId: reference.referenceId,
-        mediaKind: reference.mediaKind,
-        label: reference.label,
-      })
+    if (subjectTag) {
+      const subject = subjects[subjectTag.ordinal - 1]
+      if (subject)
+        parts.push({ type: "subject", subjectId: subject.subjectId, label: subject.label })
+      else pushText(subjectTag.raw)
+      cursor += subjectTag.raw.length
     } else {
-      pushText(tag.raw)
+      const reference = references.find(
+        (candidate) => candidate.mediaKind === tag!.mediaKind && candidate.ordinal === tag!.ordinal,
+      )
+      if (reference) {
+        parts.push({
+          type: "mention",
+          referenceId: reference.referenceId,
+          mediaKind: reference.mediaKind,
+          label: reference.label,
+        })
+      } else {
+        pushText(tag!.raw)
+      }
+      cursor += tag!.raw.length
     }
-    cursor += tag.raw.length
     plainStart = cursor
   }
   if (plainStart < value.length) pushText(value.slice(plainStart))
@@ -302,6 +500,7 @@ export function parseRawPrompt(
   value: string,
   references: readonly PromptReference[],
   view: PromptViewMode = "raw",
+  subjects: readonly PromptSubject[] = [],
 ): PromptDocument {
   const text = value.slice(0, MAX_PROMPT_TEXT_CHARACTERS)
   const headerPattern = /^([a-z][a-z0-9_]{0,63}):[ \t]*(?:\r?\n|$)/gmu
@@ -311,14 +510,17 @@ export function parseRawPrompt(
     return {
       version: PROMPT_STATE_VERSION,
       view,
-      sections: content ? [{ title: "scene", parts: parseSectionParts(content, references) }] : [],
+      subjects: [...subjects],
+      sections: content
+        ? [{ title: "scene", parts: parseSectionParts(content, references, subjects) }]
+        : [],
     }
   }
 
   const sections: PromptSection[] = []
   const byTitle = new Map<string, PromptSection>()
   const addSection = (title: string, content: string): void => {
-    const parts = parseSectionParts(content.trim(), references)
+    const parts = parseSectionParts(content.trim(), references, subjects)
     const existing = byTitle.get(title)
     if (existing) {
       if (existing.parts.length > 0 && parts.length > 0)
@@ -339,5 +541,5 @@ export function parseRawPrompt(
     const end = headers[index + 1]?.index ?? text.length
     addSection(title, text.slice(start, end))
   })
-  return { version: PROMPT_STATE_VERSION, view, sections }
+  return { version: PROMPT_STATE_VERSION, view, subjects: [...subjects], sections }
 }

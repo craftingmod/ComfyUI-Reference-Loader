@@ -9,13 +9,13 @@ from typing import Any, Literal
 from .reference_contract import ReferenceState
 from .reference_manifest import build_reference_output_plan
 
-PROMPT_STATE_VERSION = 3
+PROMPT_STATE_VERSION = 4
 MAX_PROMPT_STATE_CHARACTERS = 250_000
 MAX_PROMPT_TEXT_CHARACTERS = 100_000
 MAX_PROMPT_SECTION_TITLE_CHARACTERS = 64
 
 PromptMediaKind = Literal["image", "video", "audio"]
-PromptPartKind = Literal["text", "mention"]
+PromptPartKind = Literal["text", "mention", "subject"]
 SECTION_TITLE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
@@ -30,6 +30,13 @@ class PromptPart:
   reference_id: str = ""
   media_kind: PromptMediaKind | None = None
   label: str = ""
+  subject_id: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PromptSubject:
+  subject_id: str
+  label: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +48,7 @@ class PromptSection:
 @dataclass(frozen=True, slots=True)
 class PromptDocument:
   version: int
+  subjects: tuple[PromptSubject, ...]
   sections: tuple[PromptSection, ...]
 
 
@@ -48,6 +56,7 @@ def empty_prompt_state() -> dict[str, Any]:
   return {
     "version": PROMPT_STATE_VERSION,
     "view": "structured",
+    "subjects": [],
     "sections": [],
   }
 
@@ -87,6 +96,34 @@ def _mention_part(value: Mapping[str, Any], path: str) -> PromptPart:
   )
 
 
+def _subject_id(value: Any, path: str) -> str:
+  subject_id = _text(value, path, 160)
+  if not subject_id or any(character.isspace() for character in subject_id):
+    raise _error(path, "must be a non-empty stable subject ID")
+  return subject_id
+
+
+def _subject_label(value: Any, path: str) -> str:
+  label = _text(value, path, 64).strip()
+  if (
+    not label
+    or not label[0].isalnum()
+    or any(not character.isalnum() and character not in "_-" for character in label)
+  ):
+    raise _error(path, "must contain only letters, numbers, underscores, or hyphens")
+  return label
+
+
+def _subject(value: Any, index: int) -> PromptSubject:
+  path = f"prompt.subjects[{index}]"
+  if not isinstance(value, Mapping):
+    raise _error(path, "must be an object")
+  return PromptSubject(
+    subject_id=_subject_id(value.get("subjectId"), f"{path}.subjectId"),
+    label=_subject_label(value.get("label"), f"{path}.label"),
+  )
+
+
 def _part(value: Any, path: str) -> PromptPart:
   if not isinstance(value, Mapping):
     raise _error(path, "must be an object")
@@ -98,7 +135,13 @@ def _part(value: Any, path: str) -> PromptPart:
     )
   if part_type == "mention":
     return _mention_part(value, path)
-  raise _error(f"{path}.type", "must be text or mention")
+  if part_type == "subject":
+    return PromptPart(
+      type="subject",
+      subject_id=_subject_id(value.get("subjectId"), f"{path}.subjectId"),
+      label=_subject_label(value.get("label"), f"{path}.label"),
+    )
+  raise _error(f"{path}.type", "must be text, mention, or subject")
 
 
 def _section(value: Any, index: int) -> PromptSection:
@@ -138,13 +181,31 @@ def parse_prompt_state(value: str | Mapping[str, Any]) -> PromptDocument:
         if value
         else ()
       )
-      return PromptDocument(version=PROMPT_STATE_VERSION, sections=sections)
+      return PromptDocument(
+        version=PROMPT_STATE_VERSION, subjects=(), sections=sections
+      )
   else:
     raw = value
   if not isinstance(raw, Mapping):
     raise _error("prompt", "must be an object")
   if raw.get("version") != PROMPT_STATE_VERSION:
     raise _error("prompt.version", f"must equal {PROMPT_STATE_VERSION}")
+  raw_subjects = raw.get("subjects")
+  if not isinstance(raw_subjects, Sequence) or isinstance(raw_subjects, (str, bytes)):
+    raise _error("prompt.subjects", "must be an array")
+  subjects = tuple(
+    _subject(subject, index) for index, subject in enumerate(raw_subjects)
+  )
+  subject_ids: set[str] = set()
+  subject_labels: set[str] = set()
+  for index, subject in enumerate(subjects):
+    normalized_label = subject.label.lower()
+    if subject.subject_id in subject_ids:
+      raise _error(f"prompt.subjects[{index}].subjectId", "must be unique")
+    if normalized_label in subject_labels:
+      raise _error(f"prompt.subjects[{index}].label", "must be unique")
+    subject_ids.add(subject.subject_id)
+    subject_labels.add(normalized_label)
   raw_sections = raw.get("sections")
   if not isinstance(raw_sections, Sequence) or isinstance(raw_sections, (str, bytes)):
     raise _error("prompt.sections", "must be an array")
@@ -162,7 +223,9 @@ def parse_prompt_state(value: str | Mapping[str, Any]) -> PromptDocument:
       "prompt.sections",
       f"combined text must contain at most {MAX_PROMPT_TEXT_CHARACTERS} characters",
     )
-  return PromptDocument(version=PROMPT_STATE_VERSION, sections=sections)
+  return PromptDocument(
+    version=PROMPT_STATE_VERSION, subjects=subjects, sections=sections
+  )
 
 
 def compile_prompt(document: PromptDocument, references: ReferenceState) -> str:
@@ -205,6 +268,7 @@ def rebind_prompt_mentions_by_order(
 
   return PromptDocument(
     version=document.version,
+    subjects=document.subjects,
     sections=tuple(
       PromptSection(
         title=section.title,
@@ -231,10 +295,21 @@ def compile_prompt_sections(
     kind: {reference_id: index for index, reference_id in enumerate(ids, start=1)}
     for kind, ids in ids_by_kind.items()
   }
+  subject_ordinals = {
+    subject.subject_id: index
+    for index, subject in enumerate(document.subjects, start=1)
+  }
 
   def compile_part(part: PromptPart) -> str:
     if part.type == "text":
       return part.text
+    if part.type == "subject":
+      ordinal = subject_ordinals.get(part.subject_id)
+      return (
+        f"<Subject {ordinal}>"
+        if ordinal is not None
+        else f"#{part.label or part.subject_id}"
+      )
     kind = part.media_kind or "image"
     ordinal = ordinals[kind].get(part.reference_id)
     if ordinal is None:
@@ -254,6 +329,12 @@ def serialize_prompt_document(document: PromptDocument) -> str:
   def serialize_part(part: PromptPart) -> dict[str, Any]:
     if part.type == "text":
       return {"type": "text", "text": part.text}
+    if part.type == "subject":
+      return {
+        "type": "subject",
+        "subjectId": part.subject_id,
+        "label": part.label,
+      }
     return {
       "type": "mention",
       "referenceId": part.reference_id,
@@ -263,6 +344,10 @@ def serialize_prompt_document(document: PromptDocument) -> str:
 
   value = {
     "version": document.version,
+    "subjects": [
+      {"subjectId": subject.subject_id, "label": subject.label}
+      for subject in document.subjects
+    ],
     "sections": [
       {
         "title": section.title,
@@ -294,6 +379,7 @@ __all__ = [
   "PromptDocument",
   "PromptPart",
   "PromptSection",
+  "PromptSubject",
   "compile_prompt",
   "compile_prompt_sections",
   "compile_prompt_state",

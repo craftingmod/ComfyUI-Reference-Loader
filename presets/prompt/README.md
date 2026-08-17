@@ -25,6 +25,7 @@ The filename must be `<id>.json`. For example, a preset whose `id` is `custom_vi
     "ko": "비디오 모델용 사용자 정의 섹션입니다."
   },
   "defaultSectionTitle": "scene",
+  "subjectMode": "disabled",
   "aliases": [
     {
       "command": "scene",
@@ -45,16 +46,17 @@ The filename must be `<id>.json`. For example, a preset whose `id` is `custom_vi
 
 ## Preset fields
 
-| Field                 | Type                             | Required | Description                                                                                    |
-| --------------------- | -------------------------------- | -------- | ---------------------------------------------------------------------------------------------- |
-| `version`             | Integer `1`                      | Yes      | Version of the preset file format.                                                             |
-| `order`               | Integer                          | Yes      | Position in the Advanced Inputs combo. It must be unique across all files.                     |
-| `default`             | Boolean                          | Yes      | Whether this is the default preset. Exactly one file in the directory must set this to `true`. |
-| `id`                  | String                           | Yes      | Stable preset ID stored in the workflow. It must match the filename.                           |
-| `label`               | `{ "en": string, "ko": string }` | Yes      | Name displayed in the active-preset badge.                                                     |
-| `description`         | `{ "en": string, "ko": string }` | Yes      | Help text describing the preset's purpose.                                                     |
-| `defaultSectionTitle` | String                           | Yes      | Virtual default section shown when the Prompt is empty.                                        |
-| `aliases`             | Array                            | Yes      | Sections offered by `/` autocomplete. An empty array is allowed.                               |
+| Field                 | Type                                     | Required | Description                                                                                    |
+| --------------------- | ---------------------------------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `version`             | Integer `1`                              | Yes      | Version of the preset file format.                                                             |
+| `order`               | Integer                                  | Yes      | Position in the Advanced Inputs combo. It must be unique across all files.                     |
+| `default`             | Boolean                                  | Yes      | Whether this is the default preset. Exactly one file in the directory must set this to `true`. |
+| `id`                  | String                                   | Yes      | Stable preset ID stored in the workflow. It must match the filename.                           |
+| `label`               | `{ "en": string, "ko": string }`         | Yes      | Name displayed in the active-preset badge.                                                     |
+| `description`         | `{ "en": string, "ko": string }`         | Yes      | Help text describing the preset's purpose.                                                     |
+| `defaultSectionTitle` | String                                   | Yes      | Virtual default section shown when the Prompt is empty.                                        |
+| `subjectMode`         | `anywhere`, `definitions`, or `disabled` | Yes      | Controls where `#` Subject labels can be created.                                              |
+| `aliases`             | Array                                    | Yes      | Sections offered by `/` autocomplete. An empty array is allowed.                               |
 
 ## Alias fields
 
@@ -132,8 +134,9 @@ JSON does not support comments or trailing commas. Save files as UTF-8 and escap
 3. Assign an unused `order` value.
 4. Leave `default` as `false` for a normal additional preset.
 5. Adjust `defaultSectionTitle` and `aliases` to the target model's specification.
-6. Provide both `en` and `ko` strings for every `label` and `description`.
-7. Restart ComfyUI and verify the preset and `/` autocomplete entries under Reference Loader's Advanced Inputs.
+6. Choose the appropriate `subjectMode` policy.
+7. Provide both `en` and `ko` strings for every `label` and `description`.
+8. Restart ComfyUI and verify the preset and autocomplete entries under Reference Loader's Advanced Inputs.
 
 To change the default preset, first set the old default file to `false`, then set exactly one new default file to `true`.
 
@@ -143,9 +146,10 @@ A preset changes only these Prompt UI policies:
 
 - Default section shown for an empty Prompt
 - Entries offered by `/` autocomplete
+- Whether and where `#` Subject labels can be created
 - Active-preset badge and localized descriptions
 
-Switching presets does not rename, reorder, or remove existing sections. It also does not directly change the compiled Prompt or the execution fingerprint. `@` media references work the same way in every preset.
+`subjectMode` accepts `anywhere` (create Subjects in any section), `definitions` (create only in `subject_definitions`, then reuse elsewhere), or `disabled` (`#` remains plain text). Switching presets does not rename, reorder, or remove existing sections or Subjects. `@` media references work the same way in every preset.
 
 ## Troubleshooting
 
@@ -154,6 +158,7 @@ If any preset file is invalid, the backend rejects the catalog during node loadi
 - At least one `.json` file exists.
 - Every file uses `"version": 1`.
 - Every filename matches its `id`.
+- Every file has a valid `subjectMode`.
 - No `order` or `id` value is duplicated.
 - Exactly one file sets `"default": true`.
 - Alias `command` values are unique within each preset.

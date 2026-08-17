@@ -39,6 +39,13 @@ describe("Reference Prompt presets", () => {
     )
   })
 
+  test("enables Subject authoring only for Generic and H3 Reference", () => {
+    expect(resolvePromptPreset("generic").subjectMode).toBe("anywhere")
+    expect(resolvePromptPreset("minimax_h3_reference").subjectMode).toBe("definitions")
+    expect(resolvePromptPreset("minimax_h3_base").subjectMode).toBe("disabled")
+    expect(resolvePromptPreset("freeform").subjectMode).toBe("disabled")
+  })
+
   test("provides valid unique aliases and complete Korean and English copy", () => {
     for (const preset of PROMPT_PRESETS) {
       expect(isPromptSectionTitle(preset.defaultSectionTitle)).toBe(true)

@@ -55,11 +55,13 @@ def _bundle(module):
     }
   )
   prompt_state_json = (
-    '{"sections":[{"parts":[{"text":"Use ","type":"text"},'
+    '{"sections":[{"parts":[{"label":"woman","subjectId":"subject-woman",'
+    '"type":"subject"},{"text":" uses ","type":"text"},'
     '{"label":"image1","mediaKind":"image","referenceId":"image",'
     '"type":"mention"},{"text":" carefully","type":"text"}],'
     '"title":"detailed_description"},{"parts":[{"text":"N/A",'
-    '"type":"text"}],"title":"non_diegetic_music"}],"version":3}'
+    '"type":"text"}],"title":"non_diegetic_music"}],'
+    '"subjects":[{"subjectId":"subject-woman","label":"woman"}],"version":4}'
   )
   return module.ReferenceLoaderBundle(
     images=("image-payload",),
@@ -71,7 +73,8 @@ def _bundle(module):
     manifest_json=json.dumps(manifest.build_reference_manifest(state)),
     prompt_state_json=prompt_state_json,
     compiled_prompt=(
-      "detailed_description:\nUse <Picture 1> carefully\n\nnon_diegetic_music:\nN/A"
+      "detailed_description:\n<Subject 1> uses <Picture 1> carefully"
+      "\n\nnon_diegetic_music:\nN/A"
     ),
   )
 
@@ -141,7 +144,7 @@ def test_export_prompt_for_llm_schema_and_strict_yaml():
   )
   assert generation_directives_yaml == (
     "generation_directives:\n"
-    '  detailed_description: "Use <Picture 1> carefully"\n'
+    '  detailed_description: "<Subject 1> uses <Picture 1> carefully"\n'
     '  non_diegetic_music: "N/A"'
   )
   assert yaml.safe_load(references_yaml) == {
@@ -172,7 +175,7 @@ def test_export_prompt_for_llm_schema_and_strict_yaml():
     '      caption: "Sparse piano"\n'
     "\n"
     "generation_directives:\n"
-    '  detailed_description: "Use <Picture 1> carefully"\n'
+    '  detailed_description: "<Subject 1> uses <Picture 1> carefully"\n'
     '  non_diegetic_music: "N/A"'
   )
   assert "schema_version" not in exported

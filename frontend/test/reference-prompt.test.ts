@@ -108,7 +108,7 @@ describe("Reference Prompt state", () => {
               mediaKind: "image" as const,
               label: "image1",
             },
-            { type: "dialogue" as const, text: "안녕하세요" },
+            { type: "text" as const, text: "안녕하세요" },
           ],
         },
         { title: "visual_style", parts: [{ type: "text" as const, text: "Soft 3D" }] },
@@ -117,7 +117,7 @@ describe("Reference Prompt state", () => {
     const serialized = serializePromptDocument(prompt)
     expect(deserializePromptDocument(serialized).document).toEqual(prompt)
     expect(compilePromptDocument(prompt, [imageReference()])).toBe(
-      "integrated_multimodal_description:\nLook at <Picture 1><d>안녕하세요</d>\n\nvisual_style:\nSoft 3D",
+      "integrated_multimodal_description:\nLook at <Picture 1>안녕하세요\n\nvisual_style:\nSoft 3D",
     )
   })
 
@@ -159,7 +159,7 @@ describe("Reference Prompt state", () => {
     expect(result.issues).toEqual(["Prompt state was invalid."])
   })
 
-  test("parses official tags to stable mentions and preserves unknown tags", () => {
+  test("parses official tags to stable mentions and keeps former dialogue tags as text", () => {
     const prompt = parseRawPrompt("scene:\nUse <Picture 1> and <Video 9><d>Hello</d>", [
       imageReference(),
     ])
@@ -171,8 +171,7 @@ describe("Reference Prompt state", () => {
         mediaKind: "image",
         label: "image1",
       },
-      { type: "text", text: " and <Video 9>" },
-      { type: "dialogue", text: "Hello" },
+      { type: "text", text: " and <Video 9><d>Hello</d>" },
     ])
   })
 
@@ -444,7 +443,33 @@ describe("Reference Prompt section stack", () => {
     inputText(scene, "Line one")
     expect(press(scene, "Enter")).toBe(true)
     expect(press(scene, "Enter", { shiftKey: true })).toBe(true)
+    expect(press(scene, "#")).toBe(true)
     expect(document.activeElement).toBe(scene)
+    controller.destroy()
+  })
+
+  test("keeps Prompt paste events away from the ComfyUI canvas handler", () => {
+    const { root, controller } = makeController()
+    const scene = sectionBody(root, "scene")
+    let canvasPasteCount = 0
+    const onCanvasPaste = (): void => {
+      canvasPasteCount += 1
+    }
+    document.addEventListener("paste", onCanvasPaste)
+
+    const structuredPaste = new Event("paste", { bubbles: true, cancelable: true })
+    expect(scene.dispatchEvent(structuredPaste)).toBe(true)
+    expect(structuredPaste.defaultPrevented).toBe(false)
+    expect(canvasPasteCount).toBe(0)
+
+    root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!.click()
+    const raw = root.querySelector<HTMLElement>("[data-prompt-editor]")!
+    const rawPaste = new Event("paste", { bubbles: true, cancelable: true })
+    expect(raw.dispatchEvent(rawPaste)).toBe(true)
+    expect(rawPaste.defaultPrevented).toBe(false)
+    expect(canvasPasteCount).toBe(0)
+
+    document.removeEventListener("paste", onCanvasPaste)
     controller.destroy()
   })
 
@@ -479,18 +504,6 @@ describe("Reference Prompt section stack", () => {
     raw.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertParagraph" }))
 
     expect(controller.compiledPrompt).toBe("scene:\nLine one\nLine two")
-    controller.destroy()
-  })
-
-  test("inserts dialogue blocks with # inside a section", () => {
-    const { root, controller } = makeController()
-    const scene = sectionBody(root, "scene")
-    placeCaretAtEnd(scene)
-    press(scene, "#")
-    const dialogue = root.querySelector<HTMLElement>('[data-prompt-part="dialogue"]')!
-    inputText(dialogue, "Stand down")
-    expect(press(dialogue, "Enter")).toBe(true)
-    expect(controller.compiledPrompt).toBe("scene:\n<d>Stand down</d>")
     controller.destroy()
   })
 

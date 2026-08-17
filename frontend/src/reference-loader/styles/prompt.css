@@ -280,24 +280,6 @@
   white-space: nowrap;
 }
 
-.rl-prompt-dialogue {
-  display: inline-block;
-  min-width: 70px;
-  min-height: 27px;
-  margin: 1px 3px;
-  padding: 3px 8px;
-  vertical-align: middle;
-  border: 1px solid color-mix(in srgb, #d99cff 72%, var(--rl-border));
-  border-radius: 8px;
-  color: #f2dcff;
-  background: color-mix(in srgb, #8f4eb5 24%, var(--rl-bg));
-  white-space: pre-wrap;
-}
-
-.rl-prompt-dialogue:focus-within {
-  border-color: #e7bdff;
-}
-
 .rl-prompt-picker {
   position: absolute;
   z-index: 12;

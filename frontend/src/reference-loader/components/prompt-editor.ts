@@ -137,15 +137,6 @@ function makeMentionChip(part: PromptMentionPart, reference?: PromptReference): 
   return chip
 }
 
-function makeDialogueBlock(value = ""): HTMLSpanElement {
-  const block = document.createElement("span")
-  block.className = "rl-prompt-dialogue"
-  block.dataset.promptPart = "dialogue"
-  block.spellcheck = false
-  if (value) block.append(document.createTextNode(value))
-  return block
-}
-
 function sectionPartsFromContainer(container: Node): PromptSectionPart[] {
   const parts: PromptSectionPart[] = []
   const pushText = (value: string): void => {
@@ -175,10 +166,6 @@ function sectionPartsFromContainer(container: Node): PromptSectionPart[] {
       })
       return
     }
-    if (node.dataset.promptPart === "dialogue") {
-      parts.push({ type: "dialogue", text: textContentWithBreaks(node) })
-      return
-    }
     if (node.tagName === "BR") {
       pushText("\n")
       return
@@ -202,12 +189,6 @@ function closestSectionBody(root: HTMLElement, node: Node | null): HTMLElement |
   const element = node instanceof HTMLElement ? node : node?.parentElement
   const body = element?.closest<HTMLElement>("[data-prompt-section-body]")
   return body && root.contains(body) ? body : undefined
-}
-
-function closestDialogue(root: HTMLElement, node: Node | null): HTMLElement | undefined {
-  const element = node instanceof HTMLElement ? node : node?.parentElement
-  const dialogue = element?.closest<HTMLElement>('[data-prompt-part="dialogue"]')
-  return dialogue && root.contains(dialogue) ? dialogue : undefined
 }
 
 function placeCaretAtEnd(element: HTMLElement): void {
@@ -394,6 +375,7 @@ export class ReferencePromptController {
   #installEvents(): void {
     const signal = this.#destroyController.signal
     this.root.addEventListener("input", (event) => this.#onInput(event), { signal })
+    this.root.addEventListener("paste", (event) => event.stopPropagation(), { signal })
     this.root.addEventListener("keydown", (event) => this.#onKeydown(event), {
       capture: true,
       signal,
@@ -549,7 +531,6 @@ export class ReferencePromptController {
     body.dataset.placeholder = localize(PROMPT_MESSAGES.bodyPlaceholder, this.#locale)
     for (const part of section.parts) {
       if (part.type === "text") body.append(document.createTextNode(part.text))
-      else if (part.type === "dialogue") body.append(makeDialogueBlock(part.text))
       else
         body.append(
           makeMentionChip(part, references.get(referenceKey(part.mediaKind, part.referenceId))),
@@ -656,20 +637,6 @@ export class ReferencePromptController {
       }
       return
     }
-    const body = closestSectionBody(this.root, event.target)
-    if (!body) return
-    if (
-      event.key === "#" &&
-      !event.ctrlKey &&
-      !event.metaKey &&
-      !event.altKey &&
-      !this.#composing
-    ) {
-      event.preventDefault()
-      this.#insertDialogue(body)
-      this.#syncDocumentFromEditor()
-      this.#node.setDirtyCanvas(true, true)
-    }
   }
 
   #toggleView(): void {
@@ -737,18 +704,6 @@ export class ReferencePromptController {
     this.#node.setDirtyCanvas(true, true)
   }
 
-  #insertDialogue(body: HTMLElement): void {
-    const selection = globalThis.getSelection?.()
-    const block = makeDialogueBlock()
-    if (!selection?.rangeCount || !body.contains(selection.anchorNode)) body.append(block)
-    else {
-      const range = selection.getRangeAt(0)
-      range.deleteContents()
-      range.insertNode(block)
-    }
-    placeCaretAtEnd(block)
-  }
-
   #updatePickerQuery(): void {
     const entry = this.#entry
     if (entry && document.activeElement === entry) {
@@ -766,11 +721,7 @@ export class ReferencePromptController {
     }
     const caret = selection.getRangeAt(0)
     const container = caret.startContainer
-    if (
-      container.nodeType !== Node.TEXT_NODE ||
-      !closestSectionBody(this.root, container) ||
-      closestDialogue(this.root, container)
-    ) {
+    if (container.nodeType !== Node.TEXT_NODE || !closestSectionBody(this.root, container)) {
       this.#closePicker()
       return
     }

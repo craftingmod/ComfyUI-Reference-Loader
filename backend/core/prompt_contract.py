@@ -15,7 +15,7 @@ MAX_PROMPT_TEXT_CHARACTERS = 100_000
 MAX_PROMPT_SECTION_TITLE_CHARACTERS = 64
 
 PromptMediaKind = Literal["image", "video", "audio"]
-PromptPartKind = Literal["text", "dialogue", "mention"]
+PromptPartKind = Literal["text", "mention"]
 SECTION_TITLE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
@@ -91,14 +91,14 @@ def _part(value: Any, path: str) -> PromptPart:
   if not isinstance(value, Mapping):
     raise _error(path, "must be an object")
   part_type = value.get("type")
-  if part_type in {"text", "dialogue"}:
+  if part_type == "text":
     return PromptPart(
-      type=part_type,
+      type="text",
       text=_text(value.get("text"), f"{path}.text", MAX_PROMPT_TEXT_CHARACTERS),
     )
   if part_type == "mention":
     return _mention_part(value, path)
-  raise _error(f"{path}.type", "must be text, dialogue, or mention")
+  raise _error(f"{path}.type", "must be text or mention")
 
 
 def _section(value: Any, index: int) -> PromptSection:
@@ -235,8 +235,6 @@ def compile_prompt_sections(
   def compile_part(part: PromptPart) -> str:
     if part.type == "text":
       return part.text
-    if part.type == "dialogue":
-      return f"<d>{part.text}</d>"
     kind = part.media_kind or "image"
     ordinal = ordinals[kind].get(part.reference_id)
     if ordinal is None:
@@ -254,8 +252,8 @@ def serialize_prompt_document(document: PromptDocument) -> str:
   """Serialize execution-relevant prompt state without frontend-only view state."""
 
   def serialize_part(part: PromptPart) -> dict[str, Any]:
-    if part.type in {"text", "dialogue"}:
-      return {"type": part.type, "text": part.text}
+    if part.type == "text":
+      return {"type": "text", "text": part.text}
     return {
       "type": "mention",
       "referenceId": part.reference_id,

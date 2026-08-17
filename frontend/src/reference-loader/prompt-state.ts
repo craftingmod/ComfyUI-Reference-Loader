@@ -11,11 +11,6 @@ export interface PromptTextPart {
   text: string
 }
 
-export interface PromptDialoguePart {
-  type: "dialogue"
-  text: string
-}
-
 export interface PromptMentionPart {
   type: "mention"
   referenceId: string
@@ -23,7 +18,7 @@ export interface PromptMentionPart {
   label: string
 }
 
-export type PromptSectionPart = PromptTextPart | PromptDialoguePart | PromptMentionPart
+export type PromptSectionPart = PromptTextPart | PromptMentionPart
 
 export interface PromptSection {
   title: string
@@ -138,7 +133,7 @@ export function validatePromptDocument(value: unknown): PromptValidationResult {
         issues.push(`${path} was discarded.`)
         continue
       }
-      if (rawPart.type === "text" || rawPart.type === "dialogue") {
+      if (rawPart.type === "text") {
         if (typeof rawPart.text !== "string") {
           issues.push(`${path} was discarded.`)
           continue
@@ -146,7 +141,7 @@ export function validatePromptDocument(value: unknown): PromptValidationResult {
         const remaining = Math.max(0, MAX_PROMPT_TEXT_CHARACTERS - textLength)
         const text = rawPart.text.slice(0, remaining)
         textLength += text.length
-        parts.push({ type: rawPart.type, text })
+        parts.push({ type: "text", text })
         if (text.length !== rawPart.text.length)
           issues.push(
             `Prompt text exceeded ${MAX_PROMPT_TEXT_CHARACTERS} characters and was truncated.`,
@@ -225,7 +220,6 @@ function compileSectionParts(
   return parts
     .map((part) => {
       if (part.type === "text") return part.text
-      if (part.type === "dialogue") return `<d>${part.text}</d>`
       return active.get(`${part.mediaKind}:${part.referenceId}`)?.tag ?? mentionFallback(part)
     })
     .join("")
@@ -278,30 +272,26 @@ function parseSectionParts(
   let plainStart = 0
   let cursor = 0
   while (cursor < value.length) {
-    const dialogue = value.slice(cursor).match(/^<d>([\s\S]*?)<\/d>/iu)
     const tag = officialTagMatch(value, cursor)
-    if (!dialogue && !tag) {
+    if (!tag) {
       cursor += 1
       continue
     }
     if (plainStart < cursor) pushText(value.slice(plainStart, cursor))
-    if (dialogue) {
-      parts.push({ type: "dialogue", text: dialogue[1] ?? "" })
-      cursor += dialogue[0].length
-    } else if (tag) {
-      const reference = references.find(
-        (candidate) => candidate.mediaKind === tag.mediaKind && candidate.ordinal === tag.ordinal,
-      )
-      if (reference) {
-        parts.push({
-          type: "mention",
-          referenceId: reference.referenceId,
-          mediaKind: reference.mediaKind,
-          label: reference.label,
-        })
-      } else pushText(tag.raw)
-      cursor += tag.raw.length
+    const reference = references.find(
+      (candidate) => candidate.mediaKind === tag.mediaKind && candidate.ordinal === tag.ordinal,
+    )
+    if (reference) {
+      parts.push({
+        type: "mention",
+        referenceId: reference.referenceId,
+        mediaKind: reference.mediaKind,
+        label: reference.label,
+      })
+    } else {
+      pushText(tag.raw)
     }
+    cursor += tag.raw.length
     plainStart = cursor
   }
   if (plainStart < value.length) pushText(value.slice(plainStart))

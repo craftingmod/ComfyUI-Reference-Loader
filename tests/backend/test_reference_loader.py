@@ -194,7 +194,6 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
             "mediaKind": "image",
             "label": "image1",
           },
-          {"type": "dialogue", "text": "Hello"},
         ],
       }
     ],
@@ -214,7 +213,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     "version": 3,
     "sections": prompt_state["sections"],
   }
-  assert bundle.compiled_prompt == "scene:\nUse <Picture 1><d>Hello</d>"
+  assert bundle.compiled_prompt == "scene:\nUse <Picture 1>"
   assert json.loads(bundle.manifest_json)["outputs"]["images"] == ["img"]
   assert json.loads(bundle.manifest_json)["image_output"] == {
     "mode": "original",
@@ -288,7 +287,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     prompt=json.dumps(replacement_prompt),
     prompt_by_order=True,
   )
-  assert order_bound_output[0].compiled_prompt == "scene:\nUse <Picture 1><d>Hello</d>"
+  assert order_bound_output[0].compiled_prompt == "scene:\nUse <Picture 1>"
   assert (
     json.loads(order_bound_output[0].prompt_state_json)["sections"][0]["parts"][1][
       "referenceId"

@@ -3,8 +3,8 @@ import type { LocalizedText, PromptLocale } from "./prompt-presets.ts"
 export const PROMPT_MESSAGES = {
   prompt: { en: "Prompt", ko: "프롬프트" },
   subtitle: {
-    en: "Stack sections by title · @ media · # dialogue · / alias",
-    ko: "제목별 섹션 · @ 미디어 · # 대사 · / alias",
+    en: "Stack sections by title · @ media · / alias",
+    ko: "제목별 섹션 · @ 미디어 · / alias",
   },
   preset: { en: "Preset", ko: "프리셋" },
   editorAria: { en: "Reference Prompt editor", ko: "참조 프롬프트 편집기" },
@@ -29,8 +29,8 @@ export const PROMPT_MESSAGES = {
   },
   addSectionAria: { en: "Add prompt section", ko: "프롬프트 섹션 추가" },
   bodyPlaceholder: {
-    en: "Write this section. Type @ for media or # for dialogue.",
-    ko: "섹션 내용을 입력하세요. 미디어는 @, 대사는 #을 사용합니다.",
+    en: "Write this section. Type @ for media.",
+    ko: "섹션 내용을 입력하세요. 미디어는 @을 사용합니다.",
   },
   structured: { en: "@ Structured", ko: "@ 구조화" },
   raw: { en: "</> Raw", ko: "</> Raw" },

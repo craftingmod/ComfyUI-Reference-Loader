@@ -35,7 +35,7 @@ class ReferenceLoaderRawPromptNode(io.ComfyNode):
       outputs=[
         io.String.Output(
           "raw_prompt",
-          tooltip="Compiled prompt with resolved media and dialogue tags.",
+          tooltip="Compiled prompt with resolved media tags.",
         ),
       ],
     )

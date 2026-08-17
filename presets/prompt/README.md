@@ -145,7 +145,7 @@ A preset changes only these Prompt UI policies:
 - Entries offered by `/` autocomplete
 - Active-preset badge and localized descriptions
 
-Switching presets does not rename, reorder, or remove existing sections. It also does not directly change the compiled Prompt or the execution fingerprint. `@` media references and `#` dialogue input work the same way in every preset.
+Switching presets does not rename, reorder, or remove existing sections. It also does not directly change the compiled Prompt or the execution fingerprint. `@` media references work the same way in every preset.
 
 ## Troubleshooting
 

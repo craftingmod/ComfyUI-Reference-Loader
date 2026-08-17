@@ -10,7 +10,7 @@ The Loader is available under `reference / loader`; **[Reference Loader] Raw Pro
 - Per-image crop, flip, mask, background, optional `rembg`, and restore-original editing
 - Audio/video trim and playback; VIDEO values retain embedded audio
 - Optional per-image MPixel limiting and alpha compositing at execution
-- Structured prompt editor with thumbnail `@` mentions, dialogue blocks, and literal raw view
+- Structured prompt editor with thumbnail `@` mentions and literal raw view
 - Browser JSON snapshots for saving and restoring Loader, Prompt, and related node settings
 - Stable media mentions compiled to `<Picture N>`, `<Video N>`, and `<Audio N>` tags
 - Strict YAML export of active captions and structured prompt sections for LLM inputs
@@ -77,4 +77,4 @@ MIT
 
 ## Acknowledgements
 
-The structured dialogue, raw-prompt, and thumbnail mention interaction was informed by [ComfyUI-MiniMaxH3-Easy](https://github.com/nkxx188/ComfyUI-MiniMaxH3-Easy), which is also MIT licensed.
+The structured raw-prompt and thumbnail mention interaction was informed by [ComfyUI-MiniMaxH3-Easy](https://github.com/nkxx188/ComfyUI-MiniMaxH3-Easy), which is also MIT licensed.

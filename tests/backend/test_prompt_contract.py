@@ -107,7 +107,7 @@ def test_compiles_stable_mentions_against_active_per_type_orders():
             "mediaKind": "audio",
             "label": "audio2",
           },
-          {"type": "dialogue", "text": "안녕하세요"},
+          {"type": "text", "text": "안녕하세요"},
         ],
       },
       {
@@ -130,7 +130,7 @@ def test_compiles_stable_mentions_against_active_per_type_orders():
   }
   assert compile_prompt_state(json.dumps(document), reference_state()) == (
     "integrated_multimodal_description:\n"
-    "A <Picture 1> watches <Video 1> with <Audio 1> and <Audio 2><d>안녕하세요</d>"
+    "A <Picture 1> watches <Video 1> with <Audio 1> and <Audio 2>안녕하세요"
     "\n\nvisual_style:\nSoft 3D"
     "\n\noverall_soundscape:\nNo music for <Picture 1>"
   )
@@ -201,6 +201,18 @@ def test_accepts_literal_prompt_strings_and_rejects_invalid_structured_state():
   with pytest.raises(PromptContractError, match="lowercase snake_case"):
     parse_prompt_state(
       {"version": 3, "sections": [{"title": "Bad Title", "parts": []}]}
+    )
+  with pytest.raises(PromptContractError, match="must be text or mention"):
+    parse_prompt_state(
+      {
+        "version": 3,
+        "sections": [
+          {
+            "title": "scene",
+            "parts": [{"type": "dialogue", "text": "removed"}],
+          }
+        ],
+      }
     )
 
 

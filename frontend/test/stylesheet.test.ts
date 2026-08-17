@@ -14,6 +14,8 @@ describe("Reference Loader stylesheet", () => {
     expect(css).toContain(".rl-media-header > div")
     expect(css).toContain(".rl-media-header small")
     expect(css).toContain("margin-left: auto")
+    expect(css).toContain(".rl-snapshot")
+    expect(css).toContain(".rl-snapshot__menu[hidden]")
   })
 
   it("shows an overlay while external media files are dragged over the loader", async () => {
@@ -79,6 +81,15 @@ describe("Reference Loader stylesheet", () => {
     expect(sectionRule).toContain("var(--rl-prompt-section-color) 32%")
     expect(headerRule).toContain("var(--rl-prompt-section-color) 10%")
     expect(bodyRule).toContain("white-space: pre-wrap;")
+  })
+
+  it("groups Prompt actions and styles its scoped Clear action as destructive", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
+    ).text()
+
+    expect(css).toContain(".rl-prompt-toolbar__actions")
+    expect(css).toContain(".reference-prompt button.rl-clear")
   })
 
   it("keeps the Vue Nodes Media row intrinsic and gives spare height to Prompt", async () => {

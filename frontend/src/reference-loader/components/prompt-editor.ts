@@ -373,14 +373,14 @@ export class ReferencePromptController {
     this.root.innerHTML = `
       <section class="rl-prompt-panel" data-prompt-panel>
         <header class="rl-prompt-toolbar">
-          <div>
+          <div class="rl-prompt-toolbar__copy">
             <span class="rl-prompt-toolbar__title">
               <strong data-prompt-title></strong>
               <span class="rl-prompt-preset" data-prompt-preset></span>
             </span>
             <small data-prompt-subtitle></small>
           </div>
-          <button type="button" data-prompt-action="toggle-view"></button>
+          <div class="rl-prompt-toolbar__actions"><button type="button" class="rl-clear" data-prompt-action="clear"></button><button type="button" data-prompt-action="toggle-view"></button></div>
         </header>
         <div data-prompt-workspace></div>
         <div class="rl-prompt-picker" data-prompt-picker role="listbox" hidden></div>
@@ -501,7 +501,17 @@ export class ReferencePromptController {
       button.setAttribute("aria-label", localize(PROMPT_MESSAGES.toggleAria, this.#locale))
       button.setAttribute("aria-pressed", String(raw))
     }
+    this.#syncClearButton()
     this.#setHint()
+  }
+
+  #syncClearButton(): void {
+    const button = this.root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')
+    if (!button) return
+    button.textContent = localize(PROMPT_MESSAGES.clear, this.#locale)
+    button.title = localize(PROMPT_MESSAGES.clearTitle, this.#locale)
+    button.setAttribute("aria-label", localize(PROMPT_MESSAGES.clearAria, this.#locale))
+    button.disabled = this.#document.sections.length === 0
   }
 
   #makeSectionCard(
@@ -574,12 +584,18 @@ export class ReferencePromptController {
     if (!(event.target instanceof Node) || !this.root.contains(event.target)) return
     if (this.#composing) return
     this.#syncDocumentFromEditor()
+    this.#syncClearButton()
     if (this.#document.view === "structured") this.#updatePickerQuery()
     this.#node.setDirtyCanvas(true, true)
   }
 
   #onClick(event: MouseEvent): void {
     const target = event.target as Element
+    const clear = target.closest<HTMLButtonElement>('[data-prompt-action="clear"]')
+    if (clear) {
+      this.#clearPrompt()
+      return
+    }
     const toggle = target.closest<HTMLButtonElement>('[data-prompt-action="toggle-view"]')
     if (toggle) {
       this.#toggleView()
@@ -664,6 +680,16 @@ export class ReferencePromptController {
     }
     this.#closePicker()
     this.#renderEditor()
+    this.#node.setDirtyCanvas(true, true)
+  }
+
+  #clearPrompt(): void {
+    this.#syncDocumentFromEditor()
+    if (this.#document.sections.length === 0) return
+    this.#document = { ...this.#document, sections: [] }
+    this.#closePicker()
+    this.#renderEditor()
+    this.#setHint(localize(PROMPT_MESSAGES.cleared, this.#locale))
     this.#node.setDirtyCanvas(true, true)
   }
 

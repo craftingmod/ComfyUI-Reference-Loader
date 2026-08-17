@@ -9,6 +9,16 @@ export const PROMPT_MESSAGES = {
   preset: { en: "Preset", ko: "프리셋" },
   editorAria: { en: "Reference Prompt editor", ko: "참조 프롬프트 편집기" },
   toggleAria: { en: "Toggle raw prompt view", ko: "Raw 프롬프트 보기 전환" },
+  clear: { en: "Clear", ko: "지우기" },
+  clearAria: { en: "Clear Prompt", ko: "프롬프트 지우기" },
+  clearTitle: {
+    en: "Clear all Prompt sections. Media is preserved.",
+    ko: "모든 프롬프트 섹션을 지웁니다. 미디어는 유지됩니다.",
+  },
+  cleared: {
+    en: "Prompt cleared. Media preserved.",
+    ko: "프롬프트를 지웠습니다. 미디어는 유지됩니다.",
+  },
   rawPlaceholder: {
     en: "Pseudo-YAML prompt. Every title: line becomes a section.",
     ko: "Pseudo-YAML 프롬프트입니다. 각 title: 줄이 섹션이 됩니다.",

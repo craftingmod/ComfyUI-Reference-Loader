@@ -39,6 +39,8 @@ interface RuntimeLoadOptions {
 export interface LoaderChangeEvents {
   beforeChange?(): void
   afterChange?(): void
+  saveSnapshot?(): void
+  loadSnapshot?(file: File): Promise<"loaded" | "cancelled">
 }
 
 export interface LoaderDisplayState {
@@ -280,6 +282,7 @@ export class ReferenceLoaderController {
   #renderPending = false
   #renderFrame: number | undefined
   #destroyed = false
+  #snapshotMenuOpen = false
   #changeEvents: LoaderChangeEvents
   #referenceListeners = new Set<() => void>()
 
@@ -503,6 +506,17 @@ export class ReferenceLoaderController {
     this.#hydrateRestoredRuntime(true)
   }
 
+  restoreSnapshot(
+    serialized: unknown,
+    display: Pick<LoaderDisplayState, "showCaptions" | "twoImageMode" | "promptByOrder">,
+  ): void {
+    this.restore(serialized)
+    setShowCaptionsProperty(this.#node, display.showCaptions)
+    setTwoImageModeProperty(this.#node, display.twoImageMode)
+    setPromptByOrderProperty(this.#node, display.promptByOrder)
+    this.render(true)
+  }
+
   serialize(): string {
     return serializeLoaderState(this.state)
   }
@@ -554,10 +568,11 @@ export class ReferenceLoaderController {
           <span class="rl-toolbar__count">${Object.keys(state.items).length} reference${Object.keys(state.items).length === 1 ? "" : "s"}</span>
         </header>
         <section class="rl-toolbar" aria-label="Reference Loader toolbar">
-          <label class="rl-primary rl-file-button">Add media<input type="file" accept="image/*,audio/*,video/*" multiple></label>
+          <label class="rl-primary rl-file-button" aria-label="Add media" title="Add media">Add<input type="file" accept="image/*,audio/*,video/*" multiple></label>
           <button type="button" data-action="undo" ${canUndo(this.#history) ? "" : "disabled"} title="Undo (Ctrl+Z)">↶ Undo</button>
           <button type="button" data-action="redo" ${canRedo(this.#history) ? "" : "disabled"} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
           <button type="button" class="rl-clear" data-action="clear" ${Object.keys(state.items).length > 0 || this.#pending.size > 0 ? "" : "disabled"} title="Clear all references (Undo available)">Clear</button>
+          <span class="rl-snapshot"><button type="button" class="rl-snapshot__trigger" data-action="snapshot-menu" aria-haspopup="menu" aria-expanded="${String(this.#snapshotMenuOpen)}">Snapshot <span aria-hidden="true">▾</span></button><span class="rl-snapshot__menu" role="menu"${this.#snapshotMenuOpen ? "" : " hidden"}><button type="button" role="menuitem" data-action="snapshot-save" title="Save Loader and Prompt settings to JSON">Save</button><button type="button" role="menuitem" data-action="snapshot-load" title="Load Loader and Prompt settings from JSON">Load</button></span><input type="file" accept="application/json,.json" data-snapshot-input aria-label="Load snapshot" hidden></span>
         </section>
       </div>
       <p class="rl-status" role="status">${escapeHtml(this.#status)}</p>
@@ -778,6 +793,13 @@ export class ReferenceLoaderController {
       "focusout",
       () => {
         setTimeout(() => {
+          const snapshot = this.root.querySelector<HTMLElement>(".rl-snapshot")
+          if (
+            this.#snapshotMenuOpen &&
+            document.activeElement instanceof Node &&
+            !snapshot?.contains(document.activeElement)
+          )
+            this.#setSnapshotMenu(false)
           if (
             this.#renderPending &&
             !(
@@ -792,6 +814,18 @@ export class ReferenceLoaderController {
       { signal },
     )
     this.root.addEventListener("keydown", (event) => this.#onKeydown(event), { signal })
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (
+          this.#snapshotMenuOpen &&
+          event.target instanceof Node &&
+          !this.root.querySelector(".rl-snapshot")?.contains(event.target)
+        )
+          this.#setSnapshotMenu(false)
+      },
+      { capture: true, signal },
+    )
     this.root.addEventListener(
       "pointerdown",
       (event) => {
@@ -864,6 +898,23 @@ export class ReferenceLoaderController {
     const id = card?.dataset.id
     const channel = card?.dataset.channel as LoaderChannel | undefined
     switch (button.dataset.action) {
+      case "snapshot-menu":
+        this.#setSnapshotMenu(!this.#snapshotMenuOpen, this.#snapshotMenuOpen ? undefined : "first")
+        return
+      case "snapshot-save":
+        this.#setSnapshotMenu(false)
+        try {
+          this.#changeEvents.saveSnapshot?.()
+          this.#status = "Snapshot saved."
+        } catch (error) {
+          this.#status = error instanceof Error ? error.message : "Snapshot could not be saved."
+        }
+        this.render(true)
+        return
+      case "snapshot-load":
+        this.#setSnapshotMenu(false)
+        this.root.querySelector<HTMLInputElement>("[data-snapshot-input]")?.click()
+        return
       case "undo":
         this.#recordGraphChange(() => {
           this.#history = undoHistory(this.#history)
@@ -1064,6 +1115,13 @@ export class ReferenceLoaderController {
   #onChange(event: Event): void {
     const input = event.target
     if (!(input instanceof HTMLInputElement) || input.type !== "file") return
+    if (input.hasAttribute("data-snapshot-input")) {
+      this.#setSnapshotMenu(false)
+      const file = input.files?.[0]
+      input.value = ""
+      if (file) void this.#loadSnapshot(file)
+      return
+    }
     const expectedKind = input.dataset.uploadKind
     const files = [...(input.files ?? [])].filter(
       (file) => !expectedKind || fileMediaKind(file) === expectedKind,
@@ -1072,7 +1130,40 @@ export class ReferenceLoaderController {
     void this.#uploadFiles(files)
   }
 
+  async #loadSnapshot(file: File): Promise<void> {
+    try {
+      const result = await this.#changeEvents.loadSnapshot?.(file)
+      this.#status = result === "cancelled" ? "Snapshot load cancelled." : "Snapshot loaded."
+    } catch (error) {
+      this.#status = error instanceof Error ? error.message : "Snapshot could not be loaded."
+    }
+    this.render(true)
+  }
+
   #onKeydown(event: KeyboardEvent): void {
+    const snapshot = (event.target as Element).closest<HTMLElement>(".rl-snapshot")
+    if (snapshot) {
+      const trigger = snapshot.querySelector<HTMLButtonElement>(".rl-snapshot__trigger")
+      const items = [...snapshot.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      if (event.key === "Escape" && this.#snapshotMenuOpen) {
+        event.preventDefault()
+        this.#setSnapshotMenu(false)
+        trigger?.focus()
+        return
+      }
+      if (event.target === trigger && event.key === "ArrowDown") {
+        event.preventDefault()
+        this.#setSnapshotMenu(true, "first")
+        return
+      }
+      const index = items.indexOf(event.target as HTMLButtonElement)
+      if (index >= 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+        event.preventDefault()
+        const delta = event.key === "ArrowDown" ? 1 : -1
+        items[(index + delta + items.length) % items.length]?.focus()
+        return
+      }
+    }
     const card = (event.target as Element).closest<HTMLElement>(".rl-card")
     if (
       event.altKey &&
@@ -1090,6 +1181,16 @@ export class ReferenceLoaderController {
       })
       return
     }
+  }
+
+  #setSnapshotMenu(open: boolean, focus?: "first"): void {
+    this.#snapshotMenuOpen = open
+    const trigger = this.root.querySelector<HTMLButtonElement>(".rl-snapshot__trigger")
+    const menu = this.root.querySelector<HTMLElement>(".rl-snapshot__menu")
+    trigger?.setAttribute("aria-expanded", String(open))
+    if (menu) menu.hidden = !open
+    if (open && focus === "first")
+      menu?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
   }
 
   #onDragStart(event: DragEvent): void {

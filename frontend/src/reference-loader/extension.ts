@@ -9,6 +9,14 @@ import type {
 import { ReferenceLoaderApi } from "./api.ts"
 import { promptByOrderProperty, ReferenceLoaderController } from "./components/loader.ts"
 import { ReferencePromptController } from "./components/prompt-editor.ts"
+import {
+  applyReferenceLoaderSnapshotSettings,
+  captureReferenceLoaderSnapshotSettings,
+  MAX_REFERENCE_LOADER_SNAPSHOT_BYTES,
+  parseReferenceLoaderSnapshot,
+  REFERENCE_LOADER_SNAPSHOT_FILENAME,
+  serializeReferenceLoaderSnapshot,
+} from "./snapshot.ts"
 
 export const REFERENCE_LOADER_WIDGET_TYPE = "REFERENCE_LOADER"
 export const REFERENCE_PROMPT_WIDGET_TYPE = "REFERENCE_PROMPT"
@@ -54,7 +62,8 @@ export function registerReferenceLoader(
           root.addEventListener("wheel", (event) => event.stopPropagation())
 
           const initial = initialValue(inputData)
-          const controller = new ReferenceLoaderController(
+          let controller: ReferenceLoaderController
+          controller = new ReferenceLoaderController(
             root,
             node,
             new ReferenceLoaderApi(api),
@@ -62,6 +71,8 @@ export function registerReferenceLoader(
             {
               beforeChange: () => referenceApp.canvas?.emitBeforeChange?.(),
               afterChange: () => referenceApp.canvas?.emitAfterChange?.(),
+              saveSnapshot: () => saveSnapshot(node, controller),
+              loadSnapshot: (file) => loadSnapshot(referenceApp, node, controller, file),
             },
           )
           const releaseNodeFileDrop = bindNodeFileDrop(node, controller)
@@ -183,6 +194,63 @@ export function registerReferenceLoader(
       }
     },
   })
+}
+
+function saveSnapshot(node: ComfyNode, loader: ReferenceLoaderController): void {
+  const prompt = promptControllers.get(node)
+  if (!prompt) throw new Error("Prompt editor is not ready.")
+  const display = loader.displayState
+  const snapshot = serializeReferenceLoaderSnapshot({
+    loaderState: loader.serialize(),
+    promptState: prompt.serialize(),
+    settings: captureReferenceLoaderSnapshotSettings(
+      node,
+      {
+        showCaptions: display.showCaptions,
+        twoImageMode: display.twoImageMode,
+        promptByOrder: display.promptByOrder,
+      },
+      prompt.presetId,
+    ),
+  })
+  const url = URL.createObjectURL(new Blob([snapshot], { type: "application/json" }))
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = REFERENCE_LOADER_SNAPSHOT_FILENAME
+  anchor.click()
+  globalThis.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+async function loadSnapshot(
+  app: ComfyAppLike,
+  node: ComfyNode,
+  loader: ReferenceLoaderController,
+  file: File,
+): Promise<"loaded" | "cancelled"> {
+  const prompt = promptControllers.get(node)
+  if (!prompt) throw new Error("Prompt editor is not ready.")
+  if (file.size > MAX_REFERENCE_LOADER_SNAPSHOT_BYTES)
+    throw new Error("Snapshot exceeds the 6,000,000-byte file limit.")
+  const snapshot = parseReferenceLoaderSnapshot(await file.text())
+  if (!globalThis.confirm("Replace the current Reference Loader and Prompt settings?"))
+    return "cancelled"
+
+  app.canvas?.emitBeforeChange?.()
+  try {
+    loader.restoreSnapshot(snapshot.loaderState, {
+      showCaptions: snapshot.settings.showCaptions,
+      twoImageMode: snapshot.settings.twoImageMode,
+      promptByOrder: snapshot.settings.promptByOrder,
+    })
+    prompt.restore(snapshot.promptState)
+    prompt.setPreset(snapshot.settings.promptSchemaPreset)
+    applyReferenceLoaderSnapshotSettings(node, snapshot.settings)
+    displayProxies.get(node)?.syncFromState()
+    node.setDirtyCanvas(true, true)
+  } finally {
+    app.canvas?.emitAfterChange?.()
+  }
+  return "loaded"
 }
 
 function bindPromptReferences(node: ComfyNode): void {

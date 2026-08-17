@@ -19,6 +19,10 @@ import {
 } from "../src/reference-loader/prompt-state.ts"
 import { loaderReducer } from "../src/reference-loader/reducer.ts"
 import { serializeLoaderState } from "../src/reference-loader/serialization.ts"
+import {
+  serializeReferenceLoaderSnapshot,
+  type ReferenceLoaderSnapshotSettings,
+} from "../src/reference-loader/snapshot.ts"
 import { createMediaItem, createEmptyLoaderState } from "../src/reference-loader/types.ts"
 
 describe("Reference Loader custom widget", () => {
@@ -399,5 +403,137 @@ describe("Reference Loader custom widget", () => {
 
     promptWidget.onRemove?.()
     expect(presetWidget.callback).toBe(originalPresetCallback)
+  })
+
+  test("loads one validated snapshot across Loader, Prompt, properties, and native widgets", async () => {
+    let extension: ComfyExtension | undefined
+    let beforeChanges = 0
+    let afterChanges = 0
+    const app: ComfyAppLike = {
+      canvas: {
+        emitBeforeChange: () => {
+          beforeChanges += 1
+        },
+        emitAfterChange: () => {
+          afterChanges += 1
+        },
+      },
+      registerExtension(candidate) {
+        extension = candidate
+      },
+    }
+    registerReferenceLoader(app, { fetchApi: async () => new Response("{}") })
+    const factories = extension?.getCustomWidgets?.()
+    const loaderFactory = factories?.[REFERENCE_LOADER_WIDGET_TYPE]
+    const promptFactory = factories?.[REFERENCE_PROMPT_WIDGET_TYPE]
+    let loaderOptions: DomWidgetOptions | undefined
+    let promptOptions: DomWidgetOptions | undefined
+    let loaderRoot: HTMLElement | undefined
+    const loaderWidget: ComfyWidget = { name: "loader_state", value: "" }
+    const promptWidget: ComfyWidget = { name: "prompt", value: "" }
+    const nativeWidgets: ComfyWidget[] = [
+      { name: "limit_image_pixels", value: false },
+      { name: "max_image_pixels", value: 2 },
+      { name: "composite_alpha", value: false },
+      { name: "alpha_background", value: "#000000" },
+      { name: "prompt_schema_preset", value: "generic" },
+      { name: "grid_columns", value: 3 },
+      { name: "preview_pixels", value: 1 },
+      { name: "show_captions", value: true },
+      { name: "two_image_mode", value: false },
+      { name: "prompt_by_order", value: false },
+      { name: "card_aspect", value: "4 / 3" },
+      { name: "preview_fit", value: "contain" },
+      { name: "waveform_pairs", value: 300 },
+    ]
+    const node: ComfyNode = {
+      widgets: [loaderWidget, ...nativeWidgets, promptWidget],
+      properties: {},
+      addDOMWidget(name, _type, element, options) {
+        if (name === "loader_state") {
+          loaderRoot = element
+          loaderOptions = options
+          return loaderWidget
+        }
+        promptOptions = options
+        return promptWidget
+      },
+      setDirtyCanvas: () => undefined,
+    }
+    loaderFactory?.(
+      node,
+      "loader_state",
+      ["STRING", { default: serializeLoaderState(createEmptyLoaderState()) }],
+      app,
+    )
+    promptFactory?.(
+      node,
+      "prompt",
+      ["STRING", { default: serializePromptDocument(createEmptyPromptDocument()) }],
+      app,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const loaderState = createEmptyLoaderState()
+    loaderState.ui.gridColumns = 6
+    const promptState = createEmptyPromptDocument()
+    promptState.view = "raw"
+    promptState.sections = [
+      { title: "integrated_multimodal_description", parts: [{ type: "text", text: "Saved" }] },
+    ]
+    const settings: ReferenceLoaderSnapshotSettings = {
+      limitImagePixels: true,
+      maxImagePixels: 4.5,
+      compositeAlpha: true,
+      alphaBackground: "#123456",
+      promptSchemaPreset: "minimax_h3_t2v",
+      showCaptions: false,
+      twoImageMode: true,
+      promptByOrder: true,
+    }
+    const snapshot = serializeReferenceLoaderSnapshot({
+      loaderState: serializeLoaderState(loaderState),
+      promptState: serializePromptDocument(promptState),
+      settings,
+    })
+    const originalConfirm = globalThis.confirm
+    globalThis.confirm = () => true
+    try {
+      const input = loaderRoot?.querySelector<HTMLInputElement>("[data-snapshot-input]")
+      Object.defineProperty(input, "files", {
+        configurable: true,
+        value: [new File([snapshot], "snapshot.json", { type: "application/json" })],
+      })
+      input?.dispatchEvent(new Event("change", { bubbles: true }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(JSON.parse(String(loaderOptions?.getValue?.())).ui.gridColumns).toBe(6)
+      expect(JSON.parse(String(promptOptions?.getValue?.()))).toEqual(promptState)
+      expect(node.widgets?.find((widget) => widget.name === "limit_image_pixels")?.value).toBe(true)
+      expect(node.widgets?.find((widget) => widget.name === "max_image_pixels")?.value).toBe(4.5)
+      expect(node.widgets?.find((widget) => widget.name === "composite_alpha")?.value).toBe(true)
+      expect(node.widgets?.find((widget) => widget.name === "alpha_background")?.value).toBe(
+        "#123456",
+      )
+      expect(node.widgets?.find((widget) => widget.name === "prompt_schema_preset")?.value).toBe(
+        "minimax_h3_t2v",
+      )
+      expect(node.widgets?.find((widget) => widget.name === "grid_columns")?.value).toBe(6)
+      expect(node.widgets?.find((widget) => widget.name === "show_captions")?.value).toBe(false)
+      expect(node.widgets?.find((widget) => widget.name === "two_image_mode")?.value).toBe(true)
+      expect(node.widgets?.find((widget) => widget.name === "prompt_by_order")?.value).toBe(true)
+      expect(node.properties?.referenceLoader).toEqual({
+        showCaptions: false,
+        twoImageMode: true,
+        promptByOrder: true,
+      })
+      expect(loaderRoot?.querySelector(".rl-status")?.textContent).toBe("Snapshot loaded.")
+      expect(beforeChanges).toBe(1)
+      expect(afterChanges).toBe(1)
+    } finally {
+      globalThis.confirm = originalConfirm
+      loaderWidget.onRemove?.()
+      promptWidget.onRemove?.()
+    }
   })
 })

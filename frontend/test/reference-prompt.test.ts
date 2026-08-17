@@ -297,10 +297,33 @@ describe("Reference Prompt section stack", () => {
     })
     expect(root.querySelector("[data-prompt-title]")?.textContent).toBe("프롬프트")
     expect(root.querySelector("[data-prompt-preset]")?.textContent).toBe("MiniMax H3 기본")
+    expect(root.querySelector('[data-prompt-action="clear"]')?.textContent).toBe("지우기")
     expect(sectionEntry(root).dataset.placeholder).toContain("섹션 추가")
     inputText(sectionEntry(root), "/sound")
     expect(root.querySelector("[data-prompt-picker]")?.textContent).toContain("전체 사운드")
     expect(sectionBody(root, "integrated_multimodal_description")).toBeTruthy()
+    controller.destroy()
+  })
+
+  test("clears Prompt sections immediately while preserving the selected view", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      view: "raw",
+      sections: [{ title: "scene", parts: [{ type: "text", text: "Keep media" }] }],
+    })
+    const { root, controller, dirty } = makeController([], serialized)
+    const clear = root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')!
+    expect(clear.disabled).toBe(false)
+    clear.click()
+    expect(controller.compiledPrompt).toBe("")
+    expect(controller.document.view).toBe("raw")
+    expect(root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')?.disabled).toBe(
+      true,
+    )
+    expect(root.querySelector("[data-prompt-hint]")?.textContent).toBe(
+      "Prompt cleared. Media preserved.",
+    )
+    expect(dirty()).toBe(1)
     controller.destroy()
   })
 

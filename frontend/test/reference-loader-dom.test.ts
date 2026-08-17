@@ -32,6 +32,15 @@ describe("Reference Loader DOM lifecycle", () => {
     )
     expect(root.querySelector(".rl-media-topbar > .rl-media-header")).not.toBeNull()
     expect(root.querySelector(".rl-media-topbar > .rl-toolbar")).not.toBeNull()
+    expect(root.querySelector(".rl-toolbar .rl-primary")?.textContent).toBe("Add")
+    expect(root.querySelector(".rl-toolbar .rl-primary")?.getAttribute("aria-label")).toBe(
+      "Add media",
+    )
+    expect(root.querySelector(".rl-snapshot__trigger")?.textContent).toContain("Snapshot")
+    expect(root.querySelector(".rl-snapshot__trigger")?.getAttribute("aria-expanded")).toBe("false")
+    expect(root.querySelector<HTMLElement>(".rl-snapshot__menu")?.hidden).toBe(true)
+    expect(root.querySelector('[data-action="snapshot-save"]')?.textContent).toBe("Save")
+    expect(root.querySelector('[data-action="snapshot-load"]')?.textContent).toBe("Load")
     expect(root.querySelectorAll(".rl-channel")).toHaveLength(3)
     expect(root.querySelectorAll(".rl-card-grid.is-empty")).toHaveLength(3)
     expect(root.querySelectorAll(".rl-grid-add.is-wide")).toHaveLength(3)
@@ -49,6 +58,92 @@ describe("Reference Loader DOM lifecycle", () => {
     expect(root.textContent).toContain("Audio")
     controller.destroy()
     expect(root.childElementCount).toBe(0)
+    root.remove()
+  })
+
+  test("routes Snapshot Save and Load controls through controller actions", async () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const node: ComfyNode = {
+      addWidget: () => ({ name: "unused", value: null }),
+      addDOMWidget: () => ({ name: "unused", value: null }),
+      setDirtyCanvas: () => undefined,
+    }
+    let saves = 0
+    let loadedName = ""
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
+      undefined,
+      {
+        saveSnapshot: () => {
+          saves += 1
+        },
+        loadSnapshot: async (file) => {
+          loadedName = file.name
+          return "loaded"
+        },
+      },
+    )
+
+    root.querySelector<HTMLButtonElement>('[data-action="snapshot-menu"]')?.click()
+    expect(root.querySelector(".rl-snapshot__trigger")?.getAttribute("aria-expanded")).toBe("true")
+    expect(root.querySelector<HTMLElement>(".rl-snapshot__menu")?.hidden).toBe(false)
+    root.querySelector<HTMLButtonElement>('[data-action="snapshot-save"]')?.click()
+    expect(saves).toBe(1)
+    expect(root.querySelector(".rl-status")?.textContent).toBe("Snapshot saved.")
+    expect(root.querySelector<HTMLElement>(".rl-snapshot__menu")?.hidden).toBe(true)
+
+    const input = root.querySelector<HTMLInputElement>("[data-snapshot-input]")
+    let pickerClicks = 0
+    if (input)
+      input.click = () => {
+        pickerClicks += 1
+      }
+    root.querySelector<HTMLButtonElement>('[data-action="snapshot-menu"]')?.click()
+    root.querySelector<HTMLButtonElement>('[data-action="snapshot-load"]')?.click()
+    expect(pickerClicks).toBe(1)
+    expect(root.querySelector<HTMLElement>(".rl-snapshot__menu")?.hidden).toBe(true)
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["{}"], "saved.json", { type: "application/json" })],
+    })
+    input?.dispatchEvent(new Event("change", { bubbles: true }))
+    await Promise.resolve()
+    expect(loadedName).toBe("saved.json")
+    expect(root.querySelector(".rl-status")?.textContent).toBe("Snapshot loaded.")
+
+    controller.destroy()
+    root.remove()
+  })
+
+  test("closes the Snapshot dropdown with Escape and outside pointer input", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const controller = new ReferenceLoaderController(
+      root,
+      {
+        addWidget: () => ({ name: "unused", value: null }),
+        addDOMWidget: () => ({ name: "unused", value: null }),
+        setDirtyCanvas: () => undefined,
+      },
+      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
+      undefined,
+    )
+    const trigger = root.querySelector<HTMLButtonElement>('[data-action="snapshot-menu"]')
+    trigger?.click()
+    const save = root.querySelector<HTMLButtonElement>('[data-action="snapshot-save"]')
+    expect(document.activeElement).toBe(save)
+    save?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }))
+    expect(root.querySelector<HTMLElement>(".rl-snapshot__menu")?.hidden).toBe(true)
+    expect(document.activeElement).toBe(trigger)
+
+    trigger?.click()
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))
+    expect(root.querySelector<HTMLElement>(".rl-snapshot__menu")?.hidden).toBe(true)
+
+    controller.destroy()
     root.remove()
   })
 

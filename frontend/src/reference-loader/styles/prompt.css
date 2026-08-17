@@ -20,10 +20,17 @@
   gap: 10px;
 }
 
-.rl-prompt-toolbar > div {
+.rl-prompt-toolbar__copy {
   display: flex;
   min-width: 0;
   flex-direction: column;
+}
+
+.rl-prompt-toolbar__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
 }
 
 .rl-prompt-toolbar__title {
@@ -58,6 +65,18 @@
 .rl-prompt-toolbar button {
   flex: none;
   padding: 3px 8px;
+}
+
+.reference-prompt button.rl-clear {
+  color: var(--rl-danger);
+  border-color: color-mix(in srgb, var(--rl-danger) 65%, var(--rl-border));
+  background: color-mix(in srgb, var(--rl-danger) 10%, var(--rl-panel));
+}
+
+.reference-prompt button.rl-clear:hover:not(:disabled) {
+  color: #fff;
+  border-color: var(--rl-danger);
+  background: color-mix(in srgb, var(--rl-danger) 38%, var(--rl-panel));
 }
 
 .rl-prompt-editor {

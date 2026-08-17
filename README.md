@@ -11,6 +11,7 @@ The Loader is available under `reference / loader`; **[Reference Loader] Raw Pro
 - Audio/video trim and playback; VIDEO values retain embedded audio
 - Optional per-image MPixel limiting and alpha compositing at execution
 - Structured prompt editor with thumbnail `@` mentions, dialogue blocks, and literal raw view
+- Browser JSON snapshots for saving and restoring Loader, Prompt, and related node settings
 - Stable media mentions compiled to `<Picture N>`, `<Video N>`, and `<Audio N>` tags
 - Strict YAML export of active captions and structured prompt sections for LLM inputs
 - Compact reference bundle with a dedicated [Reference Loader] Media Outputs node

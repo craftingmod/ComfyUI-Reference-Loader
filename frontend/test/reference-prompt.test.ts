@@ -32,12 +32,22 @@ function makeController(
   references: PromptReference[] = [],
   serialized?: unknown,
   options: ReferencePromptControllerOptions = {},
-): { root: HTMLElement; controller: ReferencePromptController; dirty: () => number } {
+): {
+  root: HTMLElement
+  controller: ReferencePromptController
+  dirty: () => number
+  transactions: string[]
+} {
   const root = document.createElement("div")
   document.body.append(root)
   let dirtyCount = 0
+  const transactions: string[] = []
   const node: ComfyNode = {
     addDOMWidget: () => ({ name: "unused", value: null }),
+    graph: {
+      beforeChange: () => transactions.push("before"),
+      afterChange: () => transactions.push("after"),
+    },
     setDirtyCanvas: () => {
       dirtyCount += 1
     },
@@ -46,6 +56,7 @@ function makeController(
     root,
     controller: new ReferencePromptController(root, node, () => references, serialized, options),
     dirty: () => dirtyCount,
+    transactions,
   }
 }
 
@@ -468,6 +479,31 @@ describe("Reference Prompt section stack", () => {
     controller.destroy()
   })
 
+  test("mounts autocomplete between the active title and text or before Add section", () => {
+    const { root, controller } = makeController([imageReference()])
+    const panel = root.querySelector<HTMLElement>("[data-prompt-panel]")!
+    const hint = root.querySelector<HTMLElement>("[data-prompt-hint]")!
+    const sceneCard = root.querySelector<HTMLElement>('[data-prompt-section="scene"]')!
+    const scene = sectionBody(root, "scene")
+    const entry = sectionEntry(root)
+
+    inputText(scene, "Use @")
+    const picker = root.querySelector<HTMLElement>("[data-prompt-picker]")!
+    expect(picker.parentElement).toBe(sceneCard)
+    expect(picker.previousElementSibling).toBe(sceneCard.firstElementChild)
+    expect(picker.nextElementSibling).toBe(scene)
+
+    inputText(entry, "/")
+    expect(picker.parentElement).toBe(entry.parentElement)
+    expect(picker.nextElementSibling).toBe(entry)
+
+    press(entry, "Escape")
+    expect(picker.hidden).toBe(true)
+    expect(picker.parentElement).toBe(panel)
+    expect(picker.nextElementSibling).toBe(hint)
+    controller.destroy()
+  })
+
   test("creates and reuses stable # Subjects in the Generic preset", () => {
     const { root, controller } = makeController()
     const scene = sectionBody(root, "scene")
@@ -537,6 +573,74 @@ describe("Reference Prompt section stack", () => {
     inputText(scene, "Search #orph")
     expect(root.querySelector("[data-prompt-subject-index]")).toBeNull()
     expect(root.querySelector("[data-prompt-subject-create]")).not.toBeNull()
+    controller.destroy()
+  })
+
+  test("reorders Prompt sections by drag or keyboard without reordering Subjects", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      subjects: [
+        { subjectId: "place-id", label: "place" },
+        { subjectId: "woman-id", label: "woman" },
+      ],
+      sections: [
+        {
+          title: "scene",
+          parts: [{ type: "subject", subjectId: "place-id", label: "place" }],
+        },
+        {
+          title: "camera_direction",
+          parts: [{ type: "subject", subjectId: "woman-id", label: "woman" }],
+        },
+      ],
+    })
+    const { root, controller, transactions } = makeController([], serialized)
+    const sceneHandle = root.querySelector<HTMLElement>(
+      '[data-prompt-section-drag-handle="scene"]',
+    )!
+    const cameraCard = root.querySelector<HTMLElement>('[data-prompt-section="camera_direction"]')!
+    expect(sceneHandle.dataset.promptSectionDragHandle).toBe("scene")
+    expect(
+      sceneHandle.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true })),
+    ).toBe(true)
+    expect(
+      root
+        .querySelector<HTMLElement>('[data-prompt-section="scene"]')
+        ?.classList.contains("is-dragging"),
+    ).toBe(true)
+    Object.defineProperty(cameraCard, "getBoundingClientRect", {
+      value: () => ({ top: 0, height: 100 }),
+    })
+    const dragover = new DragEvent("dragover", { bubbles: true, cancelable: true })
+    Object.defineProperty(dragover, "clientY", { value: 75 })
+    cameraCard.dispatchEvent(dragover)
+    expect(cameraCard.classList.contains("is-drop-after")).toBe(true)
+    cameraCard.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true }))
+
+    expect(controller.document.sections.map((section) => section.title)).toEqual([
+      "camera_direction",
+      "scene",
+    ])
+    expect(controller.document.subjects.map((subject) => subject.label)).toEqual(["place", "woman"])
+    expect(controller.compiledPrompt).toBe("camera_direction:\n<Subject 2>\n\nscene:\n<Subject 1>")
+    expect(transactions).toEqual(["before", "after"])
+
+    const movedSceneHandle = root.querySelector<HTMLElement>(
+      '[data-prompt-section-drag-handle="scene"]',
+    )!
+    movedSceneHandle.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "ArrowUp",
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+    expect(controller.document.sections.map((section) => section.title)).toEqual([
+      "scene",
+      "camera_direction",
+    ])
+    expect(transactions).toEqual(["before", "after", "before", "after"])
     controller.destroy()
   })
 
@@ -671,6 +775,67 @@ describe("Reference Prompt section stack", () => {
     expect(canvasPasteCount).toBe(0)
 
     document.removeEventListener("paste", onCanvasPaste)
+    controller.destroy()
+  })
+
+  test("copies the synchronized compiled Prompt and reports clipboard failures", async () => {
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard")
+    const copied: string[] = []
+    try {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: async (value: string) => void copied.push(value) },
+      })
+      const serialized = serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        subjects: [{ subjectId: "place-id", label: "place" }],
+        sections: [
+          {
+            title: "scene",
+            parts: [
+              { type: "subject", subjectId: "place-id", label: "place" },
+              { type: "text", text: " contains " },
+              {
+                type: "mention",
+                referenceId: "image-a",
+                mediaKind: "image",
+                label: "image1",
+              },
+            ],
+          },
+        ],
+      })
+      const { root, controller } = makeController([imageReference()], serialized)
+      const copy = root.querySelector<HTMLButtonElement>('[data-prompt-action="copy"]')!
+      expect(copy.disabled).toBe(false)
+      copy.click()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(copied).toEqual(["scene:\n<Subject 1> contains <Picture 1>"])
+      expect(root.querySelector<HTMLElement>("[data-prompt-hint]")?.textContent).toBe(
+        "Prompt copied.",
+      )
+
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: async () => Promise.reject(new Error("denied")) },
+      })
+      copy.click()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(root.querySelector<HTMLElement>("[data-prompt-hint]")?.textContent).toBe(
+        "Could not access the clipboard.",
+      )
+      controller.destroy()
+    } finally {
+      if (clipboardDescriptor) Object.defineProperty(navigator, "clipboard", clipboardDescriptor)
+      else Reflect.deleteProperty(navigator, "clipboard")
+    }
+  })
+
+  test("disables Copy while Prompt is empty", () => {
+    const { root, controller } = makeController()
+    expect(root.querySelector<HTMLButtonElement>('[data-prompt-action="copy"]')?.disabled).toBe(
+      true,
+    )
     controller.destroy()
   })
 

@@ -137,6 +137,18 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-prompt-section-color) 38%, transparent);
 }
 
+.rl-prompt-section.is-dragging {
+  opacity: 0.55;
+}
+
+.rl-prompt-section.is-drop-before {
+  box-shadow: inset 0 3px 0 var(--rl-accent);
+}
+
+.rl-prompt-section.is-drop-after {
+  box-shadow: inset 0 -3px 0 var(--rl-accent);
+}
+
 .rl-prompt-section__header {
   display: flex;
   min-height: 27px;
@@ -153,6 +165,7 @@
 }
 
 .rl-prompt-section__header code {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   color: color-mix(in srgb, var(--rl-prompt-section-color) 84%, var(--rl-text));
@@ -160,6 +173,20 @@
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.rl-prompt-section__header button.rl-prompt-section__drag {
+  color: var(--rl-muted);
+  cursor: grab;
+  font-size: 14px;
+}
+
+.rl-prompt-section__header button.rl-prompt-section__drag:hover {
+  color: var(--rl-prompt-section-color);
+}
+
+.rl-prompt-section__header button.rl-prompt-section__drag:active {
+  cursor: grabbing;
 }
 
 .rl-prompt-section__header button {
@@ -299,12 +326,11 @@
 }
 
 .rl-prompt-picker {
-  position: absolute;
+  position: relative;
   z-index: 12;
-  right: 0;
-  bottom: calc(100% + 6px);
-  left: 0;
   display: grid;
+  width: 100%;
+  box-sizing: border-box;
   max-height: 280px;
   gap: 3px;
   overflow: auto;

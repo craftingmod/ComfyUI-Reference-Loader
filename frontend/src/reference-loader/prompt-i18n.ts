@@ -14,6 +14,17 @@ export const PROMPT_MESSAGES = {
   editorAria: { en: "Reference Prompt editor", ko: "참조 프롬프트 편집기" },
   toggleAria: { en: "Toggle raw prompt view", ko: "Raw 프롬프트 보기 전환" },
   clear: { en: "Clear", ko: "지우기" },
+  copy: { en: "Copy", ko: "복사" },
+  copyAria: { en: "Copy compiled Prompt", ko: "컴파일된 프롬프트 복사" },
+  copyTitle: {
+    en: "Copy the current compiled pseudo-YAML Prompt",
+    ko: "현재 컴파일된 pseudo-YAML 프롬프트를 복사합니다.",
+  },
+  copied: { en: "Prompt copied.", ko: "프롬프트를 복사했습니다." },
+  copyFailed: {
+    en: "Could not access the clipboard.",
+    ko: "클립보드에 접근할 수 없습니다.",
+  },
   clearAria: { en: "Clear Prompt", ko: "프롬프트 지우기" },
   clearTitle: {
     en: "Clear all Prompt sections. Media is preserved.",

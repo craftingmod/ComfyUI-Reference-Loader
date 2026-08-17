@@ -54,14 +54,16 @@ describe("Reference Loader stylesheet", () => {
     expect(mentionRule).not.toMatch(/vertical-align:\s*-?\d/)
   })
 
-  it("opens the media picker above the prompt as an overlay", async () => {
+  it("lays autocomplete out inline at its active DOM anchor", async () => {
     const css = await Bun.file(
       new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
     ).text()
     const pickerRule = css.match(/\.rl-prompt-picker\s*\{([^}]*)\}/)?.[1]
 
-    expect(pickerRule).toContain("position: absolute;")
-    expect(pickerRule).toContain("bottom: calc(100% + 6px);")
+    expect(pickerRule).toContain("position: relative;")
+    expect(pickerRule).toContain("width: 100%;")
+    expect(pickerRule).toContain("box-sizing: border-box;")
+    expect(pickerRule).not.toContain("transform:")
     expect(pickerRule).toContain("overflow: auto;")
     expect(pickerRule).toContain("overscroll-behavior: contain;")
   })
@@ -81,6 +83,9 @@ describe("Reference Loader stylesheet", () => {
     expect(sectionRule).toContain("var(--rl-prompt-section-color) 32%")
     expect(headerRule).toContain("var(--rl-prompt-section-color) 10%")
     expect(bodyRule).toContain("white-space: pre-wrap;")
+    expect(css).toContain(".rl-prompt-section.is-drop-before")
+    expect(css).toContain(".rl-prompt-section.is-drop-after")
+    expect(css).toContain("cursor: grab;")
   })
 
   it("groups Prompt actions and styles its scoped Clear action as destructive", async () => {

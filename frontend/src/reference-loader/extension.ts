@@ -98,6 +98,7 @@ export function registerReferenceLoader(
             getMinHeight: contentHeight,
             getMaxHeight: contentHeight,
           })
+          const releaseRenderedRoot = bindRenderedWidgetRoot(node, root, ".reference-loader")
           const releaseVueWidgetGrid = bindVueWidgetGrid(root)
           widget.serialize = true
           widget.serializeValue = () => controller.serialize()
@@ -109,8 +110,10 @@ export function registerReferenceLoader(
           }, 0)
           const originalWidgetRemove = widget.onRemove
           widget.onRemove = () => {
+            if (removed) return
             removed = true
             globalThis.clearTimeout(bindingTimer)
+            releaseRenderedRoot()
             releaseVueWidgetGrid()
             promptSubscriptions.get(node)?.()
             promptSubscriptions.delete(node)
@@ -162,6 +165,7 @@ export function registerReferenceLoader(
             getMinHeight: () => 180,
             getMaxHeight: () => 480,
           })
+          const releaseRenderedRoot = bindRenderedWidgetRoot(node, root, ".reference-prompt")
           widget.serialize = true
           widget.serializeValue = () => controller.serialize()
           widget.beforeQueued = () => controller.serialize()
@@ -175,6 +179,7 @@ export function registerReferenceLoader(
             if (removed) return
             removed = true
             globalThis.clearTimeout(presetBindingTimer)
+            releaseRenderedRoot()
             promptSubscriptions.get(node)?.()
             promptSubscriptions.delete(node)
             promptPresetBindings.get(node)?.dispose()
@@ -263,6 +268,46 @@ function bindPromptReferences(node: ComfyNode): void {
     node,
     loader.subscribePromptReferences(() => prompt.refreshReferences(promptByOrderProperty(node))),
   )
+}
+
+/**
+ * ComfyUI rebuilds the graph for undo/redo. Its Vue DOM-widget list can retain the
+ * previous widget component while the replacement node is configured, leaving the
+ * newly-created element detached. Replace that stale element once the restored node
+ * has its final id so the live controller is rendered in the retained container.
+ */
+function bindRenderedWidgetRoot(
+  node: ComfyNode,
+  root: HTMLElement,
+  selector: ".reference-loader" | ".reference-prompt",
+): () => void {
+  let retryFrame: number | undefined
+  let disposed = false
+  const bind = (): boolean => {
+    if (disposed || root.isConnected) return true
+    if (node.id === undefined || node.id === null || String(node.id) === "-1") return false
+    const nodeId = String(node.id)
+    for (const nodeElement of document.querySelectorAll<HTMLElement>("[data-node-id]")) {
+      if (nodeElement.dataset.nodeId !== nodeId) continue
+      const renderedRoot = [...nodeElement.querySelectorAll<HTMLElement>(selector)].find(
+        (candidate) => candidate.dataset.input === root.dataset.input,
+      )
+      if (!renderedRoot || renderedRoot === root) continue
+      if (renderedRoot.classList.contains("h-full")) root.classList.add("h-full")
+      if (renderedRoot.classList.contains("w-full")) root.classList.add("w-full")
+      renderedRoot.replaceWith(root)
+      return true
+    }
+    return false
+  }
+  const bindingTimer = globalThis.setTimeout(() => {
+    if (!bind()) retryFrame = globalThis.requestAnimationFrame(() => bind())
+  }, 0)
+  return () => {
+    disposed = true
+    globalThis.clearTimeout(bindingTimer)
+    if (retryFrame !== undefined) globalThis.cancelAnimationFrame(retryFrame)
+  }
 }
 
 function bindVueWidgetGrid(root: HTMLElement): () => void {

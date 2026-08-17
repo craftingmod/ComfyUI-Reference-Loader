@@ -38,6 +38,7 @@ export interface ComfyNode {
   ): ComfyWidget
   addWidget?: (...args: unknown[]) => ComfyWidget
   graph?: ComfyGraph | null
+  id?: OfficialComfyNode["id"]
   onDragDrop?: (event: DragEvent) => boolean | Promise<boolean>
   onDragOver?: (event: DragEvent) => boolean
   onRemoved?: (...args: unknown[]) => unknown

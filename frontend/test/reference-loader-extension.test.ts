@@ -169,6 +169,100 @@ describe("Reference Loader custom widget", () => {
     expect(node.onDragDrop).toBe(originalDragDrop)
   })
 
+  test("reattaches restored DOM widgets after an undo graph rebuild", async () => {
+    let extension: ComfyExtension | undefined
+    const app: ComfyAppLike = {
+      registerExtension(candidate) {
+        extension = candidate
+      },
+    }
+    registerReferenceLoader(app, { fetchApi: async () => new Response("{}") })
+    const factories = extension?.getCustomWidgets?.()
+    const loaderFactory = factories?.[REFERENCE_LOADER_WIDGET_TYPE]
+    const promptFactory = factories?.[REFERENCE_PROMPT_WIDGET_TYPE]
+    const nodeElement = document.createElement("div")
+    nodeElement.dataset.nodeId = "42"
+    document.body.append(nodeElement)
+
+    const oldWidgets: ComfyWidget[] = []
+    const oldNode: ComfyNode = {
+      id: "42" as NonNullable<ComfyNode["id"]>,
+      addDOMWidget(name, _type, element) {
+        const widget = { name, value: "" } as ComfyWidget
+        oldWidgets.push(widget)
+        nodeElement.append(element)
+        return widget
+      },
+      onRemoved() {
+        for (const widget of oldWidgets) widget.onRemove?.()
+      },
+      setDirtyCanvas: () => undefined,
+    }
+    loaderFactory?.(
+      oldNode,
+      "loader_state",
+      ["STRING", { default: serializeLoaderState(createEmptyLoaderState()) }],
+      app,
+    )
+    promptFactory?.(
+      oldNode,
+      "prompt",
+      ["STRING", { default: serializePromptDocument(createEmptyPromptDocument()) }],
+      app,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const staleLoaderRoot = nodeElement.querySelector<HTMLElement>(".reference-loader")
+    const stalePromptRoot = nodeElement.querySelector<HTMLElement>(".reference-prompt")
+    staleLoaderRoot?.classList.add("h-full", "w-full")
+
+    oldNode.onRemoved?.()
+    expect(staleLoaderRoot?.childElementCount).toBe(0)
+    expect(stalePromptRoot?.childElementCount).toBe(0)
+
+    const restoredWidgets: ComfyWidget[] = []
+    const restoredRoots = new Map<string, HTMLElement>()
+    const restoredNode: ComfyNode = {
+      id: "42" as NonNullable<ComfyNode["id"]>,
+      addDOMWidget(name, _type, element) {
+        const widget = { name, value: "" } as ComfyWidget
+        restoredWidgets.push(widget)
+        restoredRoots.set(name, element)
+        return widget
+      },
+      setDirtyCanvas: () => undefined,
+    }
+
+    try {
+      loaderFactory?.(
+        restoredNode,
+        "loader_state",
+        ["STRING", { default: serializeLoaderState(createEmptyLoaderState()) }],
+        app,
+      )
+      promptFactory?.(
+        restoredNode,
+        "prompt",
+        ["STRING", { default: serializePromptDocument(createEmptyPromptDocument()) }],
+        app,
+      )
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      const restoredLoaderRoot = restoredRoots.get("loader_state")
+      const restoredPromptRoot = restoredRoots.get("prompt")
+      expect(nodeElement.querySelector(".reference-loader")).toBe(restoredLoaderRoot ?? null)
+      expect(nodeElement.querySelector(".reference-prompt")).toBe(restoredPromptRoot ?? null)
+      expect(restoredLoaderRoot?.querySelector(".rl-channels")).toBeTruthy()
+      expect(restoredPromptRoot?.querySelector(".rl-prompt-panel")).toBeTruthy()
+      expect(restoredLoaderRoot?.classList.contains("h-full")).toBe(true)
+      expect(restoredLoaderRoot?.classList.contains("w-full")).toBe(true)
+      expect(staleLoaderRoot?.isConnected).toBe(false)
+      expect(stalePromptRoot?.isConnected).toBe(false)
+    } finally {
+      for (const widget of restoredWidgets) widget.onRemove?.()
+      nodeElement.remove()
+    }
+  })
+
   test("uses native advanced widgets as write-only proxies for Loader state", async () => {
     let extension: ComfyExtension | undefined
     const app: ComfyAppLike = {

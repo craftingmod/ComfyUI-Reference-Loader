@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import math
+import mimetypes
 import os
 import re
 import secrets
@@ -241,7 +242,10 @@ def _normalize_source_path(source: Mapping[str, Any]) -> str:
   if filename != Path(filename).name or ":" in filename:
     raise _bad_request("invalid_source", "source.path must be a managed input path.")
   suffix = Path(filename).suffix.lower()
-  if suffix not in _AREA_SUFFIXES[parts[1]]:
+  supported_suffix = suffix in _AREA_SUFFIXES[parts[1]]
+  if parts[1] == "sources" and not supported_suffix:
+    supported_suffix = _supported_image_suffix(suffix)
+  if not supported_suffix:
     raise _bad_request(
       "invalid_source", "source.path must identify a supported media file."
     )
@@ -249,7 +253,7 @@ def _normalize_source_path(source: Mapping[str, Any]) -> str:
 
 
 def _mime_from_suffix(path: Path) -> str:
-  return {
+  known = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
@@ -271,7 +275,39 @@ def _mime_from_suffix(path: Path) -> str:
     ".mkv": "video/x-matroska",
     ".mka": "audio/x-matroska",
     ".avi": "video/x-msvideo",
-  }.get(path.suffix.lower(), "application/octet-stream")
+  }.get(path.suffix.lower())
+  if known is not None:
+    return known
+  guessed, _encoding = mimetypes.guess_type(path.name, strict=False)
+  if guessed:
+    return guessed.lower()
+  try:
+    from PIL import Image
+
+    Image.init()
+    image_format = Image.registered_extensions().get(path.suffix.lower())
+    mime = Image.MIME.get(image_format) if image_format else None
+  except ImportError:
+    mime = None
+  return str(mime or "application/octet-stream").lower()
+
+
+def _supported_image_suffix(suffix: str) -> bool:
+  if not suffix or suffix == ".part":
+    return False
+  try:
+    from PIL import Image
+
+    Image.init()
+    image_format = Image.registered_extensions().get(suffix.lower())
+    if not image_format:
+      return False
+    mime = Image.MIME.get(image_format)
+  except ImportError:
+    return False
+  if not mime:
+    mime, _encoding = mimetypes.guess_type(f"reference{suffix}", strict=False)
+  return bool(mime and mime.lower().startswith("image/"))
 
 
 def _resolve_source(source: Any) -> ResolvedSource:
@@ -372,8 +408,30 @@ def _sha256_file(path: Path) -> str:
   return digest.hexdigest()
 
 
+def _exif_transposed_size(image: Any) -> tuple[int, int]:
+  width, height = image.size
+  # Broken or non-standard EXIF must not make an otherwise decodable image
+  # unloadable. Execution and preview decoding use the same fallback policy.
+  try:
+    orientation = image.getexif().get(274, 1)
+  except (AttributeError, OSError, SyntaxError, TypeError, ValueError):
+    orientation = 1
+  if orientation in {5, 6, 7, 8}:
+    return height, width
+  return width, height
+
+
+def _copy_exif_transposed(image: Any) -> Any:
+  try:
+    from PIL import ImageOps
+
+    return ImageOps.exif_transpose(image).copy()
+  except (AttributeError, OSError, SyntaxError, TypeError, ValueError):
+    return image.copy()
+
+
 def _image_details(
-  path: Path, *, verify_only: bool = False
+  path: Path, *, verify_only: bool = False, filename_hint: str | None = None
 ) -> tuple[str, str, dict[str, Any]]:
   try:
     from PIL import Image
@@ -382,20 +440,40 @@ def _image_details(
       503, "decoder_unavailable", "Image decoding is unavailable."
     ) from exc
 
-  format_map = {
-    "PNG": ("png", "image/png"),
-    "JPEG": ("jpg", "image/jpeg"),
-    "WEBP": ("webp", "image/webp"),
-    "GIF": ("gif", "image/gif"),
-    "BMP": ("bmp", "image/bmp"),
-    "TIFF": ("tiff", "image/tiff"),
-  }
   try:
     with warnings.catch_warnings():
       warnings.simplefilter("error", Image.DecompressionBombWarning)
       with Image.open(path) as image:
         image_format = str(image.format or "").upper()
-        if image_format not in format_map:
+        Image.init()
+        registered = Image.registered_extensions()
+        matching_extensions = sorted(
+          extension
+          for extension, registered_format in registered.items()
+          if str(registered_format).upper() == image_format
+          and _supported_image_suffix(extension)
+        )
+        if not image_format or not matching_extensions:
+          raise ValueError("unsupported image")
+        hinted_suffix = Path(filename_hint or path.name).suffix.lower()
+        format_mime = str(Image.MIME.get(image_format) or "").lower()
+        canonical_suffix = (
+          str(mimetypes.guess_extension(format_mime, strict=False) or "").lower()
+          if format_mime
+          else ""
+        )
+        extension = (
+          hinted_suffix
+          if hinted_suffix in matching_extensions
+          else canonical_suffix
+          if canonical_suffix in matching_extensions
+          else matching_extensions[0]
+        ).removeprefix(".")
+        guessed_mime, _encoding = mimetypes.guess_type(
+          f"reference.{extension}", strict=False
+        )
+        mime = str(format_mime or guessed_mime or "").lower()
+        if not mime.startswith("image/"):
           raise ValueError("unsupported image")
         width, height = image.size
         if width <= 0 or height <= 0 or width * height > MAX_DECODE_PIXELS:
@@ -412,38 +490,17 @@ def _image_details(
         }
         if verify_only:
           image.verify()
+      with Image.open(path) as image:
+        width, height = _exif_transposed_size(image)
+        metadata["width"] = width
+        metadata["height"] = height
   except ReferenceRouteError:
     raise
   except Exception as exc:
     raise ReferenceRouteError(
       415, "unsupported_media", "The uploaded file is not supported media."
     ) from exc
-  extension, mime = format_map[image_format]
   return extension, mime, metadata
-
-
-def _looks_like_image(path: Path) -> bool:
-  try:
-    with path.open("rb") as stream:
-      header = stream.read(16)
-  except OSError as exc:
-    raise ReferenceRouteError(
-      404, "source_not_found", "The media source was not found."
-    ) from exc
-  return bool(
-    header.startswith(
-      (
-        b"\x89PNG\r\n\x1a\n",
-        b"\xff\xd8\xff",
-        b"GIF87a",
-        b"GIF89a",
-        b"BM",
-        b"II*\x00",
-        b"MM\x00*",
-      )
-    )
-    or (header.startswith(b"RIFF") and header[8:12] == b"WEBP")
-  )
 
 
 def _safe_float(value: Any) -> float | None:
@@ -641,15 +698,27 @@ def _audio_container_type(names: set[str], suffix_hint: str = "") -> tuple[str, 
 
 
 def _inspect_media(
-  path: Path, *, verify_image: bool = False
+  path: Path, *, verify_image: bool = False, filename_hint: str | None = None
 ) -> tuple[str, str, str, dict[str, Any]]:
-  if _looks_like_image(path):
-    extension, mime, metadata = _image_details(path, verify_only=verify_image)
+  try:
+    extension, mime, metadata = _image_details(
+      path,
+      verify_only=verify_image,
+      filename_hint=filename_hint,
+    )
     kind = "image"
-  else:
+  except ReferenceRouteError as image_error:
+    if image_error.status != 415:
+      raise
     kind, extension, metadata = _av_details(path)
     mime = str(metadata.pop("mime"))
-  if path.suffix.lower() in _SOURCE_SUFFIXES and _mime_from_suffix(path) != mime:
+  suffix_path = Path(filename_hint or path.name)
+  expected_mime = _mime_from_suffix(suffix_path)
+  if (
+    kind != "image"
+    and expected_mime != "application/octet-stream"
+    and expected_mime != mime
+  ):
     raise ReferenceRouteError(
       415,
       "media_type_mismatch",
@@ -757,7 +826,7 @@ def _atomic_json(path: Path, payload: Any) -> None:
 
 def _load_proxy_frame(path: Path, kind: str):
   try:
-    from PIL import Image, ImageOps
+    from PIL import Image
   except Exception as exc:
     raise ReferenceRouteError(
       503, "decoder_unavailable", "Image decoding is unavailable."
@@ -769,7 +838,7 @@ def _load_proxy_frame(path: Path, kind: str):
         warnings.simplefilter("error", Image.DecompressionBombWarning)
         with Image.open(path) as original:
           original.load()
-          return ImageOps.exif_transpose(original).copy()
+          return _copy_exif_transposed(original)
     except Exception as exc:
       raise ReferenceRouteError(
         422, "decode_failed", "The image could not be decoded."
@@ -1425,13 +1494,13 @@ def _normalize_edit(
 
 def _load_edit_image(path: Path):
   try:
-    from PIL import Image, ImageOps
+    from PIL import Image
 
     with warnings.catch_warnings():
       warnings.simplefilter("error", Image.DecompressionBombWarning)
       with Image.open(path) as original:
         original.load()
-        image = ImageOps.exif_transpose(original).convert("RGBA")
+        image = _copy_exif_transposed(original).convert("RGBA")
   except Exception as exc:
     raise ReferenceRouteError(
       422, "decode_failed", "The image could not be decoded."
@@ -1709,6 +1778,7 @@ async def upload_endpoint(request: Any):
       _inspect_media,
       temporary,
       verify_image=True,
+      filename_hint=str(part.filename or ""),
     )
     sha256 = digest.hexdigest()
     sources = await asyncio.to_thread(_ensure_managed_directory, "sources")

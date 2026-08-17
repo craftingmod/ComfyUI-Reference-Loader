@@ -168,6 +168,108 @@ def test_decoder_work_runs_inside_the_global_concurrency_gate(monkeypatch):
   assert events == ["enter", "work", "exit"]
 
 
+@pytest.mark.parametrize("orientation", [5, 6, 7, 8])
+def test_image_details_reports_exif_transposed_dimensions(tmp_path, orientation):
+  Image = pytest.importorskip("PIL.Image")
+  path = tmp_path / f"oriented-{orientation}.jpg"
+  image = Image.new("RGB", (12, 7), "red")
+  exif = Image.Exif()
+  exif[274] = orientation
+  image.save(path, exif=exif)
+  image.close()
+
+  extension, mime, metadata = routes._image_details(path, verify_only=True)
+  proxy = routes._load_proxy_frame(path, "image")
+
+  assert extension == "jpg"
+  assert mime == "image/jpeg"
+  assert metadata == {
+    "width": 7,
+    "height": 12,
+    "mode": "RGB",
+    "frame_count": 1,
+  }
+  assert proxy.size == (metadata["width"], metadata["height"])
+  proxy.close()
+
+
+@pytest.mark.parametrize(
+  ("image_format", "suffix"),
+  [("AVIF", "avif"), ("ICO", "ico"), ("PPM", "ppm")],
+)
+def test_image_details_accepts_registered_comfyui_image_formats(
+  tmp_path, image_format, suffix
+):
+  Image = pytest.importorskip("PIL.Image")
+  source = tmp_path / f"source.{suffix}"
+  size = (16, 16) if image_format == "ICO" else (12, 7)
+  image = Image.new("RGB", size, "red")
+  image.save(source, format=image_format)
+  image.close()
+  upload_part = tmp_path / "upload.part"
+  upload_part.write_bytes(source.read_bytes())
+
+  kind, extension, mime, metadata = routes._inspect_media(
+    upload_part,
+    verify_image=True,
+    filename_hint=source.name,
+  )
+
+  assert kind == "image"
+  assert extension == suffix
+  assert mime.startswith("image/")
+  assert metadata["width"] == size[0]
+  assert metadata["height"] == size[1]
+
+
+def test_upload_accepts_jpeg_bytes_with_png_filename_and_normalizes_extension(
+  monkeypatch, tmp_path
+):
+  Image = pytest.importorskip("PIL.Image")
+  install_runtime_stubs(monkeypatch, tmp_path)
+  source = tmp_path / "jpeg-with-png-name.png"
+  image = Image.new("RGB", (12, 7), "red")
+  image.save(source, format="JPEG")
+  image.close()
+  body = source.read_bytes()
+
+  response = asyncio.run(
+    routes.upload_endpoint(
+      UploadRequest([UploadPart([body], filename="jpeg-with-png-name.png")])
+    )
+  )
+
+  assert response.status == 201
+  assert response.payload["kind"] == "image"
+  assert response.payload["source"]["mime"] == "image/jpeg"
+  assert response.payload["source"]["path"].endswith("/jpeg-with-png-name.jpg")
+  stored = tmp_path / response.payload["source"]["path"]
+  assert stored.read_bytes() == body
+
+
+def test_broken_exif_metadata_does_not_block_image_loading(monkeypatch, tmp_path):
+  Image = pytest.importorskip("PIL.Image")
+  path = tmp_path / "broken-exif.png"
+  image = Image.new("RGB", (12, 7), "red")
+  image.save(path)
+  image.close()
+
+  def broken_exif(_image):
+    raise SyntaxError("broken EXIF directory")
+
+  monkeypatch.setattr(Image.Image, "getexif", broken_exif)
+
+  extension, mime, metadata = routes._image_details(path, verify_only=True)
+  proxy = routes._load_proxy_frame(path, "image")
+
+  assert extension == "png"
+  assert mime == "image/png"
+  assert metadata["width"] == 12
+  assert metadata["height"] == 7
+  assert proxy.size == (12, 7)
+  proxy.close()
+
+
 def test_upload_streams_to_original_named_managed_source(monkeypatch, tmp_path):
   install_runtime_stubs(monkeypatch, tmp_path)
   body = b"trusted-bytes"

@@ -43,6 +43,12 @@ export interface LoaderChangeEvents {
   loadSnapshot?(file: File): Promise<"loaded" | "cancelled">
 }
 
+export type ReferenceLoaderMode = "references" | "single-image"
+
+export interface ReferenceLoaderControllerOptions {
+  mode?: ReferenceLoaderMode
+}
+
 export interface LoaderDisplayState {
   gridColumns: number
   previewPixels: number
@@ -73,6 +79,11 @@ function fileMediaKind(file: File): keyof typeof MEDIA_EXTENSIONS | undefined {
       return kind as keyof typeof MEDIA_EXTENSIONS
   }
   return undefined
+}
+
+function isSingleImageCandidate(file: File): boolean {
+  const kind = fileMediaKind(file)
+  return kind === undefined || kind === "image"
 }
 
 function hasFilePayload(dataTransfer: DataTransfer | null): boolean {
@@ -284,6 +295,7 @@ export class ReferenceLoaderController {
   #destroyed = false
   #snapshotMenuOpen = false
   #changeEvents: LoaderChangeEvents
+  #mode: ReferenceLoaderMode
   #referenceListeners = new Set<() => void>()
 
   constructor(
@@ -292,14 +304,17 @@ export class ReferenceLoaderController {
     api: ReferenceLoaderApi,
     serialized: unknown,
     changeEvents: LoaderChangeEvents = {},
+    options: ReferenceLoaderControllerOptions = {},
   ) {
     this.root = root
     this.#node = node
     this.#api = api
     this.#changeEvents = changeEvents
+    this.#mode = options.mode ?? "references"
     const parsed = deserializeLoaderState(serialized)
-    this.#history = createHistory(parsed.state)
+    this.#history = createHistory(this.#stateForMode(parsed.state))
     if (parsed.issues.length > 0) this.#status = parsed.issues.join(" ")
+    else if (this.#mode === "single-image") this.#status = ""
     this.#installEvents()
     this.#unsubscribeAudioPreview = this.#audioPreview.subscribe(() => this.#syncPlaybackUi())
     this.#unsubscribeVideoPreview = this.#videoPreview.subscribe(() => this.#syncPlaybackUi())
@@ -389,13 +404,25 @@ export class ReferenceLoaderController {
   acceptsFileDrop(dataTransfer: DataTransfer | null): boolean {
     if (this.#destroyed || !hasFilePayload(dataTransfer)) return false
     const files = [...(dataTransfer?.files ?? [])]
-    return files.length === 0 || files.some((file) => fileMediaKind(file) !== undefined)
+    return (
+      files.length === 0 ||
+      files.some((file) => {
+        const kind = fileMediaKind(file)
+        return this.#mode === "single-image" ? isSingleImageCandidate(file) : kind !== undefined
+      })
+    )
   }
 
   async addDroppedFiles(files: Iterable<File>): Promise<boolean> {
     if (this.#destroyed) return false
     const dropped = [...files]
-    if (!dropped.some((file) => fileMediaKind(file) !== undefined)) return false
+    if (
+      !dropped.some((file) => {
+        const kind = fileMediaKind(file)
+        return this.#mode === "single-image" ? isSingleImageCandidate(file) : kind !== undefined
+      })
+    )
+      return false
     await this.#uploadFiles(dropped)
     return true
   }
@@ -496,12 +523,17 @@ export class ReferenceLoaderController {
     for (const pending of this.#pending.values()) URL.revokeObjectURL(pending.objectUrl)
     this.#pending.clear()
     const parsed = deserializeLoaderState(serialized)
-    this.#history = createHistory(parsed.state)
+    this.#history = createHistory(this.#stateForMode(parsed.state))
     this.#selectedId = undefined
     this.#runtime.clear()
     this.#runtimeSequences.clear()
     this.#runtimeSequence = 0
-    this.#status = parsed.issues.length > 0 ? parsed.issues.join(" ") : "Workflow state restored."
+    this.#status =
+      parsed.issues.length > 0
+        ? parsed.issues.join(" ")
+        : this.#mode === "single-image"
+          ? ""
+          : "Workflow state restored."
     this.#cancelScheduledRender()
     this.#hydrateRestoredRuntime(true)
   }
@@ -519,6 +551,20 @@ export class ReferenceLoaderController {
 
   serialize(): string {
     return serializeLoaderState(this.state)
+  }
+
+  #stateForMode(state: LoaderState): LoaderState {
+    if (this.#mode !== "single-image") return state
+    const id = state.imageOrder.find((candidate) => state.items[candidate]?.kind === "image")
+    const item = id ? state.items[id] : undefined
+    return {
+      ...state,
+      items: id && item?.kind === "image" ? { [id]: { ...item, imageEnabled: true } } : {},
+      imageOrder: id && item?.kind === "image" ? [id] : [],
+      videoOrder: [],
+      audioOrder: [],
+      ui: { ...state.ui, gridColumns: 1 },
+    }
   }
 
   destroy(): void {
@@ -556,8 +602,15 @@ export class ReferenceLoaderController {
     this.#renderPending = false
     const state = this.state
     this.root.style.setProperty("--rl-card-aspect", state.ui.cardAspectRatio)
-    this.root.style.setProperty("--rl-grid-columns", String(state.ui.gridColumns))
+    this.root.style.setProperty(
+      "--rl-grid-columns",
+      String(this.#mode === "single-image" ? 1 : state.ui.gridColumns),
+    )
     this.root.style.setProperty("--rl-preview-fit", state.ui.previewFit)
+    if (this.#mode === "single-image") {
+      this.#renderSingleImage(state)
+      return
+    }
     this.root.innerHTML = `
       <div class="rl-media-topbar">
         <header class="rl-media-header">
@@ -584,6 +637,50 @@ export class ReferenceLoaderController {
       </div>`
     this.#drawWaveforms()
     this.#syncPlaybackUi()
+    for (const listener of this.#referenceListeners) listener()
+  }
+
+  #renderSingleImage(state: LoaderState): void {
+    const id = state.imageOrder[0]
+    const item = id ? state.items[id] : undefined
+    const hasImage = Boolean(id && item?.kind === "image")
+    const runtime = id ? this.#runtime.get(id) : undefined
+    const pending = this.#pending.values().next().value as PendingUpload | undefined
+    const filename = item?.kind === "image" ? itemFilename(item) : pending?.file.name
+    const previewUrl = runtime?.previewUrl ?? pending?.objectUrl
+    const loading = Boolean(pending || runtime?.loading || runtime?.applyingEdit)
+    const error = runtime?.error
+      ? `<p class="rl-card__error" role="alert">${escapeHtml(runtime.error)}</p>`
+      : ""
+    const status = this.#status
+      ? `<p class="rl-status rl-single-image-status" role="status">${escapeHtml(this.#status)}</p>`
+      : ""
+    const preview = previewUrl
+      ? `<img src="${escapeHtml(previewUrl)}" alt="" draggable="false">`
+      : '<span class="rl-single-image-placeholder">No image selected</span>'
+    const loadingOverlay = loading
+      ? '<span class="rl-card__loading-overlay" role="status" aria-label="Loading image"><span class="rl-spinner" aria-hidden="true"></span></span>'
+      : ""
+    this.root.innerHTML = `
+      <section class="rl-single-image-panel" aria-label="Reference image">
+        <div class="rl-single-image-controls">
+          <label class="rl-single-image-select" aria-label="Choose image" title="Choose image">
+            <span class="rl-single-image-select__value" title="${escapeHtml(filename ?? "Choose image")}">${escapeHtml(filename ?? "Choose image")}</span>
+            <span class="rl-single-image-select__arrow" aria-hidden="true">▾</span>
+            <input type="file" data-upload-kind="image" aria-label="Choose image">
+          </label>
+          <button type="button" class="rl-single-image-edit" data-action="edit" data-id="${escapeHtml(id ?? "")}" data-channel="image"${!hasImage || runtime?.applyingEdit ? " disabled" : ""}>Edit</button>
+        </div>
+        ${
+          hasImage && id
+            ? `<article class="rl-card rl-single-image-card${error ? " has-error" : ""}" data-id="${escapeHtml(id)}" data-channel="image" tabindex="0">
+                <div class="rl-card__media rl-single-image-preview is-transparent-preview" title="Double-click to edit">${preview}${loadingOverlay}</div>
+                ${error}
+              </article>`
+            : `<div class="rl-single-image-preview${loading ? " is-loading" : " is-empty"}" data-drop-zone="image" title="Double-click to choose an image">${preview}${loadingOverlay}</div>${error}`
+        }
+        ${status}
+      </section>`
     for (const listener of this.#referenceListeners) listener()
   }
 
@@ -654,6 +751,7 @@ export class ReferenceLoaderController {
   #cardMarkup(channel: LoaderChannel, id: string, outputIndex?: number): string {
     const item = this.state.items[id]
     if (!item) return ""
+    const singleImage = this.#mode === "single-image"
     const runtime = this.#runtime.get(id)
     const selected = this.#selectedId === id
     const caption =
@@ -690,18 +788,18 @@ export class ReferenceLoaderController {
       item.kind === "image" ? undefined : (runtime?.metadata?.duration ?? item.crop?.end)
     const audioPlaybackDisabled = silentVideo || runtime?.loading || playbackDuration === undefined
     const videoPlaybackDisabled = runtime?.loading || playbackDuration === undefined
-    return `<article class="rl-card${selected ? " is-selected" : ""}${runtime?.error ? " has-error" : ""}${outputEnabled ? "" : " is-output-disabled"}" data-id="${escapeHtml(id)}" data-channel="${channel}" data-output-enabled="${String(outputEnabled)}" tabindex="0" draggable="true" aria-selected="${String(selected)}">
+    return `<article class="rl-card${singleImage ? " rl-single-image-card" : ""}${selected ? " is-selected" : ""}${runtime?.error ? " has-error" : ""}${outputEnabled ? "" : " is-output-disabled"}" data-id="${escapeHtml(id)}" data-channel="${channel}" data-output-enabled="${String(outputEnabled)}" tabindex="0" draggable="${String(!singleImage)}" aria-selected="${String(selected)}">
       <div class="rl-card__media${channel === "image" && item.kind === "image" ? " is-transparent-preview" : ""}" title="Double-click to edit">${media}<div class="rl-media-badges"><span class="rl-kind rl-kind--${item.kind}">${item.kind}</span>${outputIndex === undefined ? "" : `<span class="rl-output-index" title="${labelForCaption(channel)} output #${outputIndex}">#${outputIndex}</span>`}${megapixels ? `<span class="rl-megapixels" title="Current source resolution: ${megapixels}">${megapixels}</span>` : ""}${duration ? `<span class="rl-duration">${duration}</span>` : ""}</div><span class="rl-media-filename" title="${escapeHtml(mediaFilename)}">${escapeHtml(mediaFilename)}</span><button type="button" class="rl-remove" data-action="remove" aria-label="Remove reference" title="Delete reference">×</button>${loading}</div>
       <div class="rl-card__body">
         ${showCaptionsProperty(this.#node) ? `<textarea data-field="caption" rows="2" maxlength="16384" placeholder="Caption" aria-label="${labelForCaption(channel)} caption">${escapeHtml(caption)}</textarea>` : ""}
         <div class="rl-card__actions">
-        ${channel === "image" && item.kind === "image" ? `<button type="button" data-action="toggle-image" class="${imageEnabled ? "is-on" : ""}" aria-label="Toggle image output" aria-pressed="${String(imageEnabled)}">I</button>` : ""}
-        ${channel === "video" && item.kind === "video" ? `<button type="button" data-action="toggle-video" class="${videoEnabled ? "is-on" : ""}" aria-label="Toggle video output" aria-pressed="${String(videoEnabled)}">V</button>` : ""}
-        ${channel === "audio" && isAudioItem(item) ? `<button type="button" data-action="toggle-audio" class="${audioEnabled ? "is-on" : ""}" aria-label="Toggle audio output" aria-pressed="${String(audioEnabled)}"${silentVideo ? ' disabled title="No embedded audio track"' : ""}>A</button>` : ""}
+        ${!singleImage && channel === "image" && item.kind === "image" ? `<button type="button" data-action="toggle-image" class="${imageEnabled ? "is-on" : ""}" aria-label="Toggle image output" aria-pressed="${String(imageEnabled)}">I</button>` : ""}
+        ${!singleImage && channel === "video" && item.kind === "video" ? `<button type="button" data-action="toggle-video" class="${videoEnabled ? "is-on" : ""}" aria-label="Toggle video output" aria-pressed="${String(videoEnabled)}">V</button>` : ""}
+        ${!singleImage && channel === "audio" && isAudioItem(item) ? `<button type="button" data-action="toggle-audio" class="${audioEnabled ? "is-on" : ""}" aria-label="Toggle audio output" aria-pressed="${String(audioEnabled)}"${silentVideo ? ' disabled title="No embedded audio track"' : ""}>A</button>` : ""}
         ${channel === "video" && item.kind === "video" ? `<button type="button" data-action="preview-video" data-playback-owner="${escapeHtml(playbackOwner)}" class="rl-preview-media${videoPlaybackActive ? " is-playing" : ""}" aria-label="${videoPlaybackActive ? "Stop" : "Play"} video preview with audio" title="${runtime?.loading || playbackDuration === undefined ? "Loading video preview" : videoPlaybackActive ? "Stop video preview" : "Play trimmed video preview with audio"}"${videoPlaybackDisabled ? " disabled" : ""}>${videoPlaybackActive ? "■" : "▶"}</button>` : ""}
         ${channel === "audio" && isAudioItem(item) ? `<button type="button" data-action="preview-audio" data-playback-owner="${escapeHtml(playbackOwner)}" class="rl-preview-media${audioPlaybackActive ? " is-playing" : ""}" aria-label="${audioPlaybackActive ? "Stop" : "Play"} audio preview" title="${silentVideo ? "No embedded audio track" : runtime?.loading || playbackDuration === undefined ? "Loading audio preview" : audioPlaybackActive ? "Stop audio preview" : "Play trimmed audio preview"}"${audioPlaybackDisabled ? " disabled" : ""}>${audioPlaybackActive ? "■" : "▶"}</button>` : ""}
-        <button type="button" data-action="move-back" aria-label="Move earlier" title="Move earlier (Alt+ArrowLeft)">←</button><button type="button" data-action="move-forward" aria-label="Move later" title="Move later (Alt+ArrowRight)">→</button>
-        <button type="button" class="rl-edit-button" data-action="edit" aria-label="Edit reference" title="Edit reference"${runtime?.applyingEdit ? " disabled" : ""}><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16v4Z"></path><path d="m13.5 6.5 4 4"></path></svg></button>
+        ${singleImage ? "" : '<button type="button" data-action="move-back" aria-label="Move earlier" title="Move earlier (Alt+ArrowLeft)">←</button><button type="button" data-action="move-forward" aria-label="Move later" title="Move later (Alt+ArrowRight)">→</button>'}
+        <button type="button" class="rl-edit-button" data-action="edit" aria-label="${singleImage ? "Edit image" : "Edit reference"}" title="${singleImage ? "Edit image" : "Edit reference"}"${runtime?.applyingEdit ? " disabled" : ""}><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16v4Z"></path><path d="m13.5 6.5 4 4"></path></svg></button>
         </div>
         ${error}
       </div>
@@ -895,8 +993,8 @@ export class ReferenceLoaderController {
       return
     }
     const card = button.closest<HTMLElement>(".rl-card")
-    const id = card?.dataset.id
-    const channel = card?.dataset.channel as LoaderChannel | undefined
+    const id = card?.dataset.id || button.dataset.id
+    const channel = (card?.dataset.channel || button.dataset.channel) as LoaderChannel | undefined
     switch (button.dataset.action) {
       case "snapshot-menu":
         this.#setSnapshotMenu(!this.#snapshotMenuOpen, this.#snapshotMenuOpen ? undefined : "first")
@@ -969,6 +1067,14 @@ export class ReferenceLoaderController {
   #onDoubleClick(event: MouseEvent): void {
     const target = event.target as Element
     if (target.closest("button, textarea, input, select, a, [contenteditable='true']")) return
+    if (
+      this.#mode === "single-image" &&
+      this.state.imageOrder.length === 0 &&
+      target.closest(".rl-single-image-preview")
+    ) {
+      this.root.querySelector<HTMLInputElement>('input[data-upload-kind="image"]')?.click()
+      return
+    }
     const media = target.closest<HTMLElement>(".rl-card__media")
     if (!media) return
     const card = media.closest<HTMLElement>(".rl-card")
@@ -1002,7 +1108,9 @@ export class ReferenceLoaderController {
     this.#runtimeSequences.clear()
     this.#runtimeSequence = 0
     this.#status = hadItems
-      ? "All references cleared. Undo is available."
+      ? this.#mode === "single-image"
+        ? "Image removed. Undo is available."
+        : "All references cleared. Undo is available."
       : "Pending uploads cleared."
     if (hadItems) this.#dispatch({ type: "clear" })
     else this.render()
@@ -1124,7 +1232,10 @@ export class ReferenceLoaderController {
     }
     const expectedKind = input.dataset.uploadKind
     const files = [...(input.files ?? [])].filter(
-      (file) => !expectedKind || fileMediaKind(file) === expectedKind,
+      (file) =>
+        !expectedKind ||
+        fileMediaKind(file) === expectedKind ||
+        (this.#mode === "single-image" && expectedKind === "image" && isSingleImageCandidate(file)),
     )
     input.value = ""
     void this.#uploadFiles(files)
@@ -1246,7 +1357,7 @@ export class ReferenceLoaderController {
     this.root.classList.remove("is-file-dragging")
     const files = [...(event.dataTransfer?.files ?? [])]
     if (files.length > 0) {
-      if (!files.some((file) => fileMediaKind(file) !== undefined)) return
+      if (!this.acceptsFileDrop(event.dataTransfer)) return
       event.preventDefault()
       void this.addDroppedFiles(files)
       return
@@ -1267,6 +1378,23 @@ export class ReferenceLoaderController {
   }
 
   async #uploadFiles(files: File[]): Promise<void> {
+    if (this.#mode === "single-image") {
+      const images = files.filter(isSingleImageCandidate)
+      if (images.length === 0) {
+        this.#status = "Only image files are supported."
+        this.render()
+        return
+      }
+      if (this.#pending.size > 0) {
+        this.#status = "Wait for the current image upload to finish."
+        this.render()
+        return
+      }
+      if (images.length > 1)
+        this.#status = `${images.length - 1} additional image${images.length === 2 ? " was" : "s were"} skipped.`
+      await this.#uploadFile(images[0] as File)
+      return
+    }
     const counts = { image: 0, audio: 0, video: 0 }
     for (const item of Object.values(this.state.items)) counts[item.kind] += 1
     for (const pending of this.#pending.values()) {
@@ -1342,10 +1470,14 @@ export class ReferenceLoaderController {
     try {
       const uploaded = await this.#api.upload(file, stateController.signal)
       if (!this.#isStateRequestCurrent(epoch, stateController)) return
+      if (this.#mode === "single-image" && uploaded.kind !== "image") {
+        this.#status = `${file.name}: the server did not recognize this as an image.`
+        return
+      }
       const canonicalCount = Object.values(this.state.items).filter(
         (candidate) => candidate.kind === uploaded.kind,
       ).length
-      if (canonicalCount >= MEDIA_LIMITS[uploaded.kind]) {
+      if (this.#mode !== "single-image" && canonicalCount >= MEDIA_LIMITS[uploaded.kind]) {
         this.#status = `${file.name}: the server identified this as ${uploaded.kind}, but that media limit is already full.`
         return
       }
@@ -1354,11 +1486,20 @@ export class ReferenceLoaderController {
         item.kind === "image" && twoImageModeProperty(this.#node) && this.#activeImageCount() >= 2
       if (addedDisabled && item.kind === "image") item = { ...item, imageEnabled: false }
       this.#runtime.set(item.id, { loading: true, metadata: uploaded.metadata })
-      this.#dispatch({ type: "add", item })
+      if (this.#mode === "single-image") {
+        const empty = loaderReducer(this.state, { type: "clear" })
+        const replacement = loaderReducer(empty, { type: "add", item })
+        this.#dispatch({ type: "replace", state: this.#stateForMode(replacement) })
+      } else {
+        this.#dispatch({ type: "add", item })
+      }
       this.#selectedId = item.id
-      this.#status = addedDisabled
-        ? `${file.name} added with its IMAGE output disabled by two-image mode.`
-        : `${file.name} added.`
+      this.#status =
+        this.#mode === "single-image"
+          ? ""
+          : addedDisabled
+            ? `${file.name} added with its IMAGE output disabled by two-image mode.`
+            : `${file.name} added.`
       await this.#loadRuntime(item)
     } catch (error) {
       if (!this.#isStateRequestCurrent(epoch, stateController)) return
@@ -1469,6 +1610,7 @@ export class ReferenceLoaderController {
         const editorResult = await openImageEditor({
           item,
           signal: modalController.signal,
+          showCaption: this.#mode !== "single-image",
           ...(runtime?.previewUrl ? { previewUrl: runtime.previewUrl } : {}),
           ...(imageMetadata?.width !== undefined ? { imageWidth: imageMetadata.width } : {}),
           ...(imageMetadata?.height !== undefined ? { imageHeight: imageMetadata.height } : {}),
@@ -1506,6 +1648,20 @@ export class ReferenceLoaderController {
         }
         const result = await this.#api.applyEdit(item.source, edit, modalController.signal)
         if (!this.#isEditCurrent(id, item, modalController)) return
+        let configuredPreview: { url: string } | undefined
+        const configuredPreviewPixels = this.state.ui.previewMaxPixels
+        try {
+          configuredPreview = await this.#api.imageProxy(
+            result.source,
+            configuredPreviewPixels,
+            modalController.signal,
+          )
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") throw error
+        }
+        if (!this.#isEditCurrent(id, item, modalController)) return
+        const configuredPreviewIsCurrent =
+          configuredPreviewPixels === this.state.ui.previewMaxPixels
         this.#invalidateRuntime(id)
         const canonicalEdit =
           edit.mask && !result.edit.mask
@@ -1520,11 +1676,13 @@ export class ReferenceLoaderController {
         })
         this.#runtime.set(id, {
           loading: false,
-          ...(result.proxyUrl
-            ? { previewUrl: result.proxyUrl }
-            : runtime?.previewUrl
-              ? { previewUrl: runtime.previewUrl }
-              : {}),
+          ...(configuredPreviewIsCurrent && configuredPreview?.url
+            ? { previewUrl: configuredPreview.url }
+            : result.proxyUrl
+              ? { previewUrl: result.proxyUrl }
+              : runtime?.previewUrl
+                ? { previewUrl: runtime.previewUrl }
+                : {}),
           ...(result.metadata
             ? { metadata: result.metadata }
             : runtime?.metadata
@@ -1536,6 +1694,10 @@ export class ReferenceLoaderController {
         // dirtied the canvas. Notify ComfyUI again after replacing the card DOM
         // so its DOM-widget draw pass observes the new thumbnail immediately.
         this.#node.setDirtyCanvas(true, true)
+        if (!configuredPreviewIsCurrent) {
+          const updated = this.state.items[id]
+          if (updated) await this.#loadRuntime(updated)
+        }
       } else {
         let metadata = runtime?.metadata
         if (metadata?.duration === undefined)

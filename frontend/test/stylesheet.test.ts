@@ -28,6 +28,55 @@ describe("Reference Loader stylesheet", () => {
     expect(css).toContain("pointer-events: none")
   })
 
+  it("keeps the single-image loader compact and native-looking", async () => {
+    const tokens = await Bun.file(
+      new URL("../src/reference-loader/styles/tokens.css", import.meta.url),
+    ).text()
+    const loader = await Bun.file(
+      new URL("../src/reference-loader/styles/loader.css", import.meta.url),
+    ).text()
+    const compactRule = tokens.match(/\.reference-image-loader\s*\{([^}]*)\}/)?.[1]
+    const panelRule = loader.match(/\.rl-single-image-panel\s*\{([^}]*)\}/)?.[1]
+    const controlsRule = loader.match(/\.rl-single-image-controls\s*\{([^}]*)\}/)?.[1]
+    const cardRule = loader.match(/\.rl-card\.rl-single-image-card\s*\{([^}]*)\}/)?.[1]
+    const previewRule = loader.match(/\.rl-single-image-preview\s*\{([^}]*)\}/)?.[1]
+    const previewImageRule = loader.match(
+      /\.rl-card__media\.rl-single-image-preview\s*>\s*img\s*\{([^}]*)\}/,
+    )?.[1]
+    const cardPreviewRule = loader.match(
+      /\.rl-card__media\.rl-single-image-preview\s*\{([^}]*)\}/,
+    )?.[1]
+
+    expect(compactRule).toContain("min-width: 0;")
+    expect(compactRule).toContain("width: 100%;")
+    expect(compactRule).toContain("max-width: 100%;")
+    expect(compactRule).toContain("min-height: 0;")
+    expect(panelRule).toContain("grid-template-rows: max-content minmax(0, 1fr);")
+    expect(panelRule).toContain("grid-auto-rows: max-content;")
+    expect(panelRule).toContain("width: 100%;")
+    expect(panelRule).toContain("max-width: 100%;")
+    expect(panelRule).toContain("height: 100%;")
+    expect(controlsRule).toContain("grid-template-columns: minmax(0, 1fr) max-content;")
+    expect(cardRule).toContain("grid-template-rows: minmax(0, 1fr);")
+    expect(cardRule).toContain("grid-auto-rows: max-content;")
+    expect(previewRule).toContain("aspect-ratio: auto;")
+    expect(previewRule).toContain("width: 100%;")
+    expect(previewRule).toContain("max-width: 100%;")
+    expect(previewRule).toContain("min-width: 0;")
+    expect(previewRule).toContain("justify-self: stretch;")
+    expect(previewRule).toContain("height: 100%;")
+    expect(cardPreviewRule).toContain("aspect-ratio: auto;")
+    expect(previewImageRule).toContain("width: 100%;")
+    expect(previewImageRule).toContain("height: 100%;")
+    expect(previewImageRule).toContain("max-width: 100%;")
+    expect(previewImageRule).toContain("max-height: 100%;")
+    expect(previewImageRule).toContain("object-fit: contain;")
+    expect(loader).toContain(".rl-single-image-panel")
+    expect(loader).toContain(".rl-single-image-select")
+    expect(loader).toContain(".rl-single-image-edit")
+    expect(loader).toContain(".reference-image-loader.is-file-dragging::after")
+  })
+
   afterEach(() => {
     document.getElementById(STYLESHEET_ID)?.remove()
   })

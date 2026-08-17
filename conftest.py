@@ -68,6 +68,7 @@ def _install_comfy_api_test_stub() -> None:
     "Image",
     "Int",
     "Latent",
+    "Mask",
     "String",
     "Vae",
     "Video",

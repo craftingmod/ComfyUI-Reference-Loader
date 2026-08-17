@@ -75,6 +75,10 @@
   align-content: stretch;
   gap: 8px;
 }
+.rl-editor-media-column.is-captionless {
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+}
 .rl-editor-media-column .rl-modal__caption {
   min-height: 0;
   grid-template-rows: auto minmax(48px, 1fr);

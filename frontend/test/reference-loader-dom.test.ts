@@ -731,15 +731,28 @@ describe("Reference Loader DOM lifecycle", () => {
         )
       },
     }
+    const proxyPixels: number[] = []
     const api: ComfyApiLike = {
-      async fetchApi(route) {
+      async fetchApi(route, options) {
         if (route.endsWith("metadata")) {
           return new Response(JSON.stringify({ metadata: { width: 2048, height: 1024 } }), {
             status: 200,
           })
         }
         if (route.endsWith("image_proxy")) {
-          return new Response(JSON.stringify({ url: "/caption-preview.webp" }), { status: 200 })
+          const body = JSON.parse(String(options?.body)) as {
+            source: { path: string }
+            maxPixels: number
+          }
+          proxyPixels.push(body.maxPixels)
+          return new Response(
+            JSON.stringify({
+              url: body.source.path.includes("/edits/")
+                ? "/caption-edited.webp"
+                : "/caption-preview.webp",
+            }),
+            { status: 200 },
+          )
         }
         if (route.endsWith("apply_edit")) {
           return new Response(
@@ -771,6 +784,7 @@ describe("Reference Loader DOM lifecycle", () => {
     )
     image.caption = "before"
     const state = loaderReducer(createEmptyLoaderState(), { type: "add", item: image })
+    state.ui.previewMaxPixels = 250_000
     const controller = new ReferenceLoaderController(
       root,
       node,
@@ -800,9 +814,177 @@ describe("Reference Loader DOM lifecycle", () => {
     expect(root.querySelector<HTMLImageElement>("img")?.getAttribute("src")).toBe(
       "/caption-edited.webp",
     )
+    expect(proxyPixels).toEqual([250_000, 250_000])
     expect(root.querySelector(".rl-megapixels")?.textContent).toBe("1.05 MP")
     expect(dirtyPreviewUrls[dirtyPreviewUrls.length - 1]).toBe("/caption-edited.webp")
     expect(JSON.parse(controller.serialize()).items.captioned.caption).toBe("after")
+    controller.destroy()
+    root.remove()
+  })
+
+  test("commits an applied edit when the configured preview refresh fails", async () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const node: ComfyNode = {
+      addWidget: () => ({ name: "unused", value: null }),
+      addDOMWidget: () => ({ name: "unused", value: null }),
+      setDirtyCanvas: () => undefined,
+    }
+    const api: ComfyApiLike = {
+      async fetchApi(route, options) {
+        if (route.endsWith("metadata"))
+          return new Response(JSON.stringify({ metadata: { width: 100, height: 100 } }))
+        if (route.endsWith("image_proxy")) {
+          const body = JSON.parse(String(options?.body)) as { source: { path: string } }
+          if (body.source.path.includes("/edits/"))
+            return new Response(JSON.stringify({ error: { message: "Proxy unavailable" } }), {
+              status: 503,
+            })
+          return new Response(JSON.stringify({ url: "/before-edit.webp" }))
+        }
+        if (route.endsWith("apply_edit"))
+          return new Response(
+            JSON.stringify({
+              source: {
+                path: "reference_loader/edits/fallback.png",
+                mime: "image/png",
+                sha256: "f".repeat(64),
+                revision: 1,
+              },
+              edit: { revision: 1 },
+              proxy_url: "/fallback-default.webp",
+              metadata: { width: 80, height: 80 },
+            }),
+            { status: 201 },
+          )
+        throw new Error(`Unexpected route: ${route}`)
+      },
+    }
+    const image = createMediaItem(
+      "image",
+      {
+        path: "reference_loader/sources/fallback.png",
+        mime: "image/png",
+        sha256: "e".repeat(64),
+      },
+      "preview-fallback",
+    )
+    const state = loaderReducer(createEmptyLoaderState(), { type: "add", item: image })
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi(api),
+      serializeLoaderState(state),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    root.querySelector<HTMLButtonElement>('[data-action="edit"]')?.click()
+    document.querySelector<HTMLButtonElement>('.rl-image-editor [data-action="apply"]')?.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(JSON.parse(controller.serialize()).items["preview-fallback"].source.path).toBe(
+      "reference_loader/edits/fallback.png",
+    )
+    expect(root.querySelector<HTMLImageElement>("img")?.getAttribute("src")).toBe(
+      "/fallback-default.webp",
+    )
+    expect(root.querySelector(".rl-card__error")).toBeNull()
+    controller.destroy()
+    root.remove()
+  })
+
+  test("reloads an edited preview when preview pixels change during its proxy request", async () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const node: ComfyNode = {
+      addWidget: () => ({ name: "unused", value: null }),
+      addDOMWidget: () => ({ name: "unused", value: null }),
+      setDirtyCanvas: () => undefined,
+    }
+    const proxyRequests: Array<{ path: string; maxPixels: number }> = []
+    let resolveOldCeilingPreview: ((response: Response) => void) | undefined
+    const api: ComfyApiLike = {
+      async fetchApi(route, options) {
+        if (route.endsWith("metadata"))
+          return new Response(JSON.stringify({ metadata: { width: 1200, height: 800 } }))
+        if (route.endsWith("image_proxy")) {
+          const body = JSON.parse(String(options?.body)) as {
+            source: { path: string }
+            maxPixels: number
+          }
+          proxyRequests.push({ path: body.source.path, maxPixels: body.maxPixels })
+          if (
+            body.source.path === "reference_loader/edits/preview-race.png" &&
+            body.maxPixels === 250_000
+          ) {
+            return new Promise((resolve) => {
+              resolveOldCeilingPreview = resolve
+            })
+          }
+          const source = body.source.path.includes("/edits/") ? "edited" : "original"
+          return new Response(JSON.stringify({ url: `/${source}-${body.maxPixels}-preview.webp` }))
+        }
+        if (route.endsWith("apply_edit"))
+          return new Response(
+            JSON.stringify({
+              source: {
+                path: "reference_loader/edits/preview-race.png",
+                mime: "image/png",
+                sha256: "9".repeat(64),
+                revision: 1,
+              },
+              edit: { revision: 1 },
+              proxy_url: "/edited-default-preview.webp",
+              metadata: { width: 1000, height: 700 },
+            }),
+            { status: 201 },
+          )
+        throw new Error(`Unexpected route: ${route}`)
+      },
+    }
+    const image = createMediaItem(
+      "image",
+      {
+        path: "reference_loader/sources/preview-race.png",
+        mime: "image/png",
+        sha256: "8".repeat(64),
+      },
+      "preview-race",
+    )
+    const state = loaderReducer(createEmptyLoaderState(), { type: "add", item: image })
+    state.ui.previewMaxPixels = 250_000
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi(api),
+      serializeLoaderState(state),
+      {},
+      { mode: "single-image" },
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    root.querySelector<HTMLButtonElement>('[data-action="edit"]')?.click()
+    document.querySelector<HTMLButtonElement>('.rl-image-editor [data-action="apply"]')?.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(resolveOldCeilingPreview).toBeDefined()
+
+    controller.writeDisplayProxy({ previewPixels: 2 })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    resolveOldCeilingPreview?.(new Response(JSON.stringify({ url: "/edited-250000-preview.webp" })))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(JSON.parse(controller.serialize()).ui.previewMaxPixels).toBe(2_000_000)
+    expect(JSON.parse(controller.serialize()).items["preview-race"].source.path).toBe(
+      "reference_loader/edits/preview-race.png",
+    )
+    expect(proxyRequests.filter((request) => request.path.includes("/edits/"))).toEqual([
+      { path: "reference_loader/edits/preview-race.png", maxPixels: 250_000 },
+      { path: "reference_loader/edits/preview-race.png", maxPixels: 2_000_000 },
+    ])
+    expect(root.querySelector<HTMLImageElement>("img")?.getAttribute("src")).toBe(
+      "/edited-2000000-preview.webp",
+    )
     controller.destroy()
     root.remove()
   })
@@ -1472,12 +1654,21 @@ describe("Reference Loader DOM lifecycle", () => {
     }
     const oldResolvers = new Map<string, (response: Response) => void>()
     let resolveApply: ((response: Response) => void) | undefined
+    let resolveEditedProxy: ((response: Response) => void) | undefined
     const api: ComfyApiLike = {
-      fetchApi(route) {
+      fetchApi(route, options) {
         if (route.endsWith("apply_edit")) {
           return new Promise((resolve) => {
             resolveApply = resolve
           })
+        }
+        if (route.endsWith("image_proxy")) {
+          const body = JSON.parse(String(options?.body)) as { source?: { path?: string } }
+          if (body.source?.path === "reference_loader/edits/fresh.png") {
+            return new Promise((resolve) => {
+              resolveEditedProxy = resolve
+            })
+          }
         }
         return new Promise((resolve) => oldResolvers.set(route, resolve))
       },
@@ -1526,6 +1717,9 @@ describe("Reference Loader DOM lifecycle", () => {
         { status: 201 },
       ),
     )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(resolveEditedProxy).toBeDefined()
+    resolveEditedProxy?.(new Response(JSON.stringify({ url: "/fresh.webp" }), { status: 200 }))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     oldResolvers.get("/reference_loader/metadata")?.(

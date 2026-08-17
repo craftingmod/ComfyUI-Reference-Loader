@@ -26,6 +26,10 @@ from ..core.reference_manifest import (
 )
 from ..core.reference_media import load_reference_media, validate_reference_sources
 from .reference_bundle import REFERENCE_LOADER_BUNDLE_TYPE, ReferenceLoaderBundle
+from .reference_image_inputs import (
+  reference_image_output_inputs,
+  reference_preview_pixels_input,
+)
 
 EMPTY_LOADER_STATE_JSON = json.dumps(
   {
@@ -189,46 +193,7 @@ class ReferenceLoaderNode(io.ComfyNode):
             "them to <Picture N>, <Video N>, and <Audio N> tags."
           ),
         ),
-        io.Boolean.Input(
-          "limit_image_pixels",
-          display_name="limit_image_pixels",
-          default=False,
-          label_on="Limited",
-          label_off="Original",
-          advanced=True,
-          socketless=False,
-          tooltip="Downscale IMAGE outputs above max_image_pixels; source and edit files remain unchanged.",
-        ),
-        io.Float.Input(
-          "max_image_pixels",
-          display_name="max_image_pixels (MPixel)",
-          default=2.0,
-          min=0.25,
-          max=40.0,
-          step=0.1,
-          round=0.01,
-          advanced=True,
-          socketless=False,
-          tooltip="Maximum IMAGE output resolution in megapixels when limiting is enabled; smaller images are not enlarged.",
-        ),
-        io.Boolean.Input(
-          "composite_alpha",
-          display_name="composite_alpha",
-          default=False,
-          label_on="Opaque",
-          label_off="Preserve",
-          advanced=True,
-          socketless=False,
-          tooltip="Composite alpha-bearing IMAGE outputs onto alpha_background and emit RGB.",
-        ),
-        io.Color.Input(
-          "alpha_background",
-          display_name="alpha_background",
-          default="#000000",
-          advanced=True,
-          socketless=False,
-          tooltip="Fallback color used only when composite_alpha is Opaque.",
-        ),
+        *reference_image_output_inputs(),
         io.Combo.Input(
           "prompt_schema_preset",
           display_name="prompt_schema_preset",
@@ -252,18 +217,7 @@ class ReferenceLoaderNode(io.ComfyNode):
           socketless=True,
           tooltip="Number of card columns used by each Loader channel.",
         ),
-        io.Float.Input(
-          "preview_pixels",
-          display_name="preview_pixels (MPixel)",
-          default=1.0,
-          min=0.25,
-          max=16.0,
-          step=0.25,
-          round=0.01,
-          advanced=True,
-          socketless=True,
-          tooltip="Maximum preview resolution in megapixels; execution media is unchanged.",
-        ),
+        reference_preview_pixels_input(),
         io.Boolean.Input(
           "show_captions",
           display_name="show_captions",

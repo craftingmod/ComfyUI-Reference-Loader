@@ -18,6 +18,7 @@ def test_python_lane_loads_reference_loader_via_entrypoint():
 
   assert [node.define_schema().node_id for node in node_classes] == [
     "Alyac_ReferenceLoader",
+    "Alyac_LoadReferenceImage",
     "Alyac_ReferenceLoaderOptionsOverride",
     "Alyac_ReferenceLoaderExportPromptForLLM",
     "Alyac_ReferenceLoaderRawOutputs",
@@ -28,6 +29,7 @@ def test_python_lane_loads_reference_loader_via_entrypoint():
   assert module.WEB_DIRECTORY == "./dist"
   assert module.__all__ == [
     "WEB_DIRECTORY",
+    "LoadReferenceImageNode",
     "MiniMaxH3ReferenceToVideoWrapperNode",
     "ReferenceLoaderExportPromptForLLMNode",
     "ReferenceLoaderExtension",

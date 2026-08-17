@@ -208,6 +208,29 @@ def test_resolver_verifies_input_boundary_size_and_hash(tmp_path):
     reference_media.resolve_reference_source(stale, input_root=tmp_path)
 
 
+def test_image_decode_falls_back_when_exif_is_malformed(monkeypatch, tmp_path):
+  Image = pytest.importorskip("PIL.Image")
+  path = tmp_path / "broken-exif.png"
+  image = Image.new("RGB", (12, 7), "red")
+  image.save(path)
+  image.close()
+  install_fake_numpy_and_torch(monkeypatch)
+
+  def broken_exif(_image):
+    raise SyntaxError("broken EXIF directory")
+
+  monkeypatch.setattr(Image.Image, "getexif", broken_exif)
+  source = ReferenceSource(
+    path="reference_loader/sources/broken-exif.png",
+    mime="image/png",
+    sha256="a" * 64,
+  )
+
+  tensor = reference_media._load_image(path, source, None)
+
+  assert tensor.shape == (1, 7, 12, 3)
+
+
 def test_resolver_enforces_actual_file_size_when_descriptor_omits_size(
   monkeypatch, tmp_path
 ):

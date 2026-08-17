@@ -102,6 +102,9 @@ type ImageEditorGesture =
 export interface ImageEditorOptions {
   item: ImageItem
   previewUrl?: string
+  captionLabel?: string
+  captionPlaceholder?: string
+  showCaption?: boolean
   imageWidth?: number
   imageHeight?: number
   imageMetadata?: (signal: AbortSignal) => Promise<{ width?: number; height?: number }>
@@ -587,15 +590,22 @@ function canvasFile(canvas: HTMLCanvasElement, filename: string): Promise<File> 
 export function openImageEditor(options: ImageEditorOptions): Promise<ImageEditorResult | null> {
   return new Promise((resolve) => {
     const dialog = document.createElement("dialog")
+    const captionLabel = options.captionLabel ?? "Caption"
+    const captionPlaceholder = options.captionPlaceholder ?? captionLabel
+    const captionField =
+      options.showCaption === false
+        ? ""
+        : `<label class="rl-modal__caption">${escapeHtml(captionLabel)}<textarea data-field="caption" rows="2" maxlength="16384" placeholder="${escapeHtml(captionPlaceholder)}">${escapeHtml(options.item.caption)}</textarea></label>`
+    const mediaColumnClass = `rl-editor-media-column${options.showCaption === false ? " is-captionless" : ""}`
     dialog.className = "rl-modal rl-image-editor"
     dialog.setAttribute("aria-label", "Image reference editor")
     dialog.innerHTML = `
       <form method="dialog" class="rl-modal__panel">
         <header><div><strong>Image editor</strong><small>Crop, mask, flip, and background changes are non-destructive.</small><small class="rl-modal__filename" title="${escapeHtml(options.item.source.path)}">File: ${escapeHtml(options.item.sourceFilename || filename(options.item.source.path))}</small></div><button type="button" data-action="cancel" aria-label="Close">×</button></header>
         <div class="rl-editor-layout">
-          <div class="rl-editor-media-column">
+          <div class="${mediaColumnClass}">
             <div class="rl-editor-preview"><div class="rl-editor-stage"><div class="rl-editor-visual"><img alt="Selected reference preview"><canvas aria-label="Editable keep mask"></canvas></div><div class="rl-crop-overlay" aria-label="Crop viewport; drag inside to move the crop, drag outside or use Ctrl-drag to pan, and use the mouse wheel to zoom"><button type="button" data-crop-handle="north-west" aria-label="Resize crop from top left"></button><button type="button" data-crop-handle="north-east" aria-label="Resize crop from top right"></button><button type="button" data-crop-handle="south-west" aria-label="Resize crop from bottom left"></button><button type="button" data-crop-handle="south-east" aria-label="Resize crop from bottom right"></button></div><div class="rl-mask-brush-preview" data-mask-tool="erase" aria-hidden="true" hidden></div></div></div>
-            <label class="rl-modal__caption">Caption<textarea data-field="caption" rows="2" maxlength="16384" placeholder="Caption">${escapeHtml(options.item.caption)}</textarea></label>
+            ${captionField}
           </div>
           <div class="rl-editor-controls">
             <fieldset class="rl-interaction-modes"><legend>Interaction</legend>

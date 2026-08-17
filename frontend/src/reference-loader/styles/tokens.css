@@ -37,6 +37,14 @@
   position: relative;
 }
 
+.reference-image-loader {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* Vue Nodes stretches `auto auto` widget-grid rows across the remaining node height. */
 .rl-reference-loader-widgets {
   grid-template-rows: max-content minmax(180px, 1fr) !important;

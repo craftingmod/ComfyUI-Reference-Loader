@@ -3,6 +3,7 @@ from typing import override
 from comfy_api.latest import ComfyExtension, io
 
 from .nodes import (
+  LoadReferenceImageNode,
   MiniMaxH3ReferenceToVideoWrapperNode,
   ReferenceLoaderExportPromptForLLMNode,
   ReferenceLoaderNode,
@@ -19,6 +20,7 @@ class ReferenceLoaderExtension(ComfyExtension):
   async def get_node_list(self) -> list[type[io.ComfyNode]]:
     return [
       ReferenceLoaderNode,
+      LoadReferenceImageNode,
       ReferenceLoaderOptionsOverrideNode,
       ReferenceLoaderExportPromptForLLMNode,
       ReferenceLoaderRawOutputsNode,
@@ -34,6 +36,7 @@ async def comfy_entrypoint() -> ReferenceLoaderExtension:
 
 
 __all__ = [
+  "LoadReferenceImageNode",
   "MiniMaxH3ReferenceToVideoWrapperNode",
   "ReferenceLoaderExportPromptForLLMNode",
   "ReferenceLoaderExtension",

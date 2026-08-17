@@ -180,6 +180,15 @@ def _has_image_alpha(image: Any) -> bool:
   return "A" in image.getbands() or "transparency" in image.info
 
 
+def _copy_exif_transposed(image: Any) -> Any:
+  try:
+    from PIL import ImageOps
+
+    return ImageOps.exif_transpose(image).copy()
+  except (AttributeError, OSError, SyntaxError, TypeError, ValueError):
+    return image.copy()
+
+
 def _apply_image_recipe(image: Any, edit: ImageEdit, mask: Any | None = None) -> Any:
   from PIL import Image, ImageChops, ImageColor, ImageOps
 
@@ -277,7 +286,7 @@ def _load_image(
   try:
     import numpy as np
     import torch
-    from PIL import Image, ImageOps
+    from PIL import Image
   except Exception as exc:
     raise ReferenceMediaUnavailable(
       "Image decoding requires Pillow, NumPy, and torch."
@@ -288,7 +297,7 @@ def _load_image(
       warnings.simplefilter("error", Image.DecompressionBombWarning)
       with Image.open(path) as opened:
         opened.load()
-        image = ImageOps.exif_transpose(opened).copy()
+        image = _copy_exif_transposed(opened)
   except Exception as exc:
     raise ReferenceMediaError("An image reference could not be decoded.") from exc
   mask = None
@@ -310,7 +319,7 @@ def _load_image(
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(mask_path) as opened_mask:
               opened_mask.load()
-              mask = ImageOps.exif_transpose(opened_mask).copy()
+              mask = _copy_exif_transposed(opened_mask)
         except Exception as exc:
           raise ReferenceMediaError("An image edit mask could not be decoded.") from exc
         if (

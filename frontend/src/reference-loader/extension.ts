@@ -19,6 +19,7 @@ import {
 } from "./snapshot.ts"
 
 export const REFERENCE_LOADER_WIDGET_TYPE = "REFERENCE_LOADER"
+export const REFERENCE_IMAGE_LOADER_WIDGET_TYPE = "REFERENCE_IMAGE_LOADER"
 export const REFERENCE_PROMPT_WIDGET_TYPE = "REFERENCE_PROMPT"
 const controllers = new WeakMap<ComfyNode, ReferenceLoaderController>()
 const promptControllers = new WeakMap<ComfyNode, ReferencePromptController>()
@@ -48,92 +49,124 @@ export function registerReferenceLoader(
   referenceApp.registerExtension({
     name: "reference-loader.extension",
     getCustomWidgets() {
-      return {
-        [REFERENCE_LOADER_WIDGET_TYPE]: (node, inputName, inputData) => {
-          controllers.get(node)?.destroy()
-          nodeFileDropBindings.get(node)?.()
-          nodeFileDropBindings.delete(node)
-          displayProxies.get(node)?.dispose()
-          displayProxies.delete(node)
-          const root = document.createElement("div")
-          root.className = "reference-loader"
-          root.dataset.input = inputName
-          root.addEventListener("pointerdown", (event) => event.stopPropagation())
-          root.addEventListener("wheel", (event) => event.stopPropagation())
+      const createLoaderWidget = (
+        node: ComfyNode,
+        inputName: string,
+        inputData: unknown,
+        singleImage: boolean,
+      ) => {
+        controllers.get(node)?.destroy()
+        nodeFileDropBindings.get(node)?.()
+        nodeFileDropBindings.delete(node)
+        displayProxies.get(node)?.dispose()
+        displayProxies.delete(node)
+        const root = document.createElement("div")
+        root.className = singleImage
+          ? "reference-loader reference-image-loader"
+          : "reference-loader"
+        root.dataset.input = inputName
+        root.addEventListener("pointerdown", (event) => event.stopPropagation())
+        root.addEventListener("wheel", (event) => event.stopPropagation())
 
-          const initial = initialValue(inputData)
-          let controller: ReferenceLoaderController
-          controller = new ReferenceLoaderController(
-            root,
-            node,
-            new ReferenceLoaderApi(api),
-            initial,
-            {
-              beforeChange: () => referenceApp.canvas?.emitBeforeChange?.(),
-              afterChange: () => referenceApp.canvas?.emitAfterChange?.(),
-              saveSnapshot: () => saveSnapshot(node, controller),
-              loadSnapshot: (file) => loadSnapshot(referenceApp, node, controller, file),
-            },
+        const initial = initialValue(inputData)
+        let controller: ReferenceLoaderController
+        controller = new ReferenceLoaderController(
+          root,
+          node,
+          new ReferenceLoaderApi(api),
+          initial,
+          {
+            beforeChange: () => referenceApp.canvas?.emitBeforeChange?.(),
+            afterChange: () => referenceApp.canvas?.emitAfterChange?.(),
+            saveSnapshot: () => saveSnapshot(node, controller),
+            loadSnapshot: (file) => loadSnapshot(referenceApp, node, controller, file),
+          },
+          { mode: singleImage ? "single-image" : "references" },
+        )
+        const releaseNodeFileDrop = bindNodeFileDrop(node, controller)
+        nodeFileDropBindings.set(node, releaseNodeFileDrop)
+        let displayProxy: NativeDisplayProxy | undefined
+        let removed = false
+        const contentHeight = () => {
+          const content = root.querySelector<HTMLElement>(
+            singleImage ? ".rl-single-image-panel" : ".rl-channels",
           )
-          const releaseNodeFileDrop = bindNodeFileDrop(node, controller)
-          nodeFileDropBindings.set(node, releaseNodeFileDrop)
-          let displayProxy: NativeDisplayProxy | undefined
-          let removed = false
-          const contentHeight = () => {
-            const channels = root.querySelector<HTMLElement>(".rl-channels")
-            // Root is the offset parent. Measure only through the final Media
-            // section, excluding any spare height assigned to the DOM widget.
-            return Math.max(360, (channels?.offsetTop ?? 0) + (channels?.offsetHeight ?? 0) + 9)
-          }
-          const widget = node.addDOMWidget(inputName, REFERENCE_LOADER_WIDGET_TYPE, root, {
-            serialize: true,
-            hideOnZoom: false,
-            getValue: () => controller.serialize(),
-            setValue: (value) => {
-              controller.restore(value)
-              displayProxy?.syncFromState()
-            },
-            // Use the full Media content height without accepting spare flex height.
-            // Keeping min/max equal avoids both nested scrolling and a gap before Prompt.
-            getMinHeight: contentHeight,
-            getMaxHeight: contentHeight,
-          })
-          const releaseRenderedRoot = bindRenderedWidgetRoot(node, root, ".reference-loader")
-          const releaseVueWidgetGrid = bindVueWidgetGrid(root)
-          widget.serialize = true
-          widget.serializeValue = () => controller.serialize()
-          widget.beforeQueued = () => displayProxy?.syncFromState()
-          const bindingTimer = globalThis.setTimeout(() => {
-            if (removed) return
-            displayProxy = bindNativeDisplayProxies(node, controller)
-            if (displayProxy) displayProxies.set(node, displayProxy)
-          }, 0)
-          const originalWidgetRemove = widget.onRemove
-          widget.onRemove = () => {
-            if (removed) return
-            removed = true
-            globalThis.clearTimeout(bindingTimer)
-            releaseRenderedRoot()
-            releaseVueWidgetGrid()
-            promptSubscriptions.get(node)?.()
-            promptSubscriptions.delete(node)
-            releaseNodeFileDrop()
-            if (nodeFileDropBindings.get(node) === releaseNodeFileDrop)
-              nodeFileDropBindings.delete(node)
-            displayProxy?.dispose()
-            displayProxies.delete(node)
-            if (controllers.get(node) === controller) controllers.delete(node)
-            controller.destroy()
-            originalWidgetRemove?.call(widget)
-          }
-          controllers.set(node, controller)
-          bindPromptReferences(node)
-          installNodeRemovalHook(node)
+          // Root is the offset parent. Measure only through the final Media
+          // section, excluding any spare height assigned to the DOM widget.
+          return Math.max(
+            singleImage ? 250 : 360,
+            (content?.offsetTop ?? 0) + (content?.offsetHeight ?? 0) + 9,
+          )
+        }
+        const widgetType = singleImage
+          ? REFERENCE_IMAGE_LOADER_WIDGET_TYPE
+          : REFERENCE_LOADER_WIDGET_TYPE
+        const layoutOptions = singleImage
+          ? {
+              getMinHeight: () => 80,
+            }
+          : {
+              getMinHeight: contentHeight,
+              getMaxHeight: contentHeight,
+            }
+        const widget = node.addDOMWidget(inputName, widgetType, root, {
+          serialize: true,
+          hideOnZoom: false,
+          getValue: () => controller.serialize(),
+          setValue: (value) => {
+            controller.restore(value)
+            displayProxy?.syncFromState()
+          },
+          // The single-image preview accepts all spare node height. The Media board
+          // keeps its intrinsic height so it stays adjacent to Prompt.
+          ...layoutOptions,
+        })
+        const releaseRenderedRoot = bindRenderedWidgetRoot(node, root, ".reference-loader")
+        const releaseVueWidgetGrid = singleImage ? () => undefined : bindVueWidgetGrid(root)
+        widget.serialize = true
+        widget.serializeValue = () => controller.serialize()
+        widget.beforeQueued = () => displayProxy?.syncFromState()
+        const bindingTimer = globalThis.setTimeout(() => {
+          if (removed) return
+          displayProxy = singleImage
+            ? bindPreviewDisplayProxy(node, controller)
+            : bindNativeDisplayProxies(node, controller)
+          if (displayProxy) displayProxies.set(node, displayProxy)
+        }, 0)
+        const originalWidgetRemove = widget.onRemove
+        widget.onRemove = () => {
+          if (removed) return
+          removed = true
+          globalThis.clearTimeout(bindingTimer)
+          releaseRenderedRoot()
+          releaseVueWidgetGrid()
+          promptSubscriptions.get(node)?.()
+          promptSubscriptions.delete(node)
+          releaseNodeFileDrop()
+          if (nodeFileDropBindings.get(node) === releaseNodeFileDrop)
+            nodeFileDropBindings.delete(node)
+          displayProxy?.dispose()
+          if (displayProxies.get(node) === displayProxy) displayProxies.delete(node)
+          if (controllers.get(node) === controller) controllers.delete(node)
+          controller.destroy()
+          originalWidgetRemove?.call(widget)
+        }
+        controllers.set(node, controller)
+        if (!singleImage) bindPromptReferences(node)
+        installNodeRemovalHook(node)
+        if (!singleImage) {
           const [width = 560, height = 500] = node.size ?? []
-          if (width < 520 || height < 460)
+          if (width < 520 || height < 460) {
             node.setSize?.([Math.max(width, 560), Math.max(height, 500)])
-          return { widget }
-        },
+          }
+        }
+        return { widget }
+      }
+      return {
+        [REFERENCE_LOADER_WIDGET_TYPE]: (node, inputName, inputData) =>
+          createLoaderWidget(node, inputName, inputData, false),
+        [REFERENCE_IMAGE_LOADER_WIDGET_TYPE]: (node, inputName, inputData) =>
+          createLoaderWidget(node, inputName, inputData, true),
         [REFERENCE_PROMPT_WIDGET_TYPE]: (node, inputName, inputData) => {
           promptSubscriptions.get(node)?.()
           promptSubscriptions.delete(node)
@@ -405,6 +438,36 @@ function bindPromptPresetWidget(
       if (widget.callback !== callback) return
       if (originalCallback) widget.callback = originalCallback
       else delete widget.callback
+    },
+  }
+}
+
+function bindPreviewDisplayProxy(
+  node: ComfyNode,
+  controller: ReferenceLoaderController,
+): NativeDisplayProxy | undefined {
+  const previewPixels = node.widgets?.find((widget) => widget.name === "preview_pixels")
+  if (!previewPixels) return undefined
+  const originalCallback = previewPixels.callback
+  const syncFromState = (): void => {
+    previewPixels.value = controller.displayState.previewPixels
+  }
+  const callback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalCallback?.call(previewPixels, value, ...args)
+    controller.writeDisplayProxy({
+      previewPixels: typeof value === "number" ? value : Number(value),
+    })
+    syncFromState()
+    return result
+  }
+  previewPixels.callback = callback
+  syncFromState()
+  return {
+    syncFromState,
+    dispose() {
+      if (previewPixels.callback !== callback) return
+      if (originalCallback) previewPixels.callback = originalCallback
+      else delete previewPixels.callback
     },
   }
 }

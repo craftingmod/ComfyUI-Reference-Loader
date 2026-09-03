@@ -14,12 +14,20 @@ type OfficialWidgetConstructor = OfficialWidgetMap[string]
 type OfficialComfyNode = Parameters<OfficialWidgetConstructor>[0]
 type OfficialComfyWidget = NonNullable<OfficialComfyNode["widgets"]>[number]
 
-export type ComfyApiLike = Pick<ComfyApi, "fetchApi"> & Partial<Pick<ComfyApi, "apiURL">>
+export type ComfyApiLike = Pick<ComfyApi, "fetchApi"> &
+  Partial<Pick<ComfyApi, "apiURL" | "addEventListener">>
 
 export type ComfyWidget = Pick<OfficialComfyWidget, "callback" | "name" | "serialize"> & {
   beforeQueued?: () => void
   onRemove?: () => void
   serializeValue?: () => unknown
+  options?: {
+    read_only?: boolean
+    [key: string]: unknown
+  }
+  disabled?: boolean
+  computedDisabled?: boolean
+  element?: HTMLElement
   value: OfficialComfyWidget["value"] | null
 }
 
@@ -38,7 +46,9 @@ export interface ComfyNode {
   ): ComfyWidget
   addWidget?: (...args: unknown[]) => ComfyWidget
   graph?: ComfyGraph | null
+  comfyClass?: string
   id?: OfficialComfyNode["id"]
+  type?: string
   onDragDrop?: (event: DragEvent) => boolean | Promise<boolean>
   onDragOver?: (event: DragEvent) => boolean
   onRemoved?: (...args: unknown[]) => unknown
@@ -64,6 +74,8 @@ type ComfyWidgetConstructor = (
 export interface ComfyExtension {
   name: OfficialComfyExtension["name"]
   getCustomWidgets?(): Record<string, ComfyWidgetConstructor>
+  nodeCreated?(node: ComfyNode, app: ComfyAppLike): void
+  loadedGraphNode?(node: ComfyNode, app: ComfyAppLike): void
 }
 
 export type ComfyAppLike = Omit<Pick<ComfyApp, "registerExtension">, "registerExtension"> & {

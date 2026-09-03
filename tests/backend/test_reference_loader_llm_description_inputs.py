@@ -108,8 +108,23 @@ def test_llm_description_inputs_schema():
     "json_field_guidance",
   ]
   assert schema.inputs[1].options["options"] == ["text", "json"]
-  assert schema.inputs[1].options["default"] == "text"
+  assert schema.inputs[1].options["default"] == "json"
+  assert schema.inputs[1].options["advanced"] is True
+  assert [field.options["default"] for field in schema.inputs[2:]] == [
+    "",
+    "",
+    "",
+    "",
+    "",
+  ]
   assert [field.options["multiline"] for field in schema.inputs[2:]] == [
+    True,
+    True,
+    True,
+    True,
+    True,
+  ]
+  assert [field.options["advanced"] for field in schema.inputs[2:]] == [
     True,
     True,
     True,

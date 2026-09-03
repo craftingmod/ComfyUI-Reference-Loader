@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -20,10 +21,69 @@ from .reference_bundle import (
 
 MAX_ADDITIONAL_YAML_CHARACTERS = 100_000
 RESERVED_TOP_LEVEL_KEYS = frozenset(
-  {"video_duration_seconds", "references", "generation_directives"}
+  {"video_duration_seconds", "style", "references", "generation_directives"}
 )
 RESPONSE_FORMATS = ("text", "json")
 LLAMA_SEQUENTIAL_RESPONSE_TYPE = io.Custom("LLAMA_SEQUENTIAL_RESPONSE")
+STYLE_FIELDS = (
+  "style_line",
+  "render",
+  "lighting",
+  "camera",
+  "motion",
+  "soundscape",
+  "music",
+  "avoid",
+)
+
+
+def _load_minimax_h3_styles() -> dict[str, Mapping[str, str]]:
+  path = (
+    Path(__file__).resolve().parents[2]
+    / "presets"
+    / "styles"
+    / "minimax_h3_styles.json"
+  )
+  try:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+  except (OSError, ValueError) as error:
+    raise RuntimeError(f"Unable to load MiniMax H3 styles from {path}.") from error
+  if not isinstance(raw, Mapping):
+    raise TypeError("MiniMax H3 styles must contain a top-level mapping.")
+
+  styles: dict[str, Mapping[str, str]] = {}
+  for key, value in raw.items():
+    if key.startswith("_"):
+      continue
+    if not isinstance(key, str) or not isinstance(value, Mapping):
+      raise TypeError("MiniMax H3 styles must map keys to objects.")
+    if any(not isinstance(value.get(field), str) for field in ("label", *STYLE_FIELDS)):
+      raise RuntimeError(f"MiniMax H3 style {key!r} has invalid fields.")
+    styles[key] = value
+  if "none" not in styles:
+    raise RuntimeError("MiniMax H3 styles must define the none entry.")
+  return styles
+
+
+MINIMAX_H3_STYLES = _load_minimax_h3_styles()
+MINIMAX_H3_STYLE_KEYS = tuple(MINIMAX_H3_STYLES)
+
+
+def _style_yaml_lines(style: str) -> list[str]:
+  # Keep workflows saved with the former sentinel executable after the rename.
+  if style == "auto":
+    style = "none"
+  if style not in MINIMAX_H3_STYLES:
+    raise ValueError(
+      f"style must be one of {', '.join(MINIMAX_H3_STYLE_KEYS)}; received {style!r}."
+    )
+  if style == "none":
+    return []
+  entry = MINIMAX_H3_STYLES[style]
+  lines = ["style:", f"  key: {_yaml_scalar(style)}"]
+  for field in STYLE_FIELDS:
+    lines.append(f"  {field}: {_yaml_scalar(entry[field])}")
+  return lines
 
 
 class _AdditionalYamlLoader(yaml.SafeLoader):
@@ -332,6 +392,7 @@ def export_prompt_parts_for_llm(
     tuple[Mapping[str, str] | None, ...],
   ]
   | None = None,
+  style: str = "none",
 ) -> tuple[str, str, str]:
   """Export the complete prompt and its generated YAML sections."""
 
@@ -363,6 +424,9 @@ def export_prompt_parts_for_llm(
   additional_lines = _additional_yaml_lines(additional_yaml)
   if additional_lines:
     prompt_header_lines.extend(["", *additional_lines])
+  style_lines = _style_yaml_lines(style)
+  if style_lines:
+    prompt_header_lines.extend(["", *style_lines])
 
   reference_lines = ["references:"]
   image_descriptions = descriptions[0] if descriptions is not None else None
@@ -422,6 +486,7 @@ def export_prompt_for_llm(
     tuple[Mapping[str, str] | None, ...],
   ]
   | None = None,
+  style: str = "none",
 ) -> str:
   """Export active references and the structured prompt as strict YAML."""
 
@@ -430,6 +495,7 @@ def export_prompt_for_llm(
     seconds,
     additional_yaml,
     descriptions,
+    style=style,
   )[0]
 
 
@@ -450,6 +516,7 @@ def _export_prompt_for_node(
   response_format: Any,
   response_seq: Any = None,
   response: Any = None,
+  style: Any = "none",
 ) -> tuple[str, str, str]:
   bundle = _unwrap_scalar(references, "references")
   descriptions = _description_overlays(
@@ -463,6 +530,7 @@ def _export_prompt_for_node(
     _unwrap_scalar(seconds, "seconds", 6.0),
     _unwrap_scalar(additional_yaml, "additional_yaml", ""),
     descriptions,
+    style=_unwrap_scalar(style, "style", "none"),
   )
 
 
@@ -497,12 +565,22 @@ class ReferenceLoaderExportPromptForLLMNode(io.ComfyNode):
           socketless=False,
           tooltip="Target video duration in seconds.",
         ),
+        io.Combo.Input(
+          "style",
+          options=list(MINIMAX_H3_STYLE_KEYS),
+          default="none",
+          tooltip=(
+            "Optional MiniMax H3 style context for the LLM. None omits the style "
+            "mapping and leaves style selection to the prompt/request."
+          ),
+        ),
         io.String.Input(
           "additional_yaml",
           default="",
           multiline=True,
           dynamic_prompts=False,
           socketless=False,
+          advanced=True,
           placeholder="Optional top-level YAML mapping...",
           tooltip=(
             "Optional validated YAML mapping merged before references. Generated "
@@ -512,7 +590,8 @@ class ReferenceLoaderExportPromptForLLMNode(io.ComfyNode):
         io.Combo.Input(
           "response_format",
           options=list(RESPONSE_FORMATS),
-          default="text",
+          default="json",
+          advanced=True,
           tooltip="Interpret response items as plain text or JSON objects.",
         ),
         LLAMA_SEQUENTIAL_RESPONSE_TYPE.Input(
@@ -563,6 +642,7 @@ class ReferenceLoaderExportPromptForLLMNode(io.ComfyNode):
     response_format: Any = "text",
     response_seq: list[Mapping[str, Any]] | None = None,
     response: list[str] | None = None,
+    style: Any = "none",
   ) -> str:
     prompt, _, _ = _export_prompt_for_node(
       references,
@@ -571,6 +651,7 @@ class ReferenceLoaderExportPromptForLLMNode(io.ComfyNode):
       response_format,
       response_seq,
       response,
+      style,
     )
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
@@ -583,6 +664,7 @@ class ReferenceLoaderExportPromptForLLMNode(io.ComfyNode):
     response_format: Any = "text",
     response_seq: list[Mapping[str, Any]] | None = None,
     response: list[str] | None = None,
+    style: Any = "none",
   ) -> io.NodeOutput:
     prompt, references_yaml, generation_directives_yaml = _export_prompt_for_node(
       references,
@@ -591,6 +673,7 @@ class ReferenceLoaderExportPromptForLLMNode(io.ComfyNode):
       response_format,
       response_seq,
       response,
+      style,
     )
     return io.NodeOutput(
       prompt,

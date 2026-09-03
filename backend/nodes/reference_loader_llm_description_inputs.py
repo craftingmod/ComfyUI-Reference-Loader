@@ -199,8 +199,8 @@ class ReferenceLoaderLLMDescriptionInputsNode(io.ComfyNode):
       display_name="[Reference Loader] LLM Description Inputs",
       category="reference/llm",
       description=(
-        "Prepares Reference Loader media and editable prompts for a sequential "
-        "multimodal LLM captioning node."
+        "Prepares Reference Loader media and optional prompt overrides for a "
+        "sequential multimodal LLM captioning node."
       ),
       search_aliases=[
         "reference loader llm descriptions",
@@ -215,7 +215,8 @@ class ReferenceLoaderLLMDescriptionInputsNode(io.ComfyNode):
         io.Combo.Input(
           "response_format",
           options=list(RESPONSE_FORMATS),
-          default="text",
+          default="json",
+          advanced=True,
           tooltip=(
             "Select text for plain-text descriptions or json for one JSON object. "
             "The selected response contract is appended to the system prompt."
@@ -223,53 +224,58 @@ class ReferenceLoaderLLMDescriptionInputsNode(io.ComfyNode):
         ),
         io.String.Input(
           "system_prompt",
-          default=DEFAULT_SYSTEM_PROMPT,
+          default="",
           multiline=True,
           dynamic_prompts=False,
           socketless=False,
-          placeholder="Optional system prompt...",
+          advanced=True,
+          placeholder="Optional override; blank uses built-in default...",
           tooltip=(
-            "Trimmed input is used; blank input falls back to the English default. "
-            "The selected response format instruction is appended automatically."
+            "Optional override. Blank input uses the built-in English default. The "
+            "selected response format instruction is appended automatically."
           ),
         ),
         io.String.Input(
           "image_prompt",
-          default=DEFAULT_IMAGE_PROMPT,
+          default="",
           multiline=True,
           dynamic_prompts=False,
           socketless=False,
-          placeholder="Optional image prompt...",
-          tooltip="Blank input falls back to the English image prompt.",
+          advanced=True,
+          placeholder="Optional override; blank uses built-in default...",
+          tooltip="Optional override. Blank input uses the built-in English image prompt.",
         ),
         io.String.Input(
           "audio_prompt",
-          default=DEFAULT_AUDIO_PROMPT,
+          default="",
           multiline=True,
           dynamic_prompts=False,
           socketless=False,
-          placeholder="Optional audio prompt...",
-          tooltip="Blank input falls back to the English audio prompt.",
+          advanced=True,
+          placeholder="Optional override; blank uses built-in default...",
+          tooltip="Optional override. Blank input uses the built-in English audio prompt.",
         ),
         io.String.Input(
           "video_prompt",
-          default=DEFAULT_VIDEO_PROMPT,
+          default="",
           multiline=True,
           dynamic_prompts=False,
           socketless=False,
-          placeholder="Optional video prompt...",
-          tooltip="Blank input falls back to the English video prompt.",
+          advanced=True,
+          placeholder="Optional override; blank uses built-in default...",
+          tooltip="Optional override. Blank input uses the built-in English video prompt.",
         ),
         io.String.Input(
           "json_field_guidance",
-          default=DEFAULT_JSON_FIELD_GUIDANCE,
+          default="",
           multiline=True,
           dynamic_prompts=False,
           socketless=False,
-          placeholder="Optional JSON output field guidance...",
+          advanced=True,
+          placeholder="Optional override; blank uses built-in default...",
           tooltip=(
-            "Used only for json responses. Blank input falls back to the default "
-            "multi-field guidance."
+            "Optional override used only for json responses. Blank input uses the "
+            "built-in multi-field guidance."
           ),
         ),
       ],

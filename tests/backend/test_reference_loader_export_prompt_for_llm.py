@@ -92,6 +92,7 @@ def test_export_prompt_for_llm_schema_and_strict_yaml():
   assert [field.name for field in schema.inputs] == [
     "references",
     "seconds",
+    "style",
     "additional_yaml",
     "response_format",
     "response_seq",
@@ -103,20 +104,26 @@ def test_export_prompt_for_llm_schema_and_strict_yaml():
   assert schema.inputs[1].options["min"] == 4.0
   assert schema.inputs[1].options["max"] == 15.0
   assert schema.inputs[1].options["socketless"] is False
-  assert schema.inputs[2].data_type == "string"
-  assert schema.inputs[2].options["multiline"] is True
-  assert schema.inputs[2].options["dynamic_prompts"] is False
-  assert schema.inputs[2].options["socketless"] is False
-  assert schema.inputs[3].data_type == "combo"
-  assert schema.inputs[3].options["options"] == ["text", "json"]
-  assert schema.inputs[3].options["default"] == "text"
-  assert schema.inputs[4].data_type == "LLAMA_SEQUENTIAL_RESPONSE"
-  assert schema.inputs[4].options["optional"] is True
-  assert "list[dict]" in schema.inputs[4].options["tooltip"]
-  assert schema.inputs[5].data_type == "string"
+  assert schema.inputs[2].data_type == "combo"
+  assert schema.inputs[2].options["options"][0] == "none"
+  assert "live_action_cinematic" in schema.inputs[2].options["options"]
+  assert schema.inputs[2].options["default"] == "none"
+  assert schema.inputs[3].data_type == "string"
+  assert schema.inputs[3].options["multiline"] is True
+  assert schema.inputs[3].options["dynamic_prompts"] is False
+  assert schema.inputs[3].options["socketless"] is False
+  assert schema.inputs[3].options["advanced"] is True
+  assert schema.inputs[4].data_type == "combo"
+  assert schema.inputs[4].options["options"] == ["text", "json"]
+  assert schema.inputs[4].options["default"] == "json"
+  assert schema.inputs[4].options["advanced"] is True
+  assert schema.inputs[5].data_type == "LLAMA_SEQUENTIAL_RESPONSE"
   assert schema.inputs[5].options["optional"] is True
-  assert schema.inputs[5].options["force_input"] is True
-  assert "list[str]" in schema.inputs[5].options["tooltip"]
+  assert "list[dict]" in schema.inputs[5].options["tooltip"]
+  assert schema.inputs[6].data_type == "string"
+  assert schema.inputs[6].options["optional"] is True
+  assert schema.inputs[6].options["force_input"] is True
+  assert "list[str]" in schema.inputs[6].options["tooltip"]
   assert [field.name for field in schema.outputs] == [
     "prompt",
     "references_yaml",
@@ -218,6 +225,42 @@ def test_export_prompt_for_llm_schema_and_strict_yaml():
     )
     == 64
   )
+
+
+def test_export_prompt_for_llm_emits_selected_style_and_omits_none_style():
+  module = importlib.import_module(
+    "backend.nodes.reference_loader_export_prompt_for_llm"
+  )
+  bundle = _bundle(module)
+
+  manual = module.export_prompt_for_llm(bundle, style="none")
+  assert "\nstyle:" not in manual
+  assert yaml.safe_load(manual).get("style") is None
+
+  legacy = module.export_prompt_for_llm(bundle, style="auto")
+  assert "\nstyle:" not in legacy
+
+  styled = module.export_prompt_for_llm(bundle, style="live_action_cinematic")
+  parsed = yaml.safe_load(styled)
+  assert list(parsed)[:2] == ["video_duration_seconds", "style"]
+  assert parsed["style"]["key"] == "live_action_cinematic"
+  assert parsed["style"]["style_line"] == "Live-action, cinematic"
+  assert parsed["style"]["avoid"] == (
+    "cel shading, outlines, exaggerated squash-and-stretch, plastic skin, "
+    "illustration flatness"
+  )
+
+
+def test_export_prompt_for_llm_rejects_unknown_style_and_additional_style_key():
+  module = importlib.import_module(
+    "backend.nodes.reference_loader_export_prompt_for_llm"
+  )
+  bundle = _bundle(module)
+
+  with pytest.raises(ValueError, match="style must be one of"):
+    module.export_prompt_for_llm(bundle, style="unknown")
+  with pytest.raises(ValueError, match="reserved top-level key"):
+    module.export_prompt_for_llm(bundle, additional_yaml="style: {}")
 
 
 def test_export_prompt_for_llm_emits_empty_collections():

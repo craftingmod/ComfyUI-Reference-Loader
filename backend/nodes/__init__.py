@@ -5,6 +5,9 @@ from .reference_loader import EMPTY_LOADER_STATE_JSON, ReferenceLoaderNode
 from .reference_loader_export_prompt_for_llm import (
   ReferenceLoaderExportPromptForLLMNode,
 )
+from .reference_loader_llm_description_inputs import (
+  ReferenceLoaderLLMDescriptionInputsNode,
+)
 from .reference_loader_options_override import ReferenceLoaderOptionsOverrideNode
 from .reference_loader_raw_outputs import ReferenceLoaderRawOutputsNode
 from .reference_loader_raw_prompt import ReferenceLoaderRawPromptNode
@@ -17,6 +20,7 @@ __all__ = [
   "MiniMaxH3ReferenceToVideoWrapperNode",
   "ReferenceLoaderBundle",
   "ReferenceLoaderExportPromptForLLMNode",
+  "ReferenceLoaderLLMDescriptionInputsNode",
   "ReferenceLoaderNode",
   "ReferenceLoaderOptionsOverrideNode",
   "ReferenceLoaderRawOutputsNode",

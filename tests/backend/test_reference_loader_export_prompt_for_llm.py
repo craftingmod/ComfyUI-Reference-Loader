@@ -88,10 +88,14 @@ def test_export_prompt_for_llm_schema_and_strict_yaml():
   assert schema.node_id == "Alyac_ReferenceLoaderExportPromptForLLM"
   assert schema.display_name == "[Reference Loader] Export Prompt for LLM"
   assert schema.category == "reference/output"
+  assert schema.is_input_list is True
   assert [field.name for field in schema.inputs] == [
     "references",
     "seconds",
     "additional_yaml",
+    "response_format",
+    "response_seq",
+    "response",
   ]
   assert schema.inputs[0].data_type == "REFERENCE_LOADER_BUNDLE"
   assert schema.inputs[1].data_type == "float"
@@ -103,6 +107,16 @@ def test_export_prompt_for_llm_schema_and_strict_yaml():
   assert schema.inputs[2].options["multiline"] is True
   assert schema.inputs[2].options["dynamic_prompts"] is False
   assert schema.inputs[2].options["socketless"] is False
+  assert schema.inputs[3].data_type == "combo"
+  assert schema.inputs[3].options["options"] == ["text", "json"]
+  assert schema.inputs[3].options["default"] == "text"
+  assert schema.inputs[4].data_type == "LLAMA_SEQUENTIAL_RESPONSE"
+  assert schema.inputs[4].options["optional"] is True
+  assert "list[dict]" in schema.inputs[4].options["tooltip"]
+  assert schema.inputs[5].data_type == "string"
+  assert schema.inputs[5].options["optional"] is True
+  assert schema.inputs[5].options["force_input"] is True
+  assert "list[str]" in schema.inputs[5].options["tooltip"]
   assert [field.name for field in schema.outputs] == [
     "prompt",
     "references_yaml",
@@ -249,6 +263,178 @@ def test_export_prompt_for_llm_emits_empty_collections():
   assert references_yaml == ("references:\n  images: {}\n  videos: {}\n  audios: {}")
   assert generation_directives_yaml == "generation_directives: {}"
   assert module.export_prompt_for_llm(bundle) == prompt
+
+
+def test_export_prompt_for_llm_adds_flat_text_descriptions():
+  module = importlib.import_module(
+    "backend.nodes.reference_loader_export_prompt_for_llm"
+  )
+  bundle = _bundle(module)
+  output = module.ReferenceLoaderExportPromptForLLMNode.execute(
+    bundle,
+    response=[
+      "AI image description",
+      "AI video audio description",
+      "AI standalone audio description",
+      "AI video description",
+    ],
+  )
+
+  parsed = yaml.safe_load(output[1])
+  assert parsed["references"]["images"]["<Picture 1>"] == {
+    "caption": "Woman at a station:\nwearing a black coat",
+    "description": "AI image description",
+  }
+  assert parsed["references"]["audios"]["<Audio 1>"] == {
+    "caption": "Rain and a station announcement",
+    "description": "AI video audio description",
+    "source_video": "<Video 1>",
+  }
+  assert parsed["references"]["audios"]["<Audio 2>"] == {
+    "caption": "Sparse piano",
+    "description": "AI standalone audio description",
+  }
+  assert parsed["references"]["videos"]["<Video 1>"] == {
+    "caption": "Tracking shot #1",
+    "description": "AI video description",
+  }
+
+
+def test_export_prompt_for_llm_accepts_json_response_format():
+  module = importlib.import_module(
+    "backend.nodes.reference_loader_export_prompt_for_llm"
+  )
+  bundle = _bundle(module)
+  output = module.ReferenceLoaderExportPromptForLLMNode.execute(
+    bundle,
+    response_format="json",
+    response=[
+      '{"description":"image"}',
+      '{"description":"video audio"}',
+      '{"description":"standalone audio"}',
+      '{"description":"video"}',
+    ],
+  )
+
+  parsed = yaml.safe_load(output[1])
+  assert parsed["references"]["images"]["<Picture 1>"]["description"] == "image"
+  assert parsed["references"]["audios"]["<Audio 1>"]["description"] == ("video audio")
+  assert parsed["references"]["videos"]["<Video 1>"]["description"] == "video"
+  assert parsed["references"]["audios"]["<Audio 2>"]["description"] == (
+    "standalone audio"
+  )
+
+
+def test_export_prompt_for_llm_preserves_json_string_fields():
+  module = importlib.import_module(
+    "backend.nodes.reference_loader_export_prompt_for_llm"
+  )
+  output = module.ReferenceLoaderExportPromptForLLMNode.execute(
+    _bundle(module),
+    response_format="json",
+    response=[
+      '{"description":"image","subject":"woman","color":"blue"}',
+      '{"description":"video audio","speaker":"woman","language":"en"}',
+      '{"description":"standalone audio"}',
+      '{"description":"video","action":"walking"}',
+    ],
+  )
+
+  parsed = yaml.safe_load(output[1])
+  assert parsed["references"]["images"]["<Picture 1>"] == {
+    "caption": "Woman at a station:\nwearing a black coat",
+    "description": "image",
+    "subject": "woman",
+    "color": "blue",
+  }
+  assert parsed["references"]["audios"]["<Audio 1>"]["speaker"] == "woman"
+  assert parsed["references"]["audios"]["<Audio 1>"]["language"] == "en"
+  assert parsed["references"]["videos"]["<Video 1>"]["action"] == "walking"
+
+
+def test_export_prompt_for_llm_accepts_sequential_response_objects():
+  module = importlib.import_module(
+    "backend.nodes.reference_loader_export_prompt_for_llm"
+  )
+  bundle = _bundle(module)
+  output = module.ReferenceLoaderExportPromptForLLMNode.execute(
+    bundle,
+    response_format="json",
+    response_seq=[
+      {
+        "request_index": 0,
+        "kind": "image",
+        "modality_index": 0,
+        "response": '{"description":"image"}',
+      },
+      {
+        "request_index": 1,
+        "kind": "audio",
+        "modality_index": 0,
+        "response": '{"description":"video audio"}',
+      },
+      {
+        "request_index": 2,
+        "kind": "audio",
+        "modality_index": 1,
+        "response": '{"description":"standalone audio"}',
+      },
+      {
+        "request_index": 3,
+        "kind": "video",
+        "modality_index": 0,
+        "response": '{"description":"video"}',
+      },
+    ],
+  )
+
+  parsed = yaml.safe_load(output[1])
+  assert parsed["references"]["images"]["<Picture 1>"]["description"] == "image"
+  assert parsed["references"]["audios"]["<Audio 1>"]["description"] == ("video audio")
+  assert parsed["references"]["videos"]["<Video 1>"]["description"] == "video"
+
+
+def test_export_prompt_for_llm_rejects_misaligned_sequential_response_objects():
+  module = importlib.import_module(
+    "backend.nodes.reference_loader_export_prompt_for_llm"
+  )
+
+  with pytest.raises(ValueError, match="request_index"):
+    module.ReferenceLoaderExportPromptForLLMNode.execute(
+      _bundle(module),
+      response_seq=[
+        {
+          "request_index": 1,
+          "kind": "image",
+          "modality_index": 0,
+          "response": "image",
+        },
+        {"request_index": 1, "kind": "audio", "modality_index": 0, "response": "audio"},
+        {"request_index": 2, "kind": "audio", "modality_index": 1, "response": "audio"},
+        {"request_index": 3, "kind": "video", "modality_index": 0, "response": "video"},
+      ],
+    )
+
+
+@pytest.mark.parametrize(
+  ("response", "message"),
+  [
+    (["one"], "exactly 4 responses"),
+    (['{"description": 1}'] * 4, "must be a string"),
+    (['{"description":"ok","confidence":0.9}'] * 4, "must be a string"),
+  ],
+)
+def test_export_prompt_for_llm_rejects_invalid_descriptions(response, message):
+  module = importlib.import_module(
+    "backend.nodes.reference_loader_export_prompt_for_llm"
+  )
+
+  with pytest.raises((TypeError, ValueError), match=message):
+    module.ReferenceLoaderExportPromptForLLMNode.execute(
+      _bundle(module),
+      response_format="json",
+      response=response,
+    )
 
 
 @pytest.mark.parametrize(

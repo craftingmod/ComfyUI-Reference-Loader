@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Mapping
 from typing import Any
 
 import yaml
@@ -21,6 +22,8 @@ MAX_ADDITIONAL_YAML_CHARACTERS = 100_000
 RESERVED_TOP_LEVEL_KEYS = frozenset(
   {"video_duration_seconds", "references", "generation_directives"}
 )
+RESPONSE_FORMATS = ("text", "json")
+LLAMA_SEQUENTIAL_RESPONSE_TYPE = io.Custom("LLAMA_SEQUENTIAL_RESPONSE")
 
 
 class _AdditionalYamlLoader(yaml.SafeLoader):
@@ -74,6 +77,15 @@ def _yaml_scalar(value: str) -> str:
   """Return a YAML 1.2 string scalar using its JSON-compatible quoted form."""
 
   return json.dumps(value, ensure_ascii=False)
+
+
+def _yaml_key(value: str) -> str:
+  return value if value.isidentifier() else _yaml_scalar(value)
+
+
+def _append_response_fields(lines: list[str], fields: Mapping[str, str]) -> None:
+  for key, value in fields.items():
+    lines.append(f"      {_yaml_key(key)}: {_yaml_scalar(value)}")
 
 
 def _validate_yaml_value(value: Any, path: str) -> None:
@@ -137,36 +149,189 @@ def _append_caption_mapping(
   name: str,
   tag_name: str,
   captions: tuple[str, ...],
+  response_fields: tuple[Mapping[str, str] | None, ...] | None = None,
 ) -> None:
   if not captions:
     lines.append(f"  {name}: {{}}")
     return
+  if response_fields is not None and len(response_fields) != len(captions):
+    raise ValueError(f"{name} descriptions must match the caption count.")
   lines.append(f"  {name}:")
   for index, caption in enumerate(captions, start=1):
-    lines.append(f'    "<{tag_name} {index}>": {_yaml_scalar(caption)}')
+    fields = response_fields[index - 1] if response_fields is not None else None
+    if response_fields is None:
+      lines.append(f'    "<{tag_name} {index}>": {_yaml_scalar(caption)}')
+      continue
+    lines.append(f'    "<{tag_name} {index}>":')
+    lines.append(f"      caption: {_yaml_scalar(caption)}")
+    if fields is not None:
+      _append_response_fields(lines, fields)
 
 
 def _append_audio_mapping(
   lines: list[str],
   captions: tuple[str, ...],
   source_video_tags: tuple[str | None, ...],
+  response_fields: tuple[Mapping[str, str] | None, ...] | None = None,
 ) -> None:
   if not captions:
     lines.append("  audios: {}")
     return
+  if response_fields is not None and len(response_fields) != len(captions):
+    raise ValueError("audios descriptions must match the caption count.")
   lines.append("  audios:")
   for index, caption in enumerate(captions, start=1):
     lines.append(f'    "<Audio {index}>":')
     lines.append(f"      caption: {_yaml_scalar(caption)}")
+    if response_fields is not None and response_fields[index - 1] is not None:
+      _append_response_fields(lines, response_fields[index - 1])
     source_video_tag = source_video_tags[index - 1]
     if source_video_tag is not None:
       lines.append(f"      source_video: {_yaml_scalar(source_video_tag)}")
+
+
+def _response_items(value: Any) -> list[Any]:
+  if value is None:
+    return []
+  if isinstance(value, (list, tuple)):
+    return list(value)
+  return [value]
+
+
+def _response_fields(
+  value: Any,
+  label: str,
+  index: int,
+  response_format: str,
+) -> dict[str, str]:
+  if not isinstance(value, str):
+    raise TypeError(f"{label}[{index}] must be a string response.")
+  text = value.strip()
+  if not text:
+    return {}
+  if response_format == "text":
+    return {"description": text}
+  try:
+    parsed = json.loads(text)
+  except json.JSONDecodeError as error:
+    raise ValueError(f"{label}[{index}] must be valid JSON.") from error
+  if not isinstance(parsed, Mapping):
+    raise TypeError(f"{label}[{index}] JSON response must contain an object.")
+  fields: dict[str, str] = {}
+  for key, field_value in parsed.items():
+    if not isinstance(key, str) or not key:
+      raise TypeError(f"{label}[{index}] JSON response keys must be strings.")
+    if key in {"caption", "source_video"}:
+      raise ValueError(
+        f"{label}[{index}] JSON response cannot override reserved key {key!r}."
+      )
+    if not isinstance(field_value, str):
+      raise TypeError(f"{label}[{index}] JSON response field {key!r} must be a string.")
+    fields[key] = field_value.strip()
+  return fields
+
+
+def _description_overlays(
+  references: ReferenceLoaderBundle,
+  response: Any = None,
+  response_seq: Any = None,
+  response_format: str = "text",
+) -> (
+  tuple[
+    tuple[Mapping[str, str] | None, ...],
+    tuple[Mapping[str, str] | None, ...],
+    tuple[Mapping[str, str] | None, ...],
+  ]
+  | None
+):
+  if response_format not in RESPONSE_FORMATS:
+    raise ValueError(
+      f"Unknown response format {response_format!r}. Expected text or json."
+    )
+  state = validate_reference_loader_bundle(references)
+  plan = build_reference_output_plan(state)
+  expected_counts = {
+    "images": len(plan.image_ids),
+    "audios": len(plan.audio_ids),
+    "videos": len(plan.video_ids),
+  }
+  response_values = _response_items(response)
+  sequence_values = _response_items(response_seq)
+  if response_values and sequence_values:
+    raise ValueError("response and response_seq cannot both be connected.")
+  values = sequence_values or response_values
+  if not values:
+    return None
+  expected_slots = [
+    *(("image", index) for index in range(expected_counts["images"])),
+    *(("audio", index) for index in range(expected_counts["audios"])),
+    *(("video", index) for index in range(expected_counts["videos"])),
+  ]
+  if len(values) != len(expected_slots):
+    raise ValueError(
+      "response must contain exactly "
+      f"{len(expected_slots)} responses in media-major image, audio, video order; "
+      f"received {len(values)}."
+    )
+
+  descriptions_by_kind: dict[str, list[Mapping[str, str] | None]] = {
+    name: [None] * count for name, count in expected_counts.items()
+  }
+  for response_index, value in enumerate(values):
+    expected_kind, expected_modality_index = expected_slots[response_index]
+    description_key = f"{expected_kind}s"
+    response_value = value
+    if sequence_values:
+      if not isinstance(value, Mapping):
+        raise TypeError(f"response_seq[{response_index}] must be an object.")
+      request_index = value.get("request_index")
+      if (
+        isinstance(request_index, bool)
+        or not isinstance(request_index, int)
+        or request_index != response_index
+      ):
+        raise ValueError(
+          f"response_seq[{response_index}].request_index must be {response_index}."
+        )
+      kind = value.get("kind")
+      if kind != expected_kind:
+        raise ValueError(
+          f"response_seq[{response_index}].kind must be {expected_kind!r}."
+        )
+      modality_index = value.get("modality_index")
+      if (
+        isinstance(modality_index, bool)
+        or not isinstance(modality_index, int)
+        or modality_index != expected_modality_index
+      ):
+        raise ValueError(
+          f"response_seq[{response_index}].modality_index must be "
+          f"{expected_modality_index}."
+        )
+      response_value = value.get("response")
+    descriptions_by_kind[description_key][expected_modality_index] = _response_fields(
+      response_value,
+      "response_seq" if sequence_values else "response",
+      response_index,
+      response_format,
+    )
+  return (
+    tuple(descriptions_by_kind["images"]),
+    tuple(descriptions_by_kind["audios"]),
+    tuple(descriptions_by_kind["videos"]),
+  )
 
 
 def export_prompt_parts_for_llm(
   references: ReferenceLoaderBundle,
   seconds: float = 6.0,
   additional_yaml: str = "",
+  descriptions: tuple[
+    tuple[Mapping[str, str] | None, ...],
+    tuple[Mapping[str, str] | None, ...],
+    tuple[Mapping[str, str] | None, ...],
+  ]
+  | None = None,
 ) -> tuple[str, str, str]:
   """Export the complete prompt and its generated YAML sections."""
 
@@ -200,9 +365,29 @@ def export_prompt_parts_for_llm(
     prompt_header_lines.extend(["", *additional_lines])
 
   reference_lines = ["references:"]
-  _append_caption_mapping(reference_lines, "images", "Picture", plan.image_captions)
-  _append_caption_mapping(reference_lines, "videos", "Video", plan.video_captions)
-  _append_audio_mapping(reference_lines, plan.audio_captions, source_video_tags)
+  image_descriptions = descriptions[0] if descriptions is not None else None
+  audio_descriptions = descriptions[1] if descriptions is not None else None
+  video_descriptions = descriptions[2] if descriptions is not None else None
+  _append_caption_mapping(
+    reference_lines,
+    "images",
+    "Picture",
+    plan.image_captions,
+    image_descriptions,
+  )
+  _append_caption_mapping(
+    reference_lines,
+    "videos",
+    "Video",
+    plan.video_captions,
+    video_descriptions,
+  )
+  _append_audio_mapping(
+    reference_lines,
+    plan.audio_captions,
+    source_video_tags,
+    audio_descriptions,
+  )
 
   generation_directive_lines: list[str]
   sections = compile_prompt_sections(document, state)
@@ -231,10 +416,54 @@ def export_prompt_for_llm(
   references: ReferenceLoaderBundle,
   seconds: float = 6.0,
   additional_yaml: str = "",
+  descriptions: tuple[
+    tuple[Mapping[str, str] | None, ...],
+    tuple[Mapping[str, str] | None, ...],
+    tuple[Mapping[str, str] | None, ...],
+  ]
+  | None = None,
 ) -> str:
   """Export active references and the structured prompt as strict YAML."""
 
-  return export_prompt_parts_for_llm(references, seconds, additional_yaml)[0]
+  return export_prompt_parts_for_llm(
+    references,
+    seconds,
+    additional_yaml,
+    descriptions,
+  )[0]
+
+
+def _unwrap_scalar(value: Any, name: str, default: Any = None) -> Any:
+  if isinstance(value, (list, tuple)):
+    if not value:
+      return default
+    if len(value) != 1:
+      raise ValueError(f"{name} must contain exactly one value.")
+    return value[0]
+  return default if value is None else value
+
+
+def _export_prompt_for_node(
+  references: Any,
+  seconds: Any,
+  additional_yaml: Any,
+  response_format: Any,
+  response_seq: Any = None,
+  response: Any = None,
+) -> tuple[str, str, str]:
+  bundle = _unwrap_scalar(references, "references")
+  descriptions = _description_overlays(
+    bundle,
+    response,
+    response_seq,
+    _unwrap_scalar(response_format, "response_format", "text"),
+  )
+  return export_prompt_parts_for_llm(
+    bundle,
+    _unwrap_scalar(seconds, "seconds", 6.0),
+    _unwrap_scalar(additional_yaml, "additional_yaml", ""),
+    descriptions,
+  )
 
 
 class ReferenceLoaderExportPromptForLLMNode(io.ComfyNode):
@@ -280,7 +509,33 @@ class ReferenceLoaderExportPromptForLLMNode(io.ComfyNode):
             "top-level keys are reserved."
           ),
         ),
+        io.Combo.Input(
+          "response_format",
+          options=list(RESPONSE_FORMATS),
+          default="text",
+          tooltip="Interpret response items as plain text or JSON objects.",
+        ),
+        LLAMA_SEQUENTIAL_RESPONSE_TYPE.Input(
+          "response_seq",
+          optional=True,
+          tooltip=(
+            "Optional list[dict] of LLAMA_SEQUENTIAL_RESPONSE objects from "
+            "Llama.cpp Sequential Generate."
+          ),
+        ),
+        io.String.Input(
+          "response",
+          optional=True,
+          force_input=True,
+          tooltip=(
+            "Optional list[str] of responses. It must follow image, audio, "
+            "video media-major order."
+          ),
+        ),
       ],
+      # V3 applies list input semantics at the schema level. In particular,
+      # response_seq is list[dict] and response is list[str].
+      is_input_list=True,
       outputs=[
         io.String.Output(
           "prompt",
@@ -302,27 +557,52 @@ class ReferenceLoaderExportPromptForLLMNode(io.ComfyNode):
   @classmethod
   def fingerprint_inputs(
     cls,
-    references: ReferenceLoaderBundle,
-    seconds: float = 6.0,
-    additional_yaml: str = "",
+    references: Any,
+    seconds: Any = 6.0,
+    additional_yaml: Any = "",
+    response_format: Any = "text",
+    response_seq: list[Mapping[str, Any]] | None = None,
+    response: list[str] | None = None,
   ) -> str:
-    prompt, _, _ = export_prompt_parts_for_llm(references, seconds, additional_yaml)
+    prompt, _, _ = _export_prompt_for_node(
+      references,
+      seconds,
+      additional_yaml,
+      response_format,
+      response_seq,
+      response,
+    )
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
   @classmethod
   def execute(
     cls,
-    references: ReferenceLoaderBundle,
-    seconds: float = 6.0,
-    additional_yaml: str = "",
+    references: Any,
+    seconds: Any = 6.0,
+    additional_yaml: Any = "",
+    response_format: Any = "text",
+    response_seq: list[Mapping[str, Any]] | None = None,
+    response: list[str] | None = None,
   ) -> io.NodeOutput:
+    prompt, references_yaml, generation_directives_yaml = _export_prompt_for_node(
+      references,
+      seconds,
+      additional_yaml,
+      response_format,
+      response_seq,
+      response,
+    )
     return io.NodeOutput(
-      *export_prompt_parts_for_llm(references, seconds, additional_yaml)
+      prompt,
+      references_yaml,
+      generation_directives_yaml,
     )
 
 
 __all__ = [
+  "LLAMA_SEQUENTIAL_RESPONSE_TYPE",
   "MAX_ADDITIONAL_YAML_CHARACTERS",
+  "RESPONSE_FORMATS",
   "ReferenceLoaderExportPromptForLLMNode",
   "export_prompt_for_llm",
   "export_prompt_parts_for_llm",

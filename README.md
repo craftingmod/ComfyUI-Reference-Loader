@@ -6,9 +6,9 @@ Reference Loader is a ComfyUI V3 custom node for uploading, arranging, and editi
 
 ## Features
 
-- Independent Images, Videos, and Audio boards with reorder, enable, caption, and preview controls
+- Independent Images, Videos, and Audio boards with reorder, enable, caption, and preview controls; per-video **VA** and derived **A** toggles are independent
 - Per-image crop, flip, mask, background, optional `rembg`, and restore-original editing
-- Audio/video trim and playback; VIDEO values retain embedded audio
+- Audio/video trim and playback; VIDEO values retain embedded audio by default and can be muted at execution with **VA**
 - Optional per-image MPixel limiting and alpha compositing at execution
 - Load Image-style single-image picker with RGB IMAGE, inverse-alpha MASK, and inline Edit
 - Structured prompt editor with thumbnail `@` media mentions, stable `#` Subject mentions, and literal raw view
@@ -54,7 +54,7 @@ The Media board uses its full content height without accepting extra flex height
 | `videos` / `video_captions` | Enabled Videos order; equal list lengths                                |
 | `manifest_json`             | Deterministic metadata without tensors, base64 media, or absolute paths |
 
-Each new video starts with VIDEO enabled and its separate AUDIO output disabled. The VIDEO container's embedded audio remains intact.
+Each new video starts with VIDEO and embedded VIDEO audio (**VA**) enabled, while its separate AUDIO output is disabled. **VA** and **A** are independent: disabling **VA** creates a VIDEO value without embedded audio, while **A** controls the separately decoded soundtrack.
 
 See [the Reference Loader guide](docs/REFERENCE_LOADER.md) for editor behavior, limits, storage, and the complete output contract.
 

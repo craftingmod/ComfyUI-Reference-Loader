@@ -63,6 +63,7 @@ export interface AudioItem extends BaseItem {
 export interface VideoItem extends BaseItem {
   kind: "video"
   videoEnabled: boolean
+  videoAudioEnabled: boolean
   audioEnabled: boolean
   audioCaptionOverride?: string
   crop?: TimeRange
@@ -140,7 +141,7 @@ export function createMediaItem(
   if (kind === "audio") {
     return { ...base, kind, audioEnabled: true }
   }
-  return { ...base, kind, videoEnabled: true, audioEnabled: false }
+  return { ...base, kind, videoEnabled: true, videoAudioEnabled: true, audioEnabled: false }
 }
 
 export function isAudioItem(item: MediaItem): item is AudioItem | VideoItem {

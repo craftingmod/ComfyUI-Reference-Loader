@@ -663,9 +663,29 @@ describe("Reference Loader DOM lifecycle", () => {
     const videoFilename = videoCard?.querySelector<HTMLElement>(".rl-media-filename")
     const audioFilename = audioCard?.querySelector<HTMLElement>(".rl-media-filename")
     expect(videoCard?.querySelector('[data-action="toggle-video"]')).not.toBeNull()
+    expect(videoCard?.querySelector('[data-action="toggle-video-audio"]')).not.toBeNull()
     expect(videoCard?.querySelector('[data-action="toggle-audio"]')).toBeNull()
     expect(audioCard?.querySelector('[data-action="toggle-audio"]')).not.toBeNull()
     expect(audioCard?.querySelector('[data-action="toggle-video"]')).toBeNull()
+    expect(
+      videoCard
+        ?.querySelector<HTMLButtonElement>('[data-action="toggle-video-audio"]')
+        ?.getAttribute("aria-label"),
+    ).toBe("Include embedded audio in video output")
+    videoCard?.querySelector<HTMLButtonElement>('[data-action="toggle-video-audio"]')?.click()
+    expect(controller.state.items["named-video"]).toMatchObject({
+      videoAudioEnabled: false,
+      audioEnabled: false,
+    })
+    root
+      .querySelector<HTMLButtonElement>(
+        '.rl-card[data-channel="audio"] [data-action="toggle-audio"]',
+      )
+      ?.click()
+    expect(controller.state.items["named-video"]).toMatchObject({
+      videoAudioEnabled: false,
+      audioEnabled: true,
+    })
     expect(videoFilename?.textContent).toBe("scene soundtrack.mp4")
     expect(videoFilename?.title).toBe("scene soundtrack.mp4")
     expect(audioFilename?.textContent).toBe("scene soundtrack.mp4")
@@ -1378,6 +1398,9 @@ describe("Reference Loader DOM lifecycle", () => {
       true,
     )
     expect(
+      root.querySelector<HTMLButtonElement>('[data-action="toggle-video-audio"]')?.disabled,
+    ).toBe(true)
+    expect(
       root
         .querySelector('.rl-card[data-channel="audio"]')
         ?.classList.contains("is-output-disabled"),
@@ -1403,6 +1426,7 @@ describe("Reference Loader DOM lifecycle", () => {
     expect(badges?.querySelector(".rl-kind")?.classList.contains("rl-kind--video")).toBe(true)
     expect(badges?.querySelector(".rl-duration")?.textContent).toBe("2.00s")
     expect(JSON.parse(controller.serialize()).items.v.audioEnabled).toBe(false)
+    expect(JSON.parse(controller.serialize()).items.v.videoAudioEnabled).toBe(false)
     controller.destroy()
     root.remove()
   })
@@ -1573,9 +1597,6 @@ describe("Reference Loader DOM lifecycle", () => {
       const videoButton = root.querySelector<HTMLButtonElement>(
         '.rl-card[data-channel="video"] [data-action="preview-video"]',
       )
-      const audioButton = root.querySelector<HTMLButtonElement>(
-        '.rl-card[data-channel="audio"] [data-action="preview-audio"]',
-      )
       videoButton?.click()
       await Promise.resolve()
       const videoElement = root.querySelector<HTMLVideoElement>(
@@ -1587,12 +1608,27 @@ describe("Reference Loader DOM lifecycle", () => {
       expect(videoElement?.hasAttribute("muted")).toBe(false)
       expect(videoButton?.textContent).toBe("■")
 
+      videoButton?.click()
+      const videoAudioButton = root.querySelector<HTMLButtonElement>(
+        '.rl-card[data-channel="video"] [data-action="toggle-video-audio"]',
+      )
+      videoAudioButton?.click()
+      const mutedVideoButton = root.querySelector<HTMLButtonElement>(
+        '.rl-card[data-channel="video"] [data-action="preview-video"]',
+      )
+      mutedVideoButton?.click()
+      await Promise.resolve()
+      expect(played[1]).toMatchObject({ element: "VIDEO", muted: true, currentTime: 1 })
+      expect(played[1]?.source).toContain("/video_preview?")
+
+      const audioButton = root.querySelector<HTMLButtonElement>(
+        '.rl-card[data-channel="audio"] [data-action="preview-audio"]',
+      )
       audioButton?.click()
       await Promise.resolve()
-      expect(played[1]).toMatchObject({ element: "AUDIO", currentTime: 1 })
-      expect(played[1]?.source).toContain("/video_preview?")
+      expect(played[2]).toMatchObject({ element: "AUDIO", currentTime: 1 })
+      expect(played[2]?.source).toContain("/video_preview?")
       expect(root.querySelector('.rl-card[data-channel="video"] video')).toBeNull()
-      expect(videoButton?.textContent).toBe("▶")
       expect(audioButton?.textContent).toBe("■")
     } finally {
       controller.destroy()

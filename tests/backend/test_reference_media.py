@@ -1,5 +1,6 @@
 import hashlib
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -587,6 +588,68 @@ def test_video_loader_uses_public_input_impl_and_explicit_trim_contract(monkeypa
   }
 
 
+def test_video_loader_removes_audio_with_public_video_components(monkeypatch):
+  monkeypatch.setattr(
+    reference_media,
+    "_validate_video_stream_layout",
+    lambda _path: None,
+  )
+
+  @dataclass(frozen=True)
+  class Components:
+    images: object
+    frame_rate: float
+    audio: object | None
+    metadata: dict[str, object]
+    alpha: object | None
+
+  components = Components("frames", 24.0, "audio", {"source": "movie"}, "alpha")
+  calls = {}
+
+  class Video:
+    def get_duration(self):
+      return 10.0
+
+    def as_trimmed(self, **_kwargs):
+      return self
+
+    def get_components(self):
+      calls["get_components"] = True
+      return components
+
+    def get_bit_depth(self):
+      return 16
+
+  def video_from_components(value, *, bit_depth):
+    calls["components"] = value
+    calls["bit_depth"] = bit_depth
+    return "silent-video"
+
+  input_impl = SimpleNamespace(
+    VideoFromFile=lambda _path: Video(),
+    VideoFromComponents=video_from_components,
+  )
+  comfy_api = ModuleType("comfy_api")
+  versioned = ModuleType("comfy_api.v0_0_2")
+  versioned.InputImpl = input_impl
+  comfy_api.v0_0_2 = versioned
+  monkeypatch.setitem(sys.modules, "comfy_api", comfy_api)
+  monkeypatch.setitem(sys.modules, "comfy_api.v0_0_2", versioned)
+
+  result = reference_media._load_video(
+    Path("movie.mp4"),
+    None,
+    include_audio=False,
+  )
+
+  assert result == "silent-video"
+  assert calls["get_components"] is True
+  assert calls["components"] == Components(
+    "frames", 24.0, None, {"source": "movie"}, "alpha"
+  )
+  assert calls["bit_depth"] == 16
+
+
 def test_video_loader_rejects_sources_longer_than_one_hour(monkeypatch):
   assert reference_media.MAX_VIDEO_DURATION_SECONDS == 60 * 60
   monkeypatch.setattr(
@@ -662,6 +725,7 @@ def test_loader_preserves_independent_output_order_and_video_audio(
         "source": source("vid.mp4", b"v", "video/mp4"),
         "caption": "",
         "videoEnabled": True,
+        "videoAudioEnabled": False,
         "audioEnabled": True,
       },
       "aud": {
@@ -678,13 +742,16 @@ def test_loader_preserves_independent_output_order_and_video_audio(
     "videoAudioPolicy": "preserve",
   }
   state = parse_reference_state(raw)
+  video_calls = []
   monkeypatch.setattr(
     reference_media,
     "_load_image",
     lambda path, *_args, **_kwargs: f"image:{path.name}",
   )
   monkeypatch.setattr(
-    reference_media, "_load_video", lambda path, *_args: f"video:{path.name}"
+    reference_media,
+    "_load_video",
+    lambda path, *_args, **kwargs: video_calls.append(kwargs) or f"video:{path.name}",
   )
   monkeypatch.setattr(
     reference_media,
@@ -696,6 +763,7 @@ def test_loader_preserves_independent_output_order_and_video_audio(
   assert loaded.images == ("image:img.png",)
   assert loaded.videos == ("video:vid.mp4",)
   assert loaded.audios == ("audio:vid.mp4", "audio:aud.wav")
+  assert video_calls == [{"include_audio": False}]
 
 
 def test_materialized_image_edit_does_not_require_the_brush_mask_at_execution(

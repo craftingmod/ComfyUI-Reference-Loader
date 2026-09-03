@@ -93,9 +93,16 @@ export class VideoPreviewPlayer {
     return () => this.#listeners.delete(listener)
   }
 
-  prepare(owner: string, url: string, range: TimeRange, startAt: number = range.start): void {
+  prepare(
+    owner: string,
+    url: string,
+    range: TimeRange,
+    startAt: number = range.start,
+    options: { muted?: boolean } = {},
+  ): void {
     if (this.#destroyed) return
     this.#stopAnimation()
+    this.element.muted = options.muted === true
     const nextRange = normalizedRange(range)
     const changingSource = this.#owner !== owner || this.#url !== url
     if (changingSource) {
@@ -112,9 +119,16 @@ export class VideoPreviewPlayer {
     this.#emit()
   }
 
-  async play(owner: string, url: string, range: TimeRange, startAt?: number): Promise<void> {
+  async play(
+    owner: string,
+    url: string,
+    range: TimeRange,
+    startAt?: number,
+    options: { muted?: boolean } = {},
+  ): Promise<void> {
     if (this.#destroyed) return
     this.#stopAnimation()
+    this.element.muted = options.muted === true
     const nextRange = normalizedRange(range)
     const changingSource = this.#owner !== owner || this.#url !== url
     const sequence = ++this.#sequence
@@ -161,6 +175,11 @@ export class VideoPreviewPlayer {
     this.element.pause()
     this.#status = "paused"
     this.#emit()
+  }
+
+  setMuted(owner: string, muted: boolean): void {
+    if (this.#destroyed || this.#owner !== owner) return
+    this.element.muted = muted
   }
 
   seek(owner: string, seconds: number): void {

@@ -17,6 +17,7 @@ export type LoaderAction =
   | { type: "remove"; id: string }
   | { type: "set-caption"; id: string; caption: string; channel?: LoaderChannel }
   | { type: "toggle"; id: string; channel: LoaderChannel }
+  | { type: "toggle-video-audio"; id: string }
   | { type: "reorder"; channel: LoaderChannel; id: string; toIndex: number }
   | { type: "move"; channel: LoaderChannel; id: string; delta: -1 | 1 }
   | {
@@ -105,6 +106,12 @@ export function loaderReducer(state: LoaderState, action: LoaderAction): LoaderS
         return replaceItem(state, { ...item, audioEnabled: !item.audioEnabled })
       }
       return state
+    }
+    case "toggle-video-audio": {
+      const item = state.items[action.id]
+      return item?.kind === "video"
+        ? replaceItem(state, { ...item, videoAudioEnabled: !item.videoAudioEnabled })
+        : state
     }
     case "reorder": {
       const key =

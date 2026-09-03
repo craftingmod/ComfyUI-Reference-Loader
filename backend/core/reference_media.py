@@ -4,7 +4,7 @@ import hashlib
 import math
 import os
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
@@ -559,7 +559,12 @@ def _validate_video_stream_layout(path: Path) -> None:
     raise ReferenceMediaError("A video stream layout could not be inspected.") from exc
 
 
-def _load_video(path: Path, crop: TimeRange | None) -> Any:
+def _load_video(
+  path: Path,
+  crop: TimeRange | None,
+  *,
+  include_audio: bool = True,
+) -> Any:
   _validate_video_stream_layout(path)
   video = _video_input_impl().VideoFromFile(str(path))
   try:
@@ -570,20 +575,30 @@ def _load_video(path: Path, crop: TimeRange | None) -> Any:
     raise ReferenceMediaError("A video duration could not be inspected.")
   if duration > MAX_VIDEO_DURATION_SECONDS:
     raise ReferenceMediaError("A video reference exceeds the 1-hour duration limit.")
-  if crop is None:
-    return video
-  if crop.end > duration + 1e-6:
-    raise ReferenceMediaError(
-      "A video crop must stay inside the decoded source duration."
+  if crop is not None:
+    if crop.end > duration + 1e-6:
+      raise ReferenceMediaError(
+        "A video crop must stay inside the decoded source duration."
+      )
+    trimmed = video.as_trimmed(
+      start_time=crop.start,
+      duration=crop.end - crop.start,
+      strict_duration=False,
     )
-  trimmed = video.as_trimmed(
-    start_time=crop.start,
-    duration=crop.end - crop.start,
-    strict_duration=False,
-  )
-  if trimmed is None:
-    raise ReferenceMediaError("A video crop produced an empty reference.")
-  return trimmed
+    if trimmed is None:
+      raise ReferenceMediaError("A video crop produced an empty reference.")
+    video = trimmed
+  if include_audio:
+    return video
+  try:
+    components = video.get_components()
+    silent_components = replace(components, audio=None)
+    return _video_input_impl().VideoFromComponents(
+      silent_components,
+      bit_depth=video.get_bit_depth(),
+    )
+  except Exception as exc:
+    raise ReferenceMediaError("A video audio track could not be removed.") from exc
 
 
 def validate_reference_sources(
@@ -699,7 +714,13 @@ def load_reference_media(
     item = state.items[item_id]
     if not item.video_enabled:
       continue
-    videos.append(_load_video(source_path(item.source), item.crop))
+    videos.append(
+      _load_video(
+        source_path(item.source),
+        item.crop,
+        include_audio=bool(item.video_audio_enabled),
+      )
+    )
   for item_id in state.audio_order:
     item = state.items[item_id]
     if not item.audio_enabled:

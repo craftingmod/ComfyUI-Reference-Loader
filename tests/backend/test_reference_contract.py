@@ -12,6 +12,7 @@ from backend.core.reference_contract import (
 from backend.core.reference_manifest import (
   build_reference_manifest,
   build_reference_output_plan,
+  parse_reference_manifest_state,
 )
 
 HASH_A = "a" * 64
@@ -161,6 +162,7 @@ def test_manifest_keeps_disabled_items_and_aligns_active_ids_and_captions():
   assert manifest["items"]["img-a"]["enabled"] == {"image": True}
   assert manifest["items"]["vid-c"]["enabled"] == {
     "video": False,
+    "video_audio": True,
     "audio": True,
   }
   assert manifest["items"]["vid-c:audio"]["derived_from"] == "vid-c"
@@ -168,6 +170,33 @@ def test_manifest_keeps_disabled_items_and_aligns_active_ids_and_captions():
   serialized = json.dumps(manifest)
   assert "payload" not in serialized
   assert "C:\\" not in serialized
+
+
+def test_video_audio_defaults_true_and_round_trips_from_manifest():
+  state = parse_reference_state(loader_state())
+  assert state.items["vid-c"].video_audio_enabled is True
+
+  manifest = build_reference_manifest(state)
+  assert manifest["items"]["vid-c"]["enabled"]["video_audio"] is True
+  manifest["items"]["vid-c"]["enabled"].pop("video_audio")
+  restored = parse_reference_manifest_state(manifest)
+  assert restored.items["vid-c"].video_audio_enabled is True
+
+
+def test_video_audio_is_strict_and_part_of_the_execution_fingerprint():
+  enabled = parse_reference_state(loader_state())
+  disabled_raw = loader_state()
+  disabled_raw["items"]["vid-c"]["videoAudioEnabled"] = False
+  disabled = parse_reference_state(disabled_raw)
+
+  assert enabled.items["vid-c"].video_audio_enabled is True
+  assert disabled.items["vid-c"].video_audio_enabled is False
+  assert execution_fingerprint(enabled) != execution_fingerprint(disabled)
+
+  invalid_raw = loader_state()
+  invalid_raw["items"]["vid-c"]["videoAudioEnabled"] = "false"
+  with pytest.raises(ReferenceContractError, match="videoAudioEnabled.*boolean"):
+    parse_reference_state(invalid_raw)
 
 
 def test_contract_requires_a_safe_image_descriptor_for_edit_masks():

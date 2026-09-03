@@ -21,6 +21,7 @@ export interface TrimEditorOptions {
     owner: string
     url: string
     hasAudio: boolean
+    muted?: boolean
   }
   signal?: AbortSignal
 }
@@ -163,11 +164,24 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
     const canvas = dialog.querySelector("canvas")
     if (canvas) drawWaveform(canvas, options.waveform ?? [], options.kind === "video")
     if (videoPlayer && options.video) {
-      videoPlayer.element.setAttribute("aria-label", "Video trim preview with audio when available")
+      videoPlayer.element.setAttribute(
+        "aria-label",
+        options.video.muted
+          ? "Muted video trim preview"
+          : "Video trim preview with audio when available",
+      )
       videoPlayer.element.addEventListener("loadedmetadata", () => {
         videoPlayer.seek(options.video?.owner ?? "", seekPosition)
       })
-      videoPlayer.prepare(options.video.owner, options.video.url, initialRange, initialRange.start)
+      videoPlayer.prepare(
+        options.video.owner,
+        options.video.url,
+        initialRange,
+        initialRange.start,
+        {
+          muted: options.video.muted,
+        },
+      )
       dialog.querySelector(".rl-trim-video-preview")?.append(videoPlayer.element)
     }
     let settled = false
@@ -405,7 +419,9 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
             const playbackError = dialog.querySelector<HTMLElement>(".rl-playback-error")
             if (playbackError) playbackError.hidden = true
             void playbackPlayer
-              .play(playbackOwner, playbackUrl, draft, seekPosition)
+              .play(playbackOwner, playbackUrl, draft, seekPosition, {
+                muted: options.video?.muted,
+              })
               .catch(() => undefined)
           }
           break

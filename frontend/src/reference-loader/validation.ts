@@ -194,6 +194,7 @@ function sanitizeItem(key: string, value: unknown): MediaItem | undefined {
     sourceFilename,
     caption,
     videoEnabled: booleanValue(value.videoEnabled, true),
+    videoAudioEnabled: booleanValue(value.videoAudioEnabled, true),
     audioEnabled: booleanValue(value.audioEnabled, false),
   }
   const audioCaption = value.audioCaptionOverride

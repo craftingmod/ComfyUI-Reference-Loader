@@ -120,6 +120,7 @@ class ReferenceItem:
   caption: str
   image_enabled: bool | None = None
   video_enabled: bool | None = None
+  video_audio_enabled: bool | None = None
   audio_enabled: bool | None = None
   audio_caption_override: str | None = None
   crop: TimeRange | None = None
@@ -347,6 +348,7 @@ def _item(key: str, value: Any) -> ReferenceItem:
   if kind == "image":
     if (
       "videoEnabled" in item
+      or "videoAudioEnabled" in item
       or "audioEnabled" in item
       or "crop" in item
       or "audioCaptionOverride" in item
@@ -366,7 +368,10 @@ def _item(key: str, value: Any) -> ReferenceItem:
   crop = _time_range(item["crop"], f"{path}.crop") if "crop" in item else None
   if kind == "audio":
     if (
-      "imageEnabled" in item or "videoEnabled" in item or "audioCaptionOverride" in item
+      "imageEnabled" in item
+      or "videoEnabled" in item
+      or "videoAudioEnabled" in item
+      or "audioCaptionOverride" in item
     ):
       raise _error(
         path, "audio items cannot contain image, video, or video-caption fields"
@@ -393,6 +398,9 @@ def _item(key: str, value: Any) -> ReferenceItem:
     source=source,
     caption=caption,
     video_enabled=_boolean(item.get("videoEnabled"), f"{path}.videoEnabled"),
+    video_audio_enabled=_boolean(
+      item.get("videoAudioEnabled", True), f"{path}.videoAudioEnabled"
+    ),
     audio_enabled=_boolean(item.get("audioEnabled"), f"{path}.audioEnabled"),
     audio_caption_override=override,
     crop=crop,
@@ -517,7 +525,9 @@ def execution_projection(
     images.append(_execution_item(item, enabled=bool(item.image_enabled)))
   for item_id in state.video_order:
     item = state.items[item_id]
-    videos.append(_execution_item(item, enabled=bool(item.video_enabled)))
+    video = _execution_item(item, enabled=bool(item.video_enabled))
+    video["videoAudioEnabled"] = bool(item.video_audio_enabled)
+    videos.append(video)
   for item_id in state.audio_order:
     item = state.items[item_id]
     if item.kind == "audio":

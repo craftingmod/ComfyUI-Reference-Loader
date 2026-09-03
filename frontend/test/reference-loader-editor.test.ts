@@ -1673,11 +1673,12 @@ describe("trim editor details", () => {
       filename: "silent.mp4",
       duration: 3,
       caption: "",
-      video: { owner: "editor:silent", url: "/silent", hasAudio: false },
+      video: { owner: "editor:silent", url: "/silent", hasAudio: false, muted: true },
     })
     const video = document.querySelector<HTMLVideoElement>(".rl-trim-video-preview video")
     const seek = document.querySelector<HTMLInputElement>('.rl-trim-editor [data-field="seek"]')
     expect(video?.getAttribute("src")).toBe("/silent")
+    expect(video?.muted).toBe(true)
     expect(
       document.querySelector<HTMLButtonElement>('.rl-trim-editor [data-action="playback-toggle"]')
         ?.disabled,

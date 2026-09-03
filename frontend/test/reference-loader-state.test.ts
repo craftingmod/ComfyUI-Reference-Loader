@@ -109,7 +109,42 @@ describe("Reference Loader state", () => {
 
   test("defaults every video out of the separate audio output", () => {
     const video = createMediaItem("video", source("v.mp4", "video/mp4"), "video")
-    expect(video.kind === "video" && video.audioEnabled).toBe(false)
+    expect(video).toMatchObject({
+      videoEnabled: true,
+      videoAudioEnabled: true,
+      audioEnabled: false,
+    })
+  })
+
+  test("toggles embedded video audio independently and survives serialization", () => {
+    const video = createMediaItem("video", source("v.mp4", "video/mp4"), "video")
+    let state = loaderReducer(createEmptyLoaderState(), { type: "add", item: video })
+    const before = executionFingerprintSource(state)
+    const beforeProjection = projectLoaderExecution(state)
+
+    state = loaderReducer(state, { type: "toggle-video-audio", id: "video" })
+    expect(state.items.video).toMatchObject({
+      videoEnabled: true,
+      videoAudioEnabled: false,
+      audioEnabled: false,
+    })
+    expect(executionFingerprintSource(state)).not.toBe(before)
+    expect(projectLoaderExecution(state).videos.map((item) => item.id)).toEqual(
+      beforeProjection.videos.map((item) => item.id),
+    )
+    expect(projectLoaderExecution(state).audios).toEqual(beforeProjection.audios)
+
+    const history = commitHistory(
+      createHistory(state),
+      loaderReducer(state, { type: "toggle-video-audio", id: "video" }),
+    )
+    expect(undoHistory(history).present.items.video).toMatchObject({ videoAudioEnabled: false })
+    expect(redoHistory(history).present.items.video).toMatchObject({ videoAudioEnabled: true })
+
+    state = loaderReducer(state, { type: "toggle", id: "video", channel: "audio" })
+    expect(state.items.video).toMatchObject({ videoAudioEnabled: false, audioEnabled: true })
+    expect(projectLoaderExecution(state).videos[0]?.videoAudioEnabled).toBe(false)
+    expect(deserializeLoaderState(serializeLoaderState(state)).state).toEqual(state)
   })
 })
 
@@ -170,7 +205,11 @@ describe("validation and serialization", () => {
       videoOrder: ["video"],
       audioOrder: ["video"],
     })
-    expect(result.state.items.video).toMatchObject({ videoEnabled: true, audioEnabled: false })
+    expect(result.state.items.video).toMatchObject({
+      videoEnabled: true,
+      videoAudioEnabled: true,
+      audioEnabled: false,
+    })
   })
 
   test("rejects oversized workflow state before parsing JSON", () => {

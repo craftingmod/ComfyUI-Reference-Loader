@@ -57,6 +57,8 @@ def _original_item_manifest(item: ReferenceItem) -> dict[str, Any]:
     value["enabled"]["image"] = item.image_enabled
   if item.video_enabled is not None:
     value["enabled"]["video"] = item.video_enabled
+  if item.video_audio_enabled is not None:
+    value["enabled"]["video_audio"] = item.video_audio_enabled
   if item.audio_enabled is not None:
     value["enabled"]["audio"] = item.audio_enabled
   if item.crop is not None:
@@ -189,6 +191,7 @@ def parse_reference_manifest_state(value: str | Mapping[str, Any]) -> ReferenceS
       item["audioEnabled"] = enabled.get("audio")
     elif kind == "video":
       item["videoEnabled"] = enabled.get("video")
+      item["videoAudioEnabled"] = enabled.get("video_audio", True)
       item["audioEnabled"] = enabled.get("audio")
     if "crop" in manifest_item:
       item["crop"] = manifest_item["crop"]

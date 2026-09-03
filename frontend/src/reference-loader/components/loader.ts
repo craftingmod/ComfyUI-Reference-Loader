@@ -770,6 +770,7 @@ export class ReferenceLoaderController {
     const imageEnabled = item.kind === "image" ? item.imageEnabled : false
     const videoEnabled = item.kind === "video" ? item.videoEnabled : false
     const silentVideo = item.kind === "video" && runtime?.metadata?.hasAudio === false
+    const videoAudioEnabled = item.kind === "video" ? item.videoAudioEnabled && !silentVideo : false
     const audioEnabled = isAudioItem(item) ? item.audioEnabled : false
     const outputEnabled = isChannelOutputEnabled(channel, item)
     const duration = durationLabel(item, runtime)
@@ -795,8 +796,9 @@ export class ReferenceLoaderController {
         <div class="rl-card__actions">
         ${!singleImage && channel === "image" && item.kind === "image" ? `<button type="button" data-action="toggle-image" class="${imageEnabled ? "is-on" : ""}" aria-label="Toggle image output" aria-pressed="${String(imageEnabled)}">I</button>` : ""}
         ${!singleImage && channel === "video" && item.kind === "video" ? `<button type="button" data-action="toggle-video" class="${videoEnabled ? "is-on" : ""}" aria-label="Toggle video output" aria-pressed="${String(videoEnabled)}">V</button>` : ""}
+        ${!singleImage && channel === "video" && item.kind === "video" ? `<button type="button" data-action="toggle-video-audio" class="${videoAudioEnabled ? "is-on" : ""}" aria-label="Include embedded audio in video output" aria-pressed="${String(videoAudioEnabled)}" title="${silentVideo ? "No embedded audio track" : videoAudioEnabled ? "VIDEO output includes embedded audio" : "VIDEO output is muted"}"${silentVideo ? " disabled" : ""}>VA</button>` : ""}
         ${!singleImage && channel === "audio" && isAudioItem(item) ? `<button type="button" data-action="toggle-audio" class="${audioEnabled ? "is-on" : ""}" aria-label="Toggle audio output" aria-pressed="${String(audioEnabled)}"${silentVideo ? ' disabled title="No embedded audio track"' : ""}>A</button>` : ""}
-        ${channel === "video" && item.kind === "video" ? `<button type="button" data-action="preview-video" data-playback-owner="${escapeHtml(playbackOwner)}" class="rl-preview-media${videoPlaybackActive ? " is-playing" : ""}" aria-label="${videoPlaybackActive ? "Stop" : "Play"} video preview with audio" title="${runtime?.loading || playbackDuration === undefined ? "Loading video preview" : videoPlaybackActive ? "Stop video preview" : "Play trimmed video preview with audio"}"${videoPlaybackDisabled ? " disabled" : ""}>${videoPlaybackActive ? "■" : "▶"}</button>` : ""}
+        ${channel === "video" && item.kind === "video" ? `<button type="button" data-action="preview-video" data-playback-owner="${escapeHtml(playbackOwner)}" class="rl-preview-media${videoPlaybackActive ? " is-playing" : ""}" aria-label="${videoPlaybackActive ? "Stop" : "Play"} video preview ${videoAudioEnabled ? "with audio" : "muted"}" title="${runtime?.loading || playbackDuration === undefined ? "Loading video preview" : videoPlaybackActive ? "Stop video preview" : videoAudioEnabled ? "Play trimmed video preview with audio" : "Play trimmed muted video preview"}"${videoPlaybackDisabled ? " disabled" : ""}>${videoPlaybackActive ? "■" : "▶"}</button>` : ""}
         ${channel === "audio" && isAudioItem(item) ? `<button type="button" data-action="preview-audio" data-playback-owner="${escapeHtml(playbackOwner)}" class="rl-preview-media${audioPlaybackActive ? " is-playing" : ""}" aria-label="${audioPlaybackActive ? "Stop" : "Play"} audio preview" title="${silentVideo ? "No embedded audio track" : runtime?.loading || playbackDuration === undefined ? "Loading audio preview" : audioPlaybackActive ? "Stop audio preview" : "Play trimmed audio preview"}"${audioPlaybackDisabled ? " disabled" : ""}>${audioPlaybackActive ? "■" : "▶"}</button>` : ""}
         ${singleImage ? "" : '<button type="button" data-action="move-back" aria-label="Move earlier" title="Move earlier (Alt+ArrowLeft)">←</button><button type="button" data-action="move-forward" aria-label="Move later" title="Move later (Alt+ArrowRight)">→</button>'}
         <button type="button" class="rl-edit-button" data-action="edit" aria-label="${singleImage ? "Edit image" : "Edit reference"}" title="${singleImage ? "Edit image" : "Edit reference"}"${runtime?.applyingEdit ? " disabled" : ""}><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16v4Z"></path><path d="m13.5 6.5 4 4"></path></svg></button>
@@ -854,8 +856,19 @@ export class ReferenceLoaderController {
         (videoSnapshot.status === "playing" || videoSnapshot.status === "loading")
       button.textContent = active ? "■" : "▶"
       button.classList.toggle("is-playing", active)
-      button.setAttribute("aria-label", `${active ? "Stop" : "Play"} video preview with audio`)
-      button.title = active ? "Stop video preview" : "Play trimmed video preview with audio"
+      const card = button.closest<HTMLElement>('.rl-card[data-channel="video"]')
+      const id = card?.dataset.id
+      const item = id ? this.state.items[id] : undefined
+      const withAudio = item?.kind === "video" && item.videoAudioEnabled
+      button.setAttribute(
+        "aria-label",
+        `${active ? "Stop" : "Play"} video preview ${withAudio ? "with audio" : "muted"}`,
+      )
+      button.title = active
+        ? "Stop video preview"
+        : withAudio
+          ? "Play trimmed video preview with audio"
+          : "Play trimmed muted video preview"
       if (active)
         activeMedia =
           button.closest<HTMLElement>(".rl-card")?.querySelector<HTMLElement>(".rl-card__media") ??
@@ -1040,6 +1053,9 @@ export class ReferenceLoaderController {
       case "toggle-video":
         if (id) this.#toggleOutput(id, "video")
         return
+      case "toggle-video-audio":
+        if (id) this.#toggleVideoAudio(id)
+        return
       case "toggle-audio":
         if (id) this.#toggleOutput(id, "audio")
         return
@@ -1172,6 +1188,8 @@ export class ReferenceLoaderController {
         owner,
         this.#api.videoPreviewUrl(item.source),
         item.crop ?? { start: 0, end: duration },
+        undefined,
+        { muted: !item.videoAudioEnabled },
       )
     } catch (error) {
       if (this.#destroyed) return
@@ -1442,9 +1460,14 @@ export class ReferenceLoaderController {
     if (this.#destroyed) return
     const disable = (state: LoaderState): LoaderState => {
       const candidate = state.items[id]
-      return candidate?.kind === "video" && candidate.audioEnabled
-        ? loaderReducer(state, { type: "toggle", id, channel: "audio" })
-        : state
+      if (candidate?.kind !== "video") return state
+      let next = state
+      if (candidate.audioEnabled)
+        next = loaderReducer(next, { type: "toggle", id, channel: "audio" })
+      const current = next.items[id]
+      if (current?.kind === "video" && current.videoAudioEnabled)
+        next = loaderReducer(next, { type: "toggle-video-audio", id })
+      return next
     }
     const present = disable(this.#history.present)
     if (present === this.#history.present) return
@@ -1731,6 +1754,7 @@ export class ReferenceLoaderController {
                   owner: `editor:${id}`,
                   url: this.#api.videoPreviewUrl(item.source),
                   hasAudio: metadata?.hasAudio !== false,
+                  muted: channel !== "audio" && !item.videoAudioEnabled,
                 },
               }
             : {
@@ -1829,6 +1853,15 @@ export class ReferenceLoaderController {
       return
     }
     this.#dispatch({ type: "toggle", id, channel })
+  }
+
+  #toggleVideoAudio(id: string): void {
+    const item = this.state.items[id]
+    if (!item || item.kind !== "video" || this.#runtime.get(id)?.metadata?.hasAudio === false)
+      return
+    this.#dispatch({ type: "toggle-video-audio", id })
+    const next = this.state.items[id]
+    if (next?.kind === "video") this.#videoPreview.setMuted(`grid:${id}`, !next.videoAudioEnabled)
   }
 
   #recordGraphChange(change: () => void): void {

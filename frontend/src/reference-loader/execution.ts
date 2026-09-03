@@ -7,6 +7,7 @@ export interface ExecutionItem {
   source: MediaSource
   caption: string
   enabled: boolean
+  videoAudioEnabled?: boolean
   crop?: TimeRange
   edit?: ImageEditRecipe
   derivedFrom?: string
@@ -66,6 +67,7 @@ export function projectLoaderExecution(state: LoaderState): LoaderExecutionProje
           source: executionSource(item.source),
           caption: item.caption,
           enabled: item.videoEnabled,
+          videoAudioEnabled: item.videoAudioEnabled,
         },
         item.crop,
       ),

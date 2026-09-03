@@ -65,6 +65,30 @@ describe("Reference Loader snapshots", () => {
     expect(parsed.settings).toEqual(settings)
   })
 
+  test("preserves the embedded video audio toggle", () => {
+    const video = createMediaItem(
+      "video",
+      {
+        path: "reference_loader/sources/clip.mp4",
+        mime: "video/mp4",
+        sha256: "c".repeat(64),
+      },
+      "video-1",
+    )
+    if (video.kind !== "video") throw new Error("Expected a video item.")
+    video.videoAudioEnabled = false
+    const loader = loaderReducer(createEmptyLoaderState(), { type: "add", item: video })
+    const parsed = parseReferenceLoaderSnapshot(
+      serializeReferenceLoaderSnapshot({
+        loaderState: serializeLoaderState(loader),
+        promptState: serializePromptDocument(createEmptyPromptDocument()),
+        settings,
+      }),
+    )
+
+    expect(JSON.parse(parsed.loaderState).items["video-1"].videoAudioEnabled).toBe(false)
+  })
+
   test("rejects malformed state and inconsistent two-image mode before applying it", () => {
     const state = createEmptyLoaderState()
     for (let index = 0; index < 3; index += 1) {

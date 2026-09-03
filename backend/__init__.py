@@ -12,6 +12,7 @@ from .nodes import (
   ReferenceLoaderRawOutputsNode,
   ReferenceLoaderRawPromptNode,
   ReferenceLoaderStartEndFramesNode,
+  ReferencePromptCacheNode,
 )
 from .reference_routes import register_reference_routes
 
@@ -23,6 +24,7 @@ class ReferenceLoaderExtension(ComfyExtension):
       ReferenceLoaderNode,
       LoadReferenceImageNode,
       ReferenceLoaderOptionsOverrideNode,
+      ReferencePromptCacheNode,
       ReferenceLoaderExportPromptForLLMNode,
       ReferenceLoaderLLMDescriptionInputsNode,
       ReferenceLoaderRawOutputsNode,
@@ -48,5 +50,6 @@ __all__ = [
   "ReferenceLoaderRawOutputsNode",
   "ReferenceLoaderRawPromptNode",
   "ReferenceLoaderStartEndFramesNode",
+  "ReferencePromptCacheNode",
   "comfy_entrypoint",
 ]

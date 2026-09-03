@@ -45,8 +45,10 @@ def _install_comfy_api_test_stub() -> None:
         setattr(self, key, value)
 
   class NodeOutput(tuple):
-    def __new__(cls, *values):
-      return super().__new__(cls, values)
+    def __new__(cls, *values, ui=None):
+      instance = super().__new__(cls, values)
+      instance.ui = ui
+      return instance
 
     @property
     def values(self):

@@ -9,6 +9,7 @@ from .backend import (
   ReferenceLoaderRawOutputsNode,
   ReferenceLoaderRawPromptNode,
   ReferenceLoaderStartEndFramesNode,
+  ReferencePromptCacheNode,
 )
 
 WEB_DIRECTORY = "./dist"
@@ -32,5 +33,6 @@ __all__ = [
   "ReferenceLoaderRawOutputsNode",
   "ReferenceLoaderRawPromptNode",
   "ReferenceLoaderStartEndFramesNode",
+  "ReferencePromptCacheNode",
   "comfy_entrypoint",
 ]

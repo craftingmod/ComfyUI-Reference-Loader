@@ -20,6 +20,7 @@ def test_python_lane_loads_reference_loader_via_entrypoint():
     "Alyac_ReferenceLoader",
     "Alyac_LoadReferenceImage",
     "Alyac_ReferenceLoaderOptionsOverride",
+    "Alyac_ReferencePromptCache",
     "Alyac_ReferenceLoaderExportPromptForLLM",
     "Alyac_ReferenceLoaderLLMDescriptionInputs",
     "Alyac_ReferenceLoaderRawOutputs",
@@ -40,5 +41,6 @@ def test_python_lane_loads_reference_loader_via_entrypoint():
     "ReferenceLoaderRawOutputsNode",
     "ReferenceLoaderRawPromptNode",
     "ReferenceLoaderStartEndFramesNode",
+    "ReferencePromptCacheNode",
     "comfy_entrypoint",
   ]

@@ -30,6 +30,7 @@ class ReferenceLoaderBundle:
   manifest_json: str
   prompt_state_json: str = EMPTY_PROMPT_STATE_JSON
   compiled_prompt: str = ""
+  reference_fingerprint: str = ""
 
 
 def validate_reference_loader_bundle(
@@ -73,6 +74,16 @@ def validate_reference_loader_bundle(
   if compile_prompt(document, state) != references.compiled_prompt:
     raise ReferenceContractError(
       "Reference Loader prompt state does not match the bundled compiled prompt."
+    )
+  if references.reference_fingerprint and (
+    len(references.reference_fingerprint) != 64
+    or any(
+      character not in "0123456789abcdef"
+      for character in references.reference_fingerprint
+    )
+  ):
+    raise ReferenceContractError(
+      "Reference Loader bundle fingerprint must be a SHA-256 hex digest."
     )
   return state
 

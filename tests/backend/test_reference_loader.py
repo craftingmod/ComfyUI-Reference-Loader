@@ -218,6 +218,12 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     "sections": prompt_state["sections"],
   }
   assert bundle.compiled_prompt == "scene:\nUse <Subject 1> from <Picture 1>"
+  contract = importlib.import_module("backend.core.reference_contract")
+  assert bundle.reference_fingerprint == contract.reference_loader_fingerprint(
+    bundle.manifest_json,
+    bundle.prompt_state_json,
+    bundle.compiled_prompt,
+  )
   assert json.loads(bundle.manifest_json)["outputs"]["images"] == ["img"]
   assert json.loads(bundle.manifest_json)["image_output"] == {
     "mode": "original",

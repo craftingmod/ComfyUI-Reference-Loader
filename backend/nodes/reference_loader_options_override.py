@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import replace
 from types import MappingProxyType
@@ -10,8 +9,8 @@ from comfy_api.latest import io
 from ..core.reference_contract import (
   ReferenceContractError,
   ReferenceState,
-  execution_fingerprint,
   image_output_settings,
+  reference_loader_fingerprint,
 )
 from ..core.reference_manifest import (
   build_reference_manifest,
@@ -106,12 +105,17 @@ class ReferenceLoaderOptionsOverrideNode(io.ComfyNode):
       composite_alpha,
       alpha_background,
     )
-    return hashlib.sha256(
-      (
-        f"{execution_fingerprint(state, image_output=settings)}\0"
-        f"{references.prompt_state_json}\0{references.compiled_prompt}"
-      ).encode()
-    ).hexdigest()
+    manifest_json = json.dumps(
+      build_reference_manifest(state, image_output=settings),
+      ensure_ascii=False,
+      sort_keys=True,
+      separators=(",", ":"),
+    )
+    return reference_loader_fingerprint(
+      manifest_json,
+      references.prompt_state_json,
+      references.compiled_prompt,
+    )
 
   @classmethod
   def execute(
@@ -154,6 +158,11 @@ class ReferenceLoaderOptionsOverrideNode(io.ComfyNode):
         manifest_json=manifest_json,
         prompt_state_json=references.prompt_state_json,
         compiled_prompt=references.compiled_prompt,
+        reference_fingerprint=reference_loader_fingerprint(
+          manifest_json,
+          references.prompt_state_json,
+          references.compiled_prompt,
+        ),
       )
     )
 

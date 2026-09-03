@@ -20,6 +20,7 @@ def test_backend_package_exports_v3_extension():
     module.ReferenceLoaderNode,
     module.LoadReferenceImageNode,
     module.ReferenceLoaderOptionsOverrideNode,
+    module.ReferencePromptCacheNode,
     module.ReferenceLoaderExportPromptForLLMNode,
     module.ReferenceLoaderLLMDescriptionInputsNode,
     module.ReferenceLoaderRawOutputsNode,
@@ -38,5 +39,6 @@ def test_backend_package_exports_v3_extension():
     "ReferenceLoaderRawOutputsNode",
     "ReferenceLoaderRawPromptNode",
     "ReferenceLoaderStartEndFramesNode",
+    "ReferencePromptCacheNode",
     "comfy_entrypoint",
   ]

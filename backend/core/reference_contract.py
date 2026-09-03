@@ -576,6 +576,26 @@ def execution_fingerprint(
   return hashlib.sha256(payload).hexdigest()
 
 
+def reference_loader_fingerprint(
+  manifest_json: str,
+  prompt_state_json: str,
+  compiled_prompt: str,
+) -> str:
+  """Fingerprint the complete execution-visible Reference Loader snapshot."""
+
+  payload = json.dumps(
+    {
+      "manifest": json.loads(manifest_json),
+      "prompt_state": json.loads(prompt_state_json),
+      "compiled_prompt": compiled_prompt,
+    },
+    ensure_ascii=False,
+    sort_keys=True,
+    separators=(",", ":"),
+  ).encode("utf-8")
+  return hashlib.sha256(payload).hexdigest()
+
+
 __all__ = [
   "MAX_OUTPUT_IMAGE_PIXELS",
   "MIN_OUTPUT_IMAGE_PIXELS",
@@ -593,4 +613,5 @@ __all__ = [
   "execution_projection",
   "image_output_settings",
   "parse_reference_state",
+  "reference_loader_fingerprint",
 ]

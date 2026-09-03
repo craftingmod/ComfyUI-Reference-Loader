@@ -12,6 +12,7 @@ from .reference_loader_options_override import ReferenceLoaderOptionsOverrideNod
 from .reference_loader_raw_outputs import ReferenceLoaderRawOutputsNode
 from .reference_loader_raw_prompt import ReferenceLoaderRawPromptNode
 from .reference_loader_start_end_frames import ReferenceLoaderStartEndFramesNode
+from .reference_prompt_cache import ReferencePromptCacheNode
 
 __all__ = [
   "EMPTY_LOADER_STATE_JSON",
@@ -26,4 +27,5 @@ __all__ = [
   "ReferenceLoaderRawOutputsNode",
   "ReferenceLoaderRawPromptNode",
   "ReferenceLoaderStartEndFramesNode",
+  "ReferencePromptCacheNode",
 ]

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -16,9 +15,9 @@ from ..core.prompt_contract import (
 )
 from ..core.reference_contract import (
   ReferenceContractError,
-  execution_fingerprint,
   image_output_settings,
   parse_reference_state,
+  reference_loader_fingerprint,
 )
 from ..core.reference_manifest import (
   build_reference_manifest,
@@ -332,15 +331,22 @@ class ReferenceLoaderNode(io.ComfyNode):
       composite_alpha,
       alpha_background,
     )
-    media_fingerprint = execution_fingerprint(state, image_output=output_settings)
     prompt_document = parse_prompt_state(prompt)
     if prompt_by_order:
       prompt_document = rebind_prompt_mentions_by_order(prompt_document, state)
     prompt_state_json = serialize_prompt_document(prompt_document)
     compiled_prompt = compile_prompt(prompt_document, state)
-    return hashlib.sha256(
-      f"{media_fingerprint}\0{prompt_state_json}\0{compiled_prompt}".encode()
-    ).hexdigest()
+    manifest_json = json.dumps(
+      build_reference_manifest(state, image_output=output_settings),
+      ensure_ascii=False,
+      sort_keys=True,
+      separators=(",", ":"),
+    )
+    return reference_loader_fingerprint(
+      manifest_json,
+      prompt_state_json,
+      compiled_prompt,
+    )
 
   @classmethod
   def execute(
@@ -402,6 +408,7 @@ class ReferenceLoaderNode(io.ComfyNode):
       sort_keys=True,
       separators=(",", ":"),
     )
+    prompt_state_json = serialize_prompt_document(prompt_document)
     return io.NodeOutput(
       ReferenceLoaderBundle(
         images=loaded.images,
@@ -411,8 +418,13 @@ class ReferenceLoaderNode(io.ComfyNode):
         videos=loaded.videos,
         video_captions=plan.video_captions,
         manifest_json=manifest_json,
-        prompt_state_json=serialize_prompt_document(prompt_document),
+        prompt_state_json=prompt_state_json,
         compiled_prompt=compiled_prompt,
+        reference_fingerprint=reference_loader_fingerprint(
+          manifest_json,
+          prompt_state_json,
+          compiled_prompt,
+        ),
       ),
     )
 

@@ -79,6 +79,33 @@ def _bundle(module):
   )
 
 
+def _empty_bundle(module):
+  contract = importlib.import_module("backend.core.reference_contract")
+  manifest = importlib.import_module("backend.core.reference_manifest")
+  prompt_contract = importlib.import_module("backend.core.prompt_contract")
+  state = contract.parse_reference_state(
+    {
+      "version": 1,
+      "items": {},
+      "imageOrder": [],
+      "videoOrder": [],
+      "audioOrder": [],
+      "videoAudioPolicy": "preserve",
+    }
+  )
+  return module.ReferenceLoaderBundle(
+    images=(),
+    image_captions=(),
+    audios=(),
+    audio_captions=(),
+    videos=(),
+    video_captions=(),
+    manifest_json=json.dumps(manifest.build_reference_manifest(state)),
+    prompt_state_json=prompt_contract.EMPTY_PROMPT_STATE_JSON,
+    compiled_prompt="",
+  )
+
+
 def test_export_prompt_for_llm_schema_and_strict_yaml():
   module = importlib.import_module(
     "backend.nodes.reference_loader_export_prompt_for_llm"
@@ -119,6 +146,7 @@ def test_export_prompt_for_llm_schema_and_strict_yaml():
   assert schema.inputs[4].options["advanced"] is True
   assert schema.inputs[5].data_type == "LLAMA_SEQUENTIAL_RESPONSE"
   assert schema.inputs[5].options["optional"] is True
+  assert schema.inputs[5].options["lazy"] is True
   assert "list[dict]" in schema.inputs[5].options["tooltip"]
   assert schema.inputs[6].data_type == "string"
   assert schema.inputs[6].options["optional"] is True
@@ -134,6 +162,38 @@ def test_export_prompt_for_llm_schema_and_strict_yaml():
     "string",
     "string",
   ]
+
+
+def test_export_prompt_for_llm_does_not_evaluate_response_seq_without_media():
+  module = importlib.import_module(
+    "backend.nodes.reference_loader_export_prompt_for_llm"
+  )
+  bundle = _empty_bundle(module)
+
+  assert module.ReferenceLoaderExportPromptForLLMNode.check_lazy_status(
+    [bundle],
+    response_seq=None,
+  ) == []
+  assert module.ReferenceLoaderExportPromptForLLMNode.check_lazy_status(
+    [_bundle(module)],
+    response_seq=None,
+    response=None,
+  ) == ["response_seq"]
+  assert module.ReferenceLoaderExportPromptForLLMNode.check_lazy_status(
+    [_bundle(module)],
+    response_seq=(None,),
+    response=None,
+  ) == ["response_seq"]
+  prompt, references_yaml, generation_directives_yaml = (
+    module.ReferenceLoaderExportPromptForLLMNode.execute(
+      bundle,
+      response_format="json",
+      response_seq=[[{"unexpected": "response"}]],
+    )
+  )
+  assert "references:" in prompt
+  assert references_yaml.startswith("references:")
+  assert generation_directives_yaml == "generation_directives: {}"
 
   bundle = _bundle(module)
   additional_yaml = (
@@ -434,6 +494,51 @@ def test_export_prompt_for_llm_accepts_sequential_response_objects():
   parsed = yaml.safe_load(output[1])
   assert parsed["references"]["images"]["<Picture 1>"]["description"] == "image"
   assert parsed["references"]["audios"]["<Audio 1>"]["description"] == ("video audio")
+  assert parsed["references"]["videos"]["<Video 1>"]["description"] == "video"
+
+
+def test_export_prompt_for_llm_unwraps_single_list_transport_wrapper():
+  module = importlib.import_module(
+    "backend.nodes.reference_loader_export_prompt_for_llm"
+  )
+  bundle = _bundle(module)
+  response_seq = [
+    [
+      {
+        "request_index": 0,
+        "kind": "image",
+        "modality_index": 0,
+        "response": '{"description":"image"}',
+      },
+      {
+        "request_index": 1,
+        "kind": "audio",
+        "modality_index": 0,
+        "response": '{"description":"video audio"}',
+      },
+      {
+        "request_index": 2,
+        "kind": "audio",
+        "modality_index": 1,
+        "response": '{"description":"standalone audio"}',
+      },
+      {
+        "request_index": 3,
+        "kind": "video",
+        "modality_index": 0,
+        "response": '{"description":"video"}',
+      },
+    ]
+  ]
+
+  output = module.ReferenceLoaderExportPromptForLLMNode.execute(
+    bundle,
+    response_format="json",
+    response_seq=response_seq,
+  )
+
+  parsed = yaml.safe_load(output[1])
+  assert parsed["references"]["images"]["<Picture 1>"]["description"] == "image"
   assert parsed["references"]["videos"]["<Video 1>"]["description"] == "video"
 
 

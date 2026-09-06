@@ -58,6 +58,12 @@ function sectionColor(title: string): { color: string; index: number } {
   return { color: SECTION_COLOR_PALETTE[index], index }
 }
 
+function subjectColor(ordinal: number | undefined): string | undefined {
+  return ordinal === undefined
+    ? undefined
+    : SECTION_COLOR_PALETTE[(ordinal - 1) % SECTION_COLOR_PALETTE.length]
+}
+
 function textContentWithBreaks(container: Node): string {
   let value = ""
   const appendStructuralBreak = (): void => {
@@ -153,6 +159,8 @@ function makeSubjectChip(
   chip.dataset.subjectId = part.subjectId
   chip.dataset.label = label
   chip.title = subject ? `<Subject ${ordinal}> · #${label}` : `Unavailable subject: ${label}`
+  const color = subjectColor(ordinal)
+  if (color) chip.style.setProperty("--rl-prompt-subject-color", color)
   const icon = document.createElement("span")
   icon.className = "rl-prompt-subject-icon"
   icon.textContent = ordinal === undefined ? "S?" : `S${ordinal}`
@@ -1169,6 +1177,7 @@ export class ReferencePromptController {
         const icon = document.createElement("span")
         icon.className = "rl-prompt-subject-icon"
         icon.textContent = `S${ordinal + 1}`
+        icon.style.background = subjectColor(ordinal + 1) ?? ""
         const copy = document.createElement("span")
         const label = document.createElement("strong")
         label.textContent = `#${subject.label}`

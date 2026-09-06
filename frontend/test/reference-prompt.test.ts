@@ -662,6 +662,35 @@ describe("Reference Prompt section stack", () => {
     controller.destroy()
   })
 
+  test("gives each Subject a stable distinct color", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      subjects: [
+        { subjectId: "hero-id", label: "hero" },
+        { subjectId: "villain-id", label: "villain" },
+      ],
+      sections: [
+        {
+          title: "subject_definitions",
+          parts: [
+            { type: "subject", subjectId: "hero-id", label: "hero" },
+            { type: "text", text: " and " },
+            { type: "subject", subjectId: "villain-id", label: "villain" },
+          ],
+        },
+      ],
+    })
+    const { root, controller } = makeController([], serialized, {
+      presetId: "minimax_h3_reference",
+    })
+
+    const subjects = [...root.querySelectorAll<HTMLElement>(".rl-prompt-subject")]
+    expect(
+      subjects.map((subject) => subject.style.getPropertyValue("--rl-prompt-subject-color")),
+    ).toEqual(["#6ea8fe", "#8f9cf4"])
+    controller.destroy()
+  })
+
   test("keeps # literal when Subject authoring is disabled", () => {
     const { root, controller } = makeController([], undefined, { presetId: "freeform" })
     const scene = sectionBody(root, "scene")

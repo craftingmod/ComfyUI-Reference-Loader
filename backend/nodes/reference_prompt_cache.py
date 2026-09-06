@@ -4,6 +4,7 @@ import time
 
 from comfy_api.latest import io
 
+from .prompt_cache_common import invalidate_key_fingerprint
 from .reference_bundle import (
   REFERENCE_LOADER_BUNDLE_TYPE,
   ReferenceLoaderBundle,
@@ -13,13 +14,19 @@ from .reference_bundle import (
 
 def _cache_is_current(
   references: ReferenceLoaderBundle,
-  cached_hash: str,
+  cached_ref_hash: str,
   force_refresh: bool,
+  invalidate_key: str | None,
+  cached_invalidate_key: str,
 ) -> bool:
   return (
     not force_refresh
     and bool(references.reference_fingerprint)
-    and cached_hash == references.reference_fingerprint
+    and cached_ref_hash == references.reference_fingerprint
+    and (
+      invalidate_key is None
+      or cached_invalidate_key == invalidate_key_fingerprint(invalidate_key)
+    )
   )
 
 
@@ -31,7 +38,7 @@ class ReferencePromptCacheNode(io.ComfyNode):
       display_name="[Reference Loader] Reference Prompt Cache",
       category="reference/prompt",
       description=(
-        "Uses the cached prompt when the Reference Loader fingerprint is unchanged. "
+        "Uses the cached prompt when the Reference Loader fingerprint and optional invalidate key are unchanged. "
         "The live prompt input is evaluated only on a cache miss or forced refresh."
       ),
       search_aliases=[
@@ -69,13 +76,30 @@ class ReferencePromptCacheNode(io.ComfyNode):
           tooltip="Prompt produced by the LLM. It is skipped while the cache is current.",
         ),
         io.String.Input(
-          "cached_hash",
+          "invalidate_key",
+          optional=True,
+          force_input=True,
+          tooltip=(
+            "Optional string that invalidates the cached prompt when it changes."
+          ),
+        ),
+        io.String.Input(
+          "cached_ref_hash",
           default="",
           optional=True,
           socketless=True,
           advanced=True,
           extra_dict={"read_only": True, "disabled": True},
           tooltip="Workflow-persisted Reference Loader fingerprint for cached_prompt.",
+        ),
+        io.String.Input(
+          "cached_invalidate_key",
+          default="",
+          optional=True,
+          socketless=True,
+          advanced=True,
+          extra_dict={"read_only": True, "disabled": True},
+          tooltip="Workflow-persisted SHA-256 fingerprint of invalidate_key.",
         ),
       ],
       outputs=[
@@ -92,8 +116,10 @@ class ReferencePromptCacheNode(io.ComfyNode):
     references: ReferenceLoaderBundle,
     live_prompt: str | None = None,
     cached_prompt: str = "",
-    cached_hash: str = "",
+    cached_ref_hash: str = "",
     force_refresh: bool = False,
+    invalidate_key: str | None = None,
+    cached_invalidate_key: str = "",
   ) -> str:
     _ = live_prompt
     validate_reference_loader_bundle(references)
@@ -103,7 +129,7 @@ class ReferencePromptCacheNode(io.ComfyNode):
       )
     if force_refresh:
       return f"{references.reference_fingerprint}\0{time.time_ns()}"
-    return f"{references.reference_fingerprint}\0{cached_hash}\0{cached_prompt}"
+    return f"{references.reference_fingerprint}\0{cached_ref_hash}\0{cached_prompt}\0{invalidate_key!r}"
 
   @classmethod
   def check_lazy_status(
@@ -111,15 +137,23 @@ class ReferencePromptCacheNode(io.ComfyNode):
     references: ReferenceLoaderBundle,
     live_prompt: str | None = None,
     cached_prompt: str = "",
-    cached_hash: str = "",
+    cached_ref_hash: str = "",
     force_refresh: bool = False,
+    invalidate_key: str | None = None,
+    cached_invalidate_key: str = "",
   ) -> list[str]:
     validate_reference_loader_bundle(references)
     if not references.reference_fingerprint:
       raise ValueError(
         "Reference Prompt Cache requires a Reference Loader bundle fingerprint."
       )
-    if _cache_is_current(references, cached_hash, force_refresh):
+    if _cache_is_current(
+      references,
+      cached_ref_hash,
+      force_refresh,
+      invalidate_key,
+      cached_invalidate_key,
+    ):
       return []
     return [] if live_prompt is not None else ["live_prompt"]
 
@@ -129,15 +163,23 @@ class ReferencePromptCacheNode(io.ComfyNode):
     references: ReferenceLoaderBundle,
     live_prompt: str | None = None,
     cached_prompt: str = "",
-    cached_hash: str = "",
+    cached_ref_hash: str = "",
     force_refresh: bool = False,
+    invalidate_key: str | None = None,
+    cached_invalidate_key: str = "",
   ) -> io.NodeOutput:
     validate_reference_loader_bundle(references)
     if not references.reference_fingerprint:
       raise ValueError(
         "Reference Prompt Cache requires a Reference Loader bundle fingerprint."
       )
-    if _cache_is_current(references, cached_hash, force_refresh):
+    if _cache_is_current(
+      references,
+      cached_ref_hash,
+      force_refresh,
+      invalidate_key,
+      cached_invalidate_key,
+    ):
       return io.NodeOutput(cached_prompt)
     if live_prompt is None:
       raise ValueError(
@@ -147,7 +189,8 @@ class ReferencePromptCacheNode(io.ComfyNode):
       live_prompt,
       ui={
         "cached_prompt": [live_prompt],
-        "cached_hash": [references.reference_fingerprint],
+        "cached_ref_hash": [references.reference_fingerprint],
+        "cached_invalidate_key": [invalidate_key_fingerprint(invalidate_key)],
       },
     )
 

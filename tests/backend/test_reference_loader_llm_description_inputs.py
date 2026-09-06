@@ -173,6 +173,20 @@ def test_llm_description_inputs_use_trimmed_values_and_fallbacks():
   ]
 
 
+def test_default_video_prompt_summarizes_temporal_order():
+  module = importlib.import_module(
+    "backend.nodes.reference_loader_llm_description_inputs"
+  )
+
+  normalized_prompt = " ".join(module.DEFAULT_VIDEO_PROMPT.split())
+  assert "Summarize temporal_order with key events and major changes" in (
+    normalized_prompt
+  )
+  assert "do not enumerate every small action or fixed time interval" in (
+    normalized_prompt
+  )
+
+
 def test_llm_description_inputs_emit_sequential_manifest():
   module = importlib.import_module(
     "backend.nodes.reference_loader_llm_description_inputs"

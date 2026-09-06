@@ -254,8 +254,22 @@ def _response_items(value: Any) -> list[Any]:
   if value is None:
     return []
   if isinstance(value, (list, tuple)):
-    return list(value)
+    items = list(value)
+    # ComfyUI can preserve an OUTPUT_IS_LIST value as one item when it crosses
+    # an INPUT_IS_LIST boundary. Unwrap that one transport wrapper, but do not
+    # flatten arbitrary nested response values.
+    if len(items) == 1 and isinstance(items[0], (list, tuple)):
+      return list(items[0])
+    return items
   return [value]
+
+
+def _is_unavailable_input_list_value(value: Any) -> bool:
+  return value is None or (
+    isinstance(value, (list, tuple))
+    and len(value) == 1
+    and value[0] is None
+  )
 
 
 def _response_fields(
@@ -315,6 +329,8 @@ def _description_overlays(
     "audios": len(plan.audio_ids),
     "videos": len(plan.video_ids),
   }
+  if not any(expected_counts.values()):
+    return None
   response_values = _response_items(response)
   sequence_values = _response_items(response_seq)
   if response_values and sequence_values:
@@ -322,6 +338,7 @@ def _description_overlays(
   values = sequence_values or response_values
   if not values:
     return None
+  response_label = "response_seq" if sequence_values else "response"
   expected_slots = [
     *(("image", index) for index in range(expected_counts["images"])),
     *(("audio", index) for index in range(expected_counts["audios"])),
@@ -329,7 +346,7 @@ def _description_overlays(
   ]
   if len(values) != len(expected_slots):
     raise ValueError(
-      "response must contain exactly "
+      f"{response_label} must contain exactly "
       f"{len(expected_slots)} responses in media-major image, audio, video order; "
       f"received {len(values)}."
     )
@@ -371,7 +388,7 @@ def _description_overlays(
       response_value = value.get("response")
     descriptions_by_kind[description_key][expected_modality_index] = _response_fields(
       response_value,
-      "response_seq" if sequence_values else "response",
+      response_label,
       response_index,
       response_format,
     )
@@ -597,6 +614,7 @@ class ReferenceLoaderExportPromptForLLMNode(io.ComfyNode):
         LLAMA_SEQUENTIAL_RESPONSE_TYPE.Input(
           "response_seq",
           optional=True,
+          lazy=True,
           tooltip=(
             "Optional list[dict] of LLAMA_SEQUENTIAL_RESPONSE objects from "
             "Llama.cpp Sequential Generate."
@@ -632,6 +650,31 @@ class ReferenceLoaderExportPromptForLLMNode(io.ComfyNode):
         ),
       ],
     )
+
+  @classmethod
+  def check_lazy_status(
+    cls,
+    references: Any,
+    seconds: Any = 6.0,
+    additional_yaml: Any = "",
+    response_format: Any = "text",
+    response_seq: Any = None,
+    response: Any = None,
+    style: Any = "none",
+  ) -> list[str]:
+    bundle = _unwrap_scalar(references, "references")
+    if bundle is None:
+      return []
+    state = validate_reference_loader_bundle(bundle)
+    plan = build_reference_output_plan(state)
+    media_count = len(plan.image_ids) + len(plan.audio_ids) + len(plan.video_ids)
+    if (
+      media_count == 0
+      or response is not None
+      or not _is_unavailable_input_list_value(response_seq)
+    ):
+      return []
+    return ["response_seq"]
 
   @classmethod
   def fingerprint_inputs(

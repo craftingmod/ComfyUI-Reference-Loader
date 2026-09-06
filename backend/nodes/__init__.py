@@ -1,5 +1,6 @@
 from .load_reference_image import LoadReferenceImageNode
 from .minimax_h3_reference_wrapper import MiniMaxH3ReferenceToVideoWrapperNode
+from .prompt_live_cache import PromptLiveCacheNode
 from .reference_bundle import REFERENCE_LOADER_BUNDLE_TYPE, ReferenceLoaderBundle
 from .reference_loader import EMPTY_LOADER_STATE_JSON, ReferenceLoaderNode
 from .reference_loader_export_prompt_for_llm import (
@@ -19,6 +20,7 @@ __all__ = [
   "REFERENCE_LOADER_BUNDLE_TYPE",
   "LoadReferenceImageNode",
   "MiniMaxH3ReferenceToVideoWrapperNode",
+  "PromptLiveCacheNode",
   "ReferenceLoaderBundle",
   "ReferenceLoaderExportPromptForLLMNode",
   "ReferenceLoaderLLMDescriptionInputsNode",

@@ -1,6 +1,7 @@
 from .backend import (
   LoadReferenceImageNode,
   MiniMaxH3ReferenceToVideoWrapperNode,
+  PromptLiveCacheNode,
   ReferenceLoaderExportPromptForLLMNode,
   ReferenceLoaderExtension,
   ReferenceLoaderLLMDescriptionInputsNode,
@@ -25,6 +26,7 @@ __all__ = [
   "WEB_DIRECTORY",
   "LoadReferenceImageNode",
   "MiniMaxH3ReferenceToVideoWrapperNode",
+  "PromptLiveCacheNode",
   "ReferenceLoaderExportPromptForLLMNode",
   "ReferenceLoaderExtension",
   "ReferenceLoaderLLMDescriptionInputsNode",

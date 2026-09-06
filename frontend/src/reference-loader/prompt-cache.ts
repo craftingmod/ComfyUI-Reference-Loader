@@ -8,6 +8,7 @@ import type {
 } from "../comfyui.ts"
 
 export const REFERENCE_PROMPT_CACHE_NODE_TYPE = "Alyac_ReferencePromptCache"
+export const PROMPT_LIVE_CACHE_NODE_TYPE = "Alyac_PromptLiveCache"
 
 type GraphLike = {
   getNodeById(id: string): ComfyNode | null
@@ -46,35 +47,54 @@ export function registerReferencePromptCache(
     const output = detail?.output
     if (!output) return
     const prompt = outputValue(output.cached_prompt)
-    const hash = outputValue(output.cached_hash)
-    if (prompt === undefined && hash === undefined) return
+    const refHash = outputValue(output.cached_ref_hash)
+    const invalidateKey = outputValue(output.cached_invalidate_key)
+    if (prompt === undefined && refHash === undefined && invalidateKey === undefined) return
 
     const node = [detail.node, detail.display_node]
       .map((id) => findExecutionNode(app, String(id)))
       .find((candidate) => candidate !== undefined)
-    if (!node || (node.type ?? node.comfyClass) !== REFERENCE_PROMPT_CACHE_NODE_TYPE) return
+    if (!node || !isPromptCacheNode(node)) return
 
     if (prompt !== undefined) setWidgetValue(node, "cached_prompt", prompt)
-    if (hash !== undefined) setWidgetValue(node, "cached_hash", hash)
+    if (refHash !== undefined) setWidgetValue(node, "cached_ref_hash", refHash)
+    if (invalidateKey !== undefined) {
+      setWidgetValue(node, "cached_invalidate_key", invalidateKey)
+    }
     node.setDirtyCanvas(true, true)
   }) as EventListener)
 }
 
 function setCacheWidgetsReadOnly(node: ComfyNode): void {
-  if ((node.type ?? node.comfyClass) !== REFERENCE_PROMPT_CACHE_NODE_TYPE) return
+  if (!isPromptCacheNode(node)) return
   const prompt = node.widgets?.find((candidate) => candidate.name === "cached_prompt")
   if (prompt) {
     setWidgetEditable(prompt)
     setWidgetElementState(prompt, false)
   }
 
-  const hash = node.widgets?.find((candidate) => candidate.name === "cached_hash")
-  if (!hash) return
-  hash.options = { ...(hash.options ?? {}), read_only: true, disabled: true }
-  hash.disabled = true
-  hash.computedDisabled = true
-  setWidgetElementState(hash, true)
-  moveWidgetToEnd(node, hash)
+  const refHash = node.widgets?.find(
+    (candidate) => candidate.name === "cached_ref_hash",
+  )
+  const invalidateKey = node.widgets?.find(
+    (candidate) => candidate.name === "cached_invalidate_key",
+  )
+  for (const widget of [refHash, invalidateKey]) {
+    if (!widget) continue
+    widget.options = { ...(widget.options ?? {}), read_only: true, disabled: true }
+    widget.disabled = true
+    widget.computedDisabled = true
+    setWidgetElementState(widget, true)
+    moveWidgetToEnd(node, widget)
+  }
+}
+
+function isPromptCacheNode(node: ComfyNode): boolean {
+  return [node.type, node.comfyClass].some(
+    (nodeType) =>
+      nodeType === REFERENCE_PROMPT_CACHE_NODE_TYPE ||
+      nodeType === PROMPT_LIVE_CACHE_NODE_TYPE,
+  )
 }
 
 function setWidgetEditable(widget: ComfyWidget): void {

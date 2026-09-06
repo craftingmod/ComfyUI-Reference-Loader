@@ -5,6 +5,7 @@ from comfy_api.latest import ComfyExtension, io
 from .nodes import (
   LoadReferenceImageNode,
   MiniMaxH3ReferenceToVideoWrapperNode,
+  PromptLiveCacheNode,
   ReferenceLoaderExportPromptForLLMNode,
   ReferenceLoaderLLMDescriptionInputsNode,
   ReferenceLoaderNode,
@@ -25,6 +26,7 @@ class ReferenceLoaderExtension(ComfyExtension):
       LoadReferenceImageNode,
       ReferenceLoaderOptionsOverrideNode,
       ReferencePromptCacheNode,
+      PromptLiveCacheNode,
       ReferenceLoaderExportPromptForLLMNode,
       ReferenceLoaderLLMDescriptionInputsNode,
       ReferenceLoaderRawOutputsNode,
@@ -42,6 +44,7 @@ async def comfy_entrypoint() -> ReferenceLoaderExtension:
 __all__ = [
   "LoadReferenceImageNode",
   "MiniMaxH3ReferenceToVideoWrapperNode",
+  "PromptLiveCacheNode",
   "ReferenceLoaderExportPromptForLLMNode",
   "ReferenceLoaderExtension",
   "ReferenceLoaderLLMDescriptionInputsNode",

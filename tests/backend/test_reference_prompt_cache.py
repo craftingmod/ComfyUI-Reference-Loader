@@ -1,3 +1,4 @@
+import hashlib
 import importlib
 import json
 
@@ -38,11 +39,41 @@ def test_reference_prompt_cache_skips_lazy_prompt_when_hash_matches():
   assert node.define_schema().node_id == "Alyac_ReferencePromptCache"
   schema_inputs = node.define_schema().inputs
   inputs = {item.name: item.options for item in schema_inputs}
-  assert schema_inputs[-1].name == "cached_hash"
+  assert schema_inputs[-1].name == "cached_invalidate_key"
   assert inputs["cached_prompt"].get("extra_dict", {}) == {}
-  assert inputs["cached_hash"]["extra_dict"] == {"read_only": True, "disabled": True}
+  assert inputs["cached_ref_hash"]["extra_dict"] == {
+    "read_only": True,
+    "disabled": True,
+  }
+  assert inputs["cached_invalidate_key"]["extra_dict"] == {
+    "read_only": True,
+    "disabled": True,
+  }
   assert node.check_lazy_status(bundle, None, "cached", "a" * 64, False) == []
   assert node.execute(bundle, None, "cached", "a" * 64, False) == ("cached",)
+
+
+def test_reference_prompt_cache_invalidates_when_invalidate_key_changes():
+  module = importlib.import_module("backend.nodes.reference_prompt_cache")
+  bundle = _bundle()
+  node = module.ReferencePromptCacheNode
+
+  key = "fl2v|seed=42"
+  key_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()
+  assert node.check_lazy_status(bundle, None, "cached", "a" * 64, False, key, "") == [
+    "live_prompt"
+  ]
+  assert (
+    node.check_lazy_status(bundle, None, "cached", "a" * 64, False, key, key_hash) == []
+  )
+
+  output = node.execute(bundle, "live", "cached", "a" * 64, False, key, "stale")
+  assert output == ("live",)
+  assert output.ui == {
+    "cached_prompt": ["live"],
+    "cached_ref_hash": ["a" * 64],
+    "cached_invalidate_key": [key_hash],
+  }
 
 
 def test_reference_prompt_cache_refreshes_and_persists_ui_values():
@@ -59,7 +90,8 @@ def test_reference_prompt_cache_refreshes_and_persists_ui_values():
   assert output == ("live",)
   assert output.ui == {
     "cached_prompt": ["live"],
-    "cached_hash": ["a" * 64],
+    "cached_ref_hash": ["a" * 64],
+    "cached_invalidate_key": [""],
   }
   assert module.ReferencePromptCacheNode.check_lazy_status(
     bundle, None, "cached", "stale", True

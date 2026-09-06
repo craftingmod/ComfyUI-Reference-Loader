@@ -61,7 +61,9 @@ DEFAULT_VIDEO_PROMPT = """Describe this video.
 Include the subjects, actions, scene changes, camera movement, composition,
 setting, lighting, and important audio when present.
 
-Use timestamps for important events when possible.
+Use timestamps only for important events when possible. Summarize
+temporal_order with key events and major changes; do not enumerate every
+small action or fixed time interval.
 Focus on observable events and do not infer hidden context."""
 
 

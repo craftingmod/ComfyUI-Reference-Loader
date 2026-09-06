@@ -21,6 +21,7 @@ def test_backend_package_exports_v3_extension():
     module.LoadReferenceImageNode,
     module.ReferenceLoaderOptionsOverrideNode,
     module.ReferencePromptCacheNode,
+    module.PromptLiveCacheNode,
     module.ReferenceLoaderExportPromptForLLMNode,
     module.ReferenceLoaderLLMDescriptionInputsNode,
     module.ReferenceLoaderRawOutputsNode,
@@ -31,6 +32,7 @@ def test_backend_package_exports_v3_extension():
   assert module.__all__ == [
     "LoadReferenceImageNode",
     "MiniMaxH3ReferenceToVideoWrapperNode",
+    "PromptLiveCacheNode",
     "ReferenceLoaderExportPromptForLLMNode",
     "ReferenceLoaderExtension",
     "ReferenceLoaderLLMDescriptionInputsNode",

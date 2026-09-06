@@ -89,6 +89,7 @@
   outline: none;
   background: var(--rl-panel);
   color: var(--rl-text);
+  cursor: text;
   line-height: 1.55;
   overflow-wrap: anywhere;
   user-select: text;
@@ -210,6 +211,7 @@
   padding: 7px 9px;
   outline: none;
   color: var(--rl-text);
+  cursor: text;
   line-height: 1.55;
   overflow-wrap: anywhere;
   user-select: text;
@@ -232,6 +234,7 @@
   outline: none;
   color: var(--rl-text);
   background: color-mix(in srgb, var(--rl-panel) 65%, transparent);
+  cursor: text;
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   font-size: 11px;
   line-height: 18px;
@@ -267,9 +270,11 @@
 }
 
 .rl-prompt-subject {
-  border-color: color-mix(in srgb, #c18cff 72%, var(--rl-border));
-  color: #e7c9ff;
-  background: color-mix(in srgb, #7b42a8 22%, var(--rl-bg));
+  --rl-prompt-subject-color: #c18cff;
+
+  border-color: color-mix(in srgb, var(--rl-prompt-subject-color) 72%, var(--rl-border));
+  color: color-mix(in srgb, var(--rl-prompt-subject-color) 70%, #fff);
+  background: color-mix(in srgb, var(--rl-prompt-subject-color) 22%, var(--rl-bg));
 }
 
 .rl-prompt-mention > img,
@@ -288,7 +293,7 @@
   flex: none;
   place-items: center;
   color: #fff;
-  background: #69328f;
+  background: var(--rl-prompt-subject-color, #69328f);
   font-size: 10px;
   font-weight: 800;
 }

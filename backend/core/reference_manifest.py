@@ -230,6 +230,8 @@ def parse_reference_manifest_state(value: str | Mapping[str, Any]) -> ReferenceS
       "startImageId": raw_timeline.get("start_image_id"),
       "endImageId": raw_timeline.get("end_image_id"),
       "guides": guides,
+      "disabledVisualIds": raw_timeline.get("disabled_visual_ids", []),
+      "disabledAudioIds": raw_timeline.get("disabled_audio_ids", []),
     }
 
   state_payload: dict[str, Any] = {

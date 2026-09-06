@@ -11,7 +11,10 @@ import {
   validateH3Timeline,
 } from "../src/reference-loader/h3-media-guides.ts"
 import { loaderReducer } from "../src/reference-loader/reducer.ts"
-import { serializeLoaderState } from "../src/reference-loader/serialization.ts"
+import {
+  deserializeLoaderState,
+  serializeLoaderState,
+} from "../src/reference-loader/serialization.ts"
 import {
   createEmptyLoaderState,
   createMediaItem,
@@ -35,6 +38,13 @@ function stateWithImage() {
     type: "add",
     item: createMediaItem("image", source("scene.png", "image/png"), "scene"),
   })
+}
+
+function addGuide(root: HTMLElement, frame: string): void {
+  const input = root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')
+  if (!input) throw new Error("Missing Guide frame input.")
+  input.value = frame
+  root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
 }
 
 describe("Reference Loader Media Timeline integration", () => {
@@ -99,12 +109,59 @@ describe("Reference Loader Media Timeline integration", () => {
     )
 
     expect(root.querySelector(".rl-h3-media-guides")).not.toBeNull()
-    expect(root.querySelector('.rl-channel[data-channel="image"] .rl-h3-editor-overlay')).toBeNull()
+    expect(root.querySelector('.rl-channel[data-channel="image"] > .rl-h3-editor')).toBeNull()
+    expect(
+      root.querySelector('.rl-card[data-id="scene"]')?.classList.contains("rl-card--has-caption"),
+    ).toBe(true)
+    expect(
+      root
+        .querySelector('.rl-card[data-id="scene"] textarea[data-field="caption"]')
+        ?.getAttribute("rows"),
+    ).toBe("2")
     expect(
       root.querySelector('.rl-card[data-id="scene"] .rl-h3-card-badge.is-reference')?.textContent,
     ).toBe("Ref #1")
     root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
-    root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
+    expect(
+      root.querySelector('.rl-card[data-id="scene"]')?.classList.contains("rl-card--has-caption"),
+    ).toBe(false)
+    expect(root.querySelector('.rl-card[data-id="scene"] .rl-h3-editor')).not.toBeNull()
+    expect(root.querySelector('.rl-card[data-id="scene"] > [data-h3-card-editor]')).not.toBeNull()
+    expect(
+      root.querySelector('.rl-card[data-id="scene"] .rl-card__body [data-h3-editor]'),
+    ).not.toBeNull()
+    expect(root.querySelector('.rl-card[data-id="scene"] .rl-h3-editor__stack-header')).toBeNull()
+    expect(root.querySelector('.rl-card[data-id="scene"] .rl-h3-editor__title')?.textContent).toBe(
+      "scene.png",
+    )
+    expect(
+      root.querySelector('.rl-card[data-id="scene"] .rl-h3-editor__footer > .rl-h3-editor__title'),
+    ).not.toBeNull()
+    expect(
+      root.querySelector('.rl-card[data-id="scene"] .rl-h3-editor--stack .rl-h3-editor__title'),
+    ).toBeNull()
+    expect(
+      root.querySelector('.rl-card[data-id="scene"] .rl-h3-editor__title')?.textContent,
+    ).not.toContain("Image ·")
+    expect(
+      root.querySelector('.rl-card[data-id="scene"] [data-h3-action="add-draft-placement"]'),
+    ).not.toBeNull()
+    expect(
+      root.querySelector(
+        '.rl-card[data-id="scene"] .rl-h3-editor__add-form [data-h3-action="add-draft-placement"]',
+      ),
+    ).not.toBeNull()
+    expect(
+      root.querySelector(
+        '.rl-card[data-id="scene"] .rl-h3-editor__stack-header [data-h3-action="add-draft-placement"]',
+      ),
+    ).toBeNull()
+    expect(root.querySelector('.rl-card[data-id="scene"] > .rl-h3-editor--stack')).not.toBeNull()
+    expect(
+      root.querySelector('.rl-card[data-id="scene"] [data-h3-draft-field="visual"]'),
+    ).toBeNull()
+    expect(root.querySelector('.rl-card[data-id="scene"] [data-h3-draft-field="audio"]')).toBeNull()
+    addGuide(root, "0")
     expect(root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')?.disabled).toBe(
       false,
     )
@@ -118,11 +175,17 @@ describe("Reference Loader Media Timeline integration", () => {
       [...root.querySelectorAll('.rl-card[data-id="scene"] .rl-h3-card-badge')].map(
         (badge) => badge.textContent,
       ),
-    ).toEqual(["Ref #1", "Guide #1", "0f"])
+    ).toEqual(["Ref #1", "Guide #1", "0f", "Paused"])
     expect(root.querySelector('.rl-card[data-id="scene"] .rl-guide-index')?.textContent).toBe("G#1")
-    expect(root.querySelector('.rl-card[data-id="scene"] .rl-h3-card-badge.is-reference')).not.toBeNull()
-    expect(root.querySelector('.rl-card[data-id="scene"] .rl-h3-card-badge.is-guide')).not.toBeNull()
-    expect(root.querySelector('.rl-card[data-id="scene"] .rl-h3-card-badge.is-order')?.textContent).toBe("0f")
+    expect(
+      root.querySelector('.rl-card[data-id="scene"] .rl-h3-card-badge.is-reference'),
+    ).not.toBeNull()
+    expect(
+      root.querySelector('.rl-card[data-id="scene"] .rl-h3-card-badge.is-guide'),
+    ).not.toBeNull()
+    expect(
+      root.querySelector('.rl-card[data-id="scene"] .rl-h3-card-badge.is-order')?.textContent,
+    ).toBe("0f")
     expect(
       root.querySelector('.rl-card[data-id="scene"]')?.classList.contains("is-output-disabled"),
     ).toBe(false)
@@ -130,7 +193,89 @@ describe("Reference Loader Media Timeline integration", () => {
     controller.destroy()
   })
 
-  test("edits Start and End roles from the Media overlay", () => {
+  test("renders every Guide role and frame badge", () => {
+    let state = stateWithImage()
+    state = loaderReducer(state, { type: "toggle-h3-timeline", enabled: true })
+    state = loaderReducer(state, {
+      type: "apply-h3-media-edit",
+      mediaId: "scene",
+      channel: "visual",
+      referenceEnabled: true,
+      timeline: {
+        ...state.h3Timeline,
+        startImageId: "scene",
+        endImageId: "scene",
+        guides: [
+          { id: "g2", frameIndex: 60, visualId: "scene", audioId: null },
+          { id: "g1", frameIndex: 30, visualId: "scene", audioId: null },
+        ],
+      },
+    })
+    const root = document.createElement("div")
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
+      serializeLoaderState(state),
+    )
+
+    expect(
+      [...root.querySelectorAll('.rl-card[data-id="scene"] .rl-h3-card-badge')].map(
+        (badge) => badge.textContent,
+      ),
+    ).toEqual(["Ref #1", "Guide #1", "Start", "30f", "60f", "End"])
+    expect(root.querySelector('.rl-card[data-id="scene"] .rl-h3-card-badge__more')).toBeNull()
+    controller.destroy()
+  })
+
+  test("toggles one card Guide without deleting its saved placements", () => {
+    let state = stateWithImage()
+    state = loaderReducer(state, {
+      type: "set-h3-timeline",
+      timeline: {
+        ...state.h3Timeline,
+        enabled: true,
+        startImageId: "scene",
+        guides: [{ id: "saved-guide", frameIndex: 48, visualId: "scene", audioId: null }],
+      },
+    })
+    const savedTimeline = state.h3Timeline
+    const root = document.createElement("div")
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
+      serializeLoaderState(state),
+    )
+
+    const button = () =>
+      root.querySelector<HTMLButtonElement>('[data-action="toggle-h3-guide"][data-id="scene"]')
+    expect(button()?.getAttribute("aria-pressed")).toBe("true")
+    button()?.click()
+    expect(controller.state.h3Timeline).toMatchObject({
+      enabled: true,
+      startImageId: "scene",
+      guides: savedTimeline.guides,
+      disabledVisualIds: ["scene"],
+    })
+    expect(button()?.getAttribute("aria-pressed")).toBe("false")
+    expect(
+      [...root.querySelectorAll('.rl-card[data-id="scene"] .rl-h3-card-badge')].map(
+        (badge) => badge.textContent,
+      ),
+    ).toEqual(["Ref #1", "Guide off"])
+    expect(root.querySelector('.rl-card[data-id="scene"] .rl-guide-index')).toBeNull()
+    expect(deserializeLoaderState(serializeLoaderState(controller.state)).state).toEqual(
+      controller.state,
+    )
+
+    button()?.click()
+    expect(controller.state.h3Timeline).toEqual(savedTimeline)
+    expect(button()?.getAttribute("aria-pressed")).toBe("true")
+    controller.destroy()
+  })
+
+  test("edits Start and End roles from the card Guide stack", () => {
     const state = stateWithImage()
     const root = document.createElement("div")
     const controller = new ReferenceLoaderController(
@@ -141,11 +286,12 @@ describe("Reference Loader Media Timeline integration", () => {
     )
 
     root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
-    for (const role of ["start", "end"]) {
-      const input = root.querySelector<HTMLInputElement>(`[data-h3-draft-role="${role}"]`)
-      if (!input) throw new Error(`Missing ${role} role input.`)
-      input.checked = true
-      input.dispatchEvent(new Event("change", { bubbles: true }))
+    for (const role of ["start", "end"] as const) {
+      const position = root.querySelector<HTMLSelectElement>('[data-h3-add-field="position"]')
+      if (!position) throw new Error("Missing Guide position input.")
+      position.value = role
+      position.dispatchEvent(new Event("change", { bubbles: true }))
+      root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
     }
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')?.click()
 
@@ -226,8 +372,8 @@ describe("Reference Loader Media Timeline integration", () => {
     root
       .querySelector<HTMLButtonElement>('[data-action="toggle-h3-guide"][data-id="scene"]')
       ?.click()
-    expect(root.querySelector(".rl-card-grid.has-h3-editor .rl-h3-editor-overlay")).not.toBeNull()
-    root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
+    expect(root.querySelector('.rl-card[data-id="scene"] .rl-h3-editor')).not.toBeNull()
+    addGuide(root, "0")
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')?.click()
 
     expect(controller.state.items.scene).toMatchObject({ imageEnabled: true })
@@ -236,6 +382,189 @@ describe("Reference Loader Media Timeline integration", () => {
       visualId: "scene",
       frameIndex: 0,
     })
+    controller.destroy()
+  })
+
+  test("keeps the editor inside one card and orders Start, guides, and End", () => {
+    let state = stateWithImage()
+    state = loaderReducer(state, {
+      type: "add",
+      item: createMediaItem("image", source("second.png", "image/png"), "second"),
+    })
+    state = loaderReducer(state, {
+      type: "set-h3-timeline",
+      timeline: {
+        ...state.h3Timeline,
+        startImageId: "scene",
+        endImageId: "scene",
+        guides: [{ id: "middle", frameIndex: 48, visualId: "scene", audioId: null }],
+      },
+    })
+    const root = document.createElement("div")
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
+      serializeLoaderState(state),
+    )
+
+    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
+    const card = root.querySelector('.rl-card[data-id="scene"][data-channel="image"]')
+    expect(card?.querySelector("[data-h3-editor]")).not.toBeNull()
+    expect(root.querySelector('.rl-card[data-id="second"] [data-h3-editor]')).toBeNull()
+    expect(root.querySelector('.rl-card[data-channel="audio"] [data-h3-editor]')).toBeNull()
+    expect(root.querySelector(".rl-card-grid > [data-h3-editor]")).toBeNull()
+    expect(
+      [...(card?.querySelectorAll<HTMLElement>(".rl-h3-editor__placement") ?? [])].map((row) =>
+        row.dataset.h3Role === "start"
+          ? "Start"
+          : row.dataset.h3Role === "end"
+            ? "End"
+            : `${row.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')?.value}f`,
+      ),
+    ).toEqual(["Start", "48f", "End"])
+    expect(card?.querySelector('[data-h3-add-field="position"]')).not.toBeNull()
+    controller.destroy()
+  })
+
+  test("rejects an empty, fractional, negative, or duplicate frame without changing the draft", () => {
+    const state = stateWithImage()
+    const root = document.createElement("div")
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
+      serializeLoaderState(state),
+    )
+    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
+    const before = controller.serialize()
+    root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
+    expect(root.querySelector("[data-h3-add-error]")?.textContent).toContain("non-negative integer")
+    expect(
+      root.querySelectorAll('.rl-card[data-id="scene"] .rl-h3-editor__placement'),
+    ).toHaveLength(0)
+    const add = (value: string) => {
+      const input = root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')
+      if (!input) throw new Error("Missing Guide frame input.")
+      input.value = value
+      root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
+    }
+    add("1.5")
+    expect(root.querySelector("[data-h3-add-error]")?.textContent).toContain("non-negative integer")
+    add("-1")
+    expect(root.querySelector("[data-h3-add-error]")?.textContent).toContain("non-negative integer")
+    add("48")
+    expect(
+      root.querySelectorAll('.rl-card[data-id="scene"] .rl-h3-editor__placement'),
+    ).toHaveLength(1)
+    add("48")
+    expect(root.querySelector("[data-h3-add-error]")?.textContent).toContain("overlaps")
+    expect(controller.serialize()).toBe(before)
+    controller.destroy()
+  })
+
+  test("deletes only the current side and splits a paired guide when its frame changes", () => {
+    const image = createMediaItem("image", source("scene.png", "image/png"), "scene")
+    const audio = createMediaItem("audio", source("voice.wav", "audio/wav"), "voice")
+    let state = createEmptyLoaderState()
+    state = loaderReducer(state, { type: "add", item: image })
+    state = loaderReducer(state, { type: "add", item: audio })
+    state = loaderReducer(state, {
+      type: "set-h3-timeline",
+      timeline: {
+        ...state.h3Timeline,
+        guides: [{ id: "paired", frameIndex: 48, visualId: "scene", audioId: "voice" }],
+      },
+    })
+    const root = document.createElement("div")
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
+      serializeLoaderState(state),
+    )
+
+    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
+    const frame = root.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')
+    if (!frame) throw new Error("Missing paired frame input.")
+    frame.value = "96"
+    frame.dispatchEvent(new Event("input", { bubbles: true }))
+    frame.dispatchEvent(new Event("change", { bubbles: true }))
+    expect(
+      root.querySelectorAll('.rl-card[data-id="scene"] .rl-h3-editor__placement'),
+    ).toHaveLength(1)
+    expect(root.querySelector('.rl-card[data-id="scene"] [data-h3-guide-id="paired"]')).toBeNull()
+    root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')?.click()
+    expect(controller.state.h3Timeline.guides).toEqual([
+      { id: "paired", frameIndex: 48, visualId: null, audioId: "voice" },
+      { id: expect.any(String), frameIndex: 96, visualId: "scene", audioId: null },
+    ])
+    controller.destroy()
+  })
+
+  test("blocks a dirty editor from switching to another Media card", () => {
+    let state = stateWithImage()
+    state = loaderReducer(state, {
+      type: "add",
+      item: createMediaItem("image", source("second.png", "image/png"), "second"),
+    })
+    const root = document.createElement("div")
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
+      serializeLoaderState(state),
+    )
+    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
+    addGuide(root, "48")
+    root
+      .querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="second"]')
+      ?.click()
+    expect(root.querySelector('.rl-card[data-id="scene"] [data-h3-editor]')).not.toBeNull()
+    expect(root.querySelector('.rl-card[data-id="second"] [data-h3-editor]')).toBeNull()
+    expect(root.querySelector(".rl-status")?.textContent).toContain("Apply or cancel")
+    controller.destroy()
+  })
+
+  test("reports a Start owner conflict and limits standalone Audio to frame guides", () => {
+    let state = stateWithImage()
+    state = loaderReducer(state, {
+      type: "add",
+      item: createMediaItem("image", source("second.png", "image/png"), "second"),
+    })
+    state = loaderReducer(state, {
+      type: "add",
+      item: createMediaItem("audio", source("voice.wav", "audio/wav"), "voice"),
+    })
+    state = loaderReducer(state, {
+      type: "set-h3-timeline",
+      timeline: { ...state.h3Timeline, startImageId: "scene" },
+    })
+    const root = document.createElement("div")
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
+      serializeLoaderState(state),
+    )
+    root
+      .querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="second"]')
+      ?.click()
+    const position = root.querySelector<HTMLSelectElement>('[data-h3-add-field="position"]')
+    if (!position) throw new Error("Missing Guide position input.")
+    position.value = "start"
+    root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
+    expect(root.querySelector("[data-h3-add-error]")?.textContent).toContain("Image · scene.png")
+    root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')?.click()
+
+    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="voice"]')?.click()
+    expect(root.querySelector('[data-h3-add-field="position"] option[value="start"]')).toBeNull()
+    expect(root.querySelector('[data-h3-add-field="position"] option[value="end"]')).toBeNull()
+    addGuide(root, "24")
+    root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')?.click()
+    expect(controller.state.h3Timeline.guides).toEqual([
+      { id: expect.any(String), frameIndex: 24, visualId: null, audioId: "voice" },
+    ])
     controller.destroy()
   })
 
@@ -264,9 +593,14 @@ describe("Reference Loader Media Timeline integration", () => {
       .querySelector<HTMLButtonElement>('[data-action="toggle-h3-guide"][data-id="scene"]')
       ?.click()
 
-    expect(controller.state.h3Timeline.guides).toEqual([
-      { id: "paired", frameIndex: 48, visualId: null, audioId: "voice" },
-    ])
+    expect(controller.state.h3Timeline).toMatchObject({
+      guides: [{ id: "paired", frameIndex: 48, visualId: "scene", audioId: "voice" }],
+      disabledVisualIds: ["scene"],
+    })
+    root
+      .querySelector<HTMLButtonElement>('[data-action="toggle-h3-guide"][data-id="scene"]')
+      ?.click()
+    expect(controller.state.h3Timeline).toEqual(state.h3Timeline)
     controller.destroy()
   })
 

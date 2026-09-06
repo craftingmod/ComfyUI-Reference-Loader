@@ -244,6 +244,21 @@ def _validated_timeline(
         audio_id=audio_id,
       )
     )
+
+  def disabled_media_ids(field: str) -> tuple[str, ...]:
+    raw_ids = raw.get(field, [])
+    if not isinstance(raw_ids, list) or any(
+      not isinstance(media_id, str) or not media_id for media_id in raw_ids
+    ):
+      raise TypeError(
+        f"Reference Loader manifest h3_timeline.{field} must be a list of IDs."
+      )
+    if len(set(raw_ids)) != len(raw_ids):
+      raise ValueError(
+        f"Reference Loader manifest h3_timeline.{field} contains duplicates."
+      )
+    return tuple(raw_ids)
+
   version = raw.get("version")
   enabled = raw.get("enabled")
   if isinstance(version, bool) or version != 1 or not isinstance(enabled, bool):
@@ -256,6 +271,8 @@ def _validated_timeline(
     start_image_id=raw.get("start_image_id"),
     end_image_id=raw.get("end_image_id"),
     guides=tuple(guides),
+    disabled_visual_ids=disabled_media_ids("disabled_visual_ids"),
+    disabled_audio_ids=disabled_media_ids("disabled_audio_ids"),
   )
 
 
@@ -379,7 +396,12 @@ def _timeline_entries(
   """Resolve timeline rows to AddGuide payloads and validate visual ranges."""
 
   entries: list[tuple[str, int, Any, Any, int, int]] = []
-  if timeline.start_image_id is not None:
+  disabled_visual_ids = set(timeline.disabled_visual_ids)
+  disabled_audio_ids = set(timeline.disabled_audio_ids)
+  if (
+    timeline.start_image_id is not None
+    and timeline.start_image_id not in disabled_visual_ids
+  ):
     entries.append(
       (
         "Start",
@@ -395,14 +417,24 @@ def _timeline_entries(
       raise ValueError(
         f"H3 timeline guide {guide.id!r} needs a Visual or Audio selection."
       )
+    visual_id = (
+      guide.visual_id
+      if guide.visual_id is not None and guide.visual_id not in disabled_visual_ids
+      else None
+    )
+    audio_id = (
+      guide.audio_id
+      if guide.audio_id is not None and guide.audio_id not in disabled_audio_ids
+      else None
+    )
+    if visual_id is None and audio_id is None:
+      continue
     image = None
-    if guide.visual_id is not None:
-      image = _timeline_visual_media(
-        references, guide.visual_id, role=f"guide {guide.id}"
-      )
+    if visual_id is not None:
+      image = _timeline_visual_media(references, visual_id, role=f"guide {guide.id}")
     audio = (
-      _timeline_media(references, guide.audio_id, role=f"guide {guide.id}")
-      if guide.audio_id is not None
+      _timeline_media(references, audio_id, role=f"guide {guide.id}")
+      if audio_id is not None
       else None
     )
     entries.append(
@@ -415,7 +447,10 @@ def _timeline_entries(
         _audio_guide_frame_count(audio) if audio is not None else 0,
       )
     )
-  if timeline.end_image_id is not None:
+  if (
+    timeline.end_image_id is not None
+    and timeline.end_image_id not in disabled_visual_ids
+  ):
     entries.append(
       (
         "End",

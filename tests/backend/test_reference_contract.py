@@ -218,6 +218,8 @@ def test_h3_timeline_round_trips_without_changing_reference_outputs():
     "enabled": True,
     "startImageId": "img-a",
     "endImageId": None,
+    "disabledVisualIds": ["img-a"],
+    "disabledAudioIds": ["aud-b"],
     "guides": [
       {
         "id": "guide-middle",
@@ -230,6 +232,8 @@ def test_h3_timeline_round_trips_without_changing_reference_outputs():
   state = parse_reference_state(raw)
   assert state.h3_timeline.guides[0].frame_index == 48
   assert state.h3_timeline.guides[0].audio_id == "aud-b"
+  assert state.h3_timeline.disabled_visual_ids == ("img-a",)
+  assert state.h3_timeline.disabled_audio_ids == ("aud-b",)
   assert execution_projection(state)["h3Timeline"] == raw["h3Timeline"]
 
   manifest = build_reference_manifest(state)

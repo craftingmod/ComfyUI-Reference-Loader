@@ -22,6 +22,8 @@ export function cloneH3Timeline(timeline: H3TimelineState): H3TimelineState {
   return {
     ...timeline,
     guides: timeline.guides.map((guide) => ({ ...guide })),
+    ...(timeline.disabledVisualIds ? { disabledVisualIds: [...timeline.disabledVisualIds] } : {}),
+    ...(timeline.disabledAudioIds ? { disabledAudioIds: [...timeline.disabledAudioIds] } : {}),
   }
 }
 
@@ -54,6 +56,67 @@ export function mediaHasGuide(
   return timeline.guides.some((guide) => guideUsesMedia(guide, mediaId, channel))
 }
 
+export function mediaGuideEnabled(
+  timeline: H3TimelineState,
+  mediaId: string,
+  channel: H3GuideChannel,
+): boolean {
+  if (!mediaHasGuide(timeline, mediaId, channel)) return false
+  const disabledIds = channel === "visual" ? timeline.disabledVisualIds : timeline.disabledAudioIds
+  return !disabledIds?.includes(mediaId)
+}
+
+export function setMediaGuideEnabled(
+  timeline: H3TimelineState,
+  mediaId: string,
+  channel: H3GuideChannel,
+  enabled: boolean,
+): H3TimelineState {
+  const disabledIds = channel === "visual" ? timeline.disabledVisualIds : timeline.disabledAudioIds
+  const currentlyEnabled = !disabledIds?.includes(mediaId)
+  if (currentlyEnabled === enabled) return timeline
+  const nextDisabledIds = enabled
+    ? (disabledIds ?? []).filter((id) => id !== mediaId)
+    : disabledIds?.includes(mediaId)
+      ? disabledIds
+      : [...(disabledIds ?? []), mediaId]
+  if (channel === "visual") {
+    if (nextDisabledIds.length === 0) {
+      const { disabledVisualIds: _discarded, ...withoutDisabled } = timeline
+      return withoutDisabled
+    }
+    return { ...timeline, disabledVisualIds: nextDisabledIds }
+  }
+  if (nextDisabledIds.length === 0) {
+    const { disabledAudioIds: _discarded, ...withoutDisabled } = timeline
+    return withoutDisabled
+  }
+  return { ...timeline, disabledAudioIds: nextDisabledIds }
+}
+
+export function pruneDisabledGuideMedia(timeline: H3TimelineState): H3TimelineState {
+  const visualIds = new Set<string>()
+  if (timeline.startImageId !== null) visualIds.add(timeline.startImageId)
+  if (timeline.endImageId !== null) visualIds.add(timeline.endImageId)
+  const audioIds = new Set<string>()
+  for (const guide of timeline.guides) {
+    if (guide.visualId !== null) visualIds.add(guide.visualId)
+    if (guide.audioId !== null) audioIds.add(guide.audioId)
+  }
+  const disabledVisualIds = timeline.disabledVisualIds?.filter((id) => visualIds.has(id))
+  const disabledAudioIds = timeline.disabledAudioIds?.filter((id) => audioIds.has(id))
+  const {
+    disabledVisualIds: _discardedVisualIds,
+    disabledAudioIds: _discardedAudioIds,
+    ...withoutDisabled
+  } = timeline
+  return {
+    ...withoutDisabled,
+    ...(disabledVisualIds?.length ? { disabledVisualIds } : {}),
+    ...(disabledAudioIds?.length ? { disabledAudioIds } : {}),
+  }
+}
+
 export function referenceEnabled(item: MediaItem, channel: H3GuideChannel): boolean {
   if (channel === "visual") {
     return item.kind === "image" ? item.imageEnabled : item.kind === "video" && item.videoEnabled
@@ -69,7 +132,7 @@ export function mediaUsage(
   const mediaId = timelineMediaId(item, channel)
   const reference = referenceEnabled(item, channel)
   if (!canUseAsH3Guide(item, channel)) return reference ? "reference" : "unused"
-  const guide = mediaHasGuide(state.h3Timeline, mediaId, channel)
+  const guide = mediaGuideEnabled(state.h3Timeline, mediaId, channel)
   if (reference && guide) return "both"
   if (reference) return "reference"
   if (guide) return "guide"

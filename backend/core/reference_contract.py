@@ -67,28 +67,40 @@ class H3Timeline:
   start_image_id: str | None
   end_image_id: str | None
   guides: tuple[H3GuideEntry, ...]
+  disabled_visual_ids: tuple[str, ...] = ()
+  disabled_audio_ids: tuple[str, ...] = ()
 
   @classmethod
   def empty(cls) -> H3Timeline:
     return cls(H3_TIMELINE_VERSION, False, None, None, ())
 
   def state_projection(self) -> dict[str, Any]:
-    return {
+    value = {
       "version": self.version,
       "enabled": self.enabled,
       "startImageId": self.start_image_id,
       "endImageId": self.end_image_id,
       "guides": [guide.state_projection() for guide in self.guides],
     }
+    if self.disabled_visual_ids:
+      value["disabledVisualIds"] = list(self.disabled_visual_ids)
+    if self.disabled_audio_ids:
+      value["disabledAudioIds"] = list(self.disabled_audio_ids)
+    return value
 
   def manifest_projection(self) -> dict[str, Any]:
-    return {
+    value = {
       "version": self.version,
       "enabled": self.enabled,
       "start_image_id": self.start_image_id,
       "end_image_id": self.end_image_id,
       "guides": [guide.manifest_projection() for guide in self.guides],
     }
+    if self.disabled_visual_ids:
+      value["disabled_visual_ids"] = list(self.disabled_visual_ids)
+    if self.disabled_audio_ids:
+      value["disabled_audio_ids"] = list(self.disabled_audio_ids)
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -585,12 +597,45 @@ def _h3_timeline(value: Any, items: Mapping[str, ReferenceItem]) -> H3Timeline:
       )
     )
 
+  def disabled_media_ids(
+    field: str,
+    allowed_kinds: set[MediaKind],
+  ) -> tuple[str, ...]:
+    raw_ids = timeline.get(field, [])
+    if not isinstance(raw_ids, list):
+      raise _error(f"state.h3Timeline.{field}", "must be an array")
+    values: list[str] = []
+    for index, raw_id in enumerate(raw_ids):
+      media_id = _timeline_media_id(
+        raw_id,
+        f"state.h3Timeline.{field}[{index}]",
+        items,
+        allowed_kinds=allowed_kinds,
+      )
+      if media_id is None:
+        raise _error(
+          f"state.h3Timeline.{field}[{index}]",
+          "must refer to a media ID",
+        )
+      if media_id in values:
+        raise _error(
+          f"state.h3Timeline.{field}[{index}]",
+          "must not contain duplicates",
+        )
+      values.append(media_id)
+    return tuple(values)
+
+  disabled_visual_ids = disabled_media_ids("disabledVisualIds", {"image"})
+  disabled_audio_ids = disabled_media_ids("disabledAudioIds", {"audio"})
+
   return H3Timeline(
     version=H3_TIMELINE_VERSION,
     enabled=enabled,
     start_image_id=start_image_id,
     end_image_id=end_image_id,
     guides=tuple(guides),
+    disabled_visual_ids=disabled_visual_ids,
+    disabled_audio_ids=disabled_audio_ids,
   )
 
 
@@ -600,13 +645,24 @@ def h3_timeline_media_ids(state: ReferenceState) -> tuple[str, ...]:
   timeline = state.h3_timeline
   if not timeline.enabled:
     return ()
+  disabled_visual_ids = set(timeline.disabled_visual_ids)
+  disabled_audio_ids = set(timeline.disabled_audio_ids)
   values: list[str] = []
   for media_id in (timeline.start_image_id, timeline.end_image_id):
-    if media_id is not None and media_id not in values:
+    if (
+      media_id is not None
+      and media_id not in disabled_visual_ids
+      and media_id not in values
+    ):
       values.append(media_id)
   for guide in timeline.guides:
-    for media_id in (guide.visual_id, guide.audio_id):
-      if media_id is not None and media_id not in values:
+    for media_id, disabled_ids in (
+      (guide.visual_id, disabled_visual_ids),
+      (guide.audio_id, disabled_audio_ids),
+    ):
+      if (
+        media_id is not None and media_id not in disabled_ids and media_id not in values
+      ):
         values.append(media_id)
   return tuple(values)
 

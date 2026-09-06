@@ -318,6 +318,64 @@ def test_wrapper_applies_enabled_timeline_in_native_order(monkeypatch):
   assert FakeAddGuide.calls[2]["image"] == "end-image"
 
 
+def test_wrapper_skips_disabled_timeline_sources_without_deleting_them(monkeypatch):
+  module = importlib.import_module("backend.nodes.minimax_h3_reference_wrapper")
+
+  class TimelineNative(FakeMiniMaxH3):
+    @classmethod
+    def execute(cls, **kwargs):
+      cls.calls.append(kwargs)
+      return io.NodeOutput("base-positive", {"frame_count": 124})
+
+  TimelineNative.calls.clear()
+  FakeAddGuide.calls.clear()
+  monkeypatch.setattr(module, "_minimax_h3_node", lambda: TimelineNative)
+  monkeypatch.setattr(module, "_minimax_h3_add_guide_node", lambda: FakeAddGuide)
+  manifest = {
+    "outputs": {"images": [], "videos": [], "audios": []},
+    "h3_timeline": {
+      "version": 1,
+      "enabled": True,
+      "start_image_id": "start",
+      "end_image_id": "end",
+      "disabled_visual_ids": ["start", "end", "middle"],
+      "disabled_audio_ids": ["sound"],
+      "guides": [
+        {
+          "id": "middle",
+          "frame_index": 48,
+          "visual_id": "middle",
+          "audio_id": "sound",
+        }
+      ],
+    },
+  }
+  bundle = module.ReferenceLoaderBundle(
+    images=(),
+    image_captions=(),
+    audios=(),
+    audio_captions=(),
+    videos=(),
+    video_captions=(),
+    manifest_json=json.dumps(manifest),
+  )
+
+  output = module.MiniMaxH3ReferenceToVideoWrapperNode.execute(
+    clip="clip",
+    vae=None,
+    audio_vae=None,
+    references=bundle,
+    prompt="prompt",
+    width=1344,
+    height=768,
+    length=120,
+  )
+
+  assert output == ("base-positive", {"frame_count": 124})
+  assert len(TimelineNative.calls) == 1
+  assert FakeAddGuide.calls == []
+
+
 def test_wrapper_allows_audio_only_timeline_guides_with_reference_inputs(monkeypatch):
   module = importlib.import_module("backend.nodes.minimax_h3_reference_wrapper")
 

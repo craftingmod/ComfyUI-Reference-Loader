@@ -95,6 +95,57 @@ describe("Reference Loader stylesheet", () => {
     expect(loader).toContain(".rl-single-image-preview.is-empty::after")
   })
 
+  it("keeps the H3 add row compact and aligns editor actions to the bottom", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/h3-timeline.css", import.meta.url),
+    ).text()
+    const addFormRule = css.match(/\.rl-h3-editor__add-form\s*\{([^}]*)\}/)?.[1]
+    const positionRule = css.match(/\.rl-h3-editor__position-field\s*\{([^}]*)\}/)?.[1]
+    const frameInputRule = css.match(
+      /\.rl-h3-editor__frame-field input\[type="number"\]\s*\{([^}]*)\}/,
+    )?.[1]
+    const addControlRule = css.match(
+      /\.rl-h3-editor__add-form select,\s*\.rl-h3-editor__add-form input\[type="number"\]\s*\{([^}]*)\}/,
+    )?.[1]
+    const actionRule = css.match(/\.rl-h3-editor__actions\s*\{([^}]*)\}/)?.[1]
+    const footerRule = css.match(/\.rl-h3-editor__footer\s*\{([^}]*)\}/)?.[1]
+
+    expect(addFormRule).toContain("min-height: 26px;")
+    expect(addFormRule).toContain("display: grid;")
+    expect(addFormRule).toContain("grid-template-columns: max-content max-content minmax(0, 1fr);")
+    expect(positionRule).not.toContain("flex:")
+    expect(positionRule).toContain("border-right: 1px solid var(--rl-border);")
+    expect(addControlRule).toContain("min-height: 26px;")
+    expect(frameInputRule).toContain("max-width: 50px;")
+    expect(frameInputRule).toContain("flex: 0 0 50px;")
+    expect(actionRule).toContain("justify-content: flex-end;")
+    expect(actionRule).toContain("margin-top: auto;")
+    expect(footerRule).toContain("container-type: inline-size;")
+    expect(css).toContain("@container (max-width: 320px)")
+    expect(css).toContain("grid-template-columns: minmax(0, 1fr) auto;")
+    expect(css).toContain("grid-column: 1 / -1;")
+  })
+
+  it("lets the Guide editor grow vertically with its stack", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/h3-timeline.css", import.meta.url),
+    ).text()
+    const cardRule = css.match(/\.rl-card--h3-editor\s*\{([^}]*)\}/)?.[1]
+    const stackRule = css.match(/\.rl-h3-editor--stack\s*\{([^}]*)\}/)?.[1]
+    const placementsRule = css.match(/\.rl-h3-editor__placements\s*\{([^}]*)\}/)?.[1]
+    const bodyRule = css.match(/\.rl-card--h3-editor > \.rl-card__body\s*\{([^}]*)\}/)?.[1]
+
+    expect(cardRule).toContain("display: flex;")
+    expect(cardRule).toContain("flex-direction: column;")
+    expect(cardRule).toContain("overflow: visible;")
+    expect(stackRule).toContain("flex: 0 0 auto;")
+    expect(stackRule).toContain("overflow: visible;")
+    expect(placementsRule).toContain("overflow: visible;")
+    expect(placementsRule).not.toContain("overflow-y: auto;")
+    expect(bodyRule).toContain("margin-top: auto;")
+    expect(css).not.toContain(".rl-h3-editor__stack-header")
+  })
+
   afterEach(() => {
     document.getElementById(STYLESHEET_ID)?.remove()
   })
@@ -113,7 +164,7 @@ describe("Reference Loader stylesheet", () => {
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
     expect(first.href).toBe(
-      "https://example.test/extensions/comfyui-reference-loader/index.css?v=9",
+      "https://example.test/extensions/comfyui-reference-loader/index.css?v=11",
     )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })

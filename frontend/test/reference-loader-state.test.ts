@@ -207,6 +207,29 @@ describe("Reference Loader state", () => {
     expect(state.h3Timeline.endImageId).toBeNull()
   })
 
+  test("toggles timeline activity without discarding saved placements", () => {
+    const image = createMediaItem("image", source("scene.png", "image/png"), "scene")
+    let state = loaderReducer(createEmptyLoaderState(), { type: "add", item: image })
+    state = loaderReducer(state, {
+      type: "set-h3-timeline",
+      timeline: {
+        version: 1,
+        enabled: true,
+        startImageId: "scene",
+        endImageId: "scene",
+        guides: [{ id: "guide-1", frameIndex: 48, visualId: "scene", audioId: null }],
+      },
+    })
+    const configured = state.h3Timeline
+
+    state = loaderReducer(state, { type: "toggle-h3-timeline", enabled: false })
+    expect(state.h3Timeline).toEqual({ ...configured, enabled: false })
+    expect(projectLoaderExecution(state).h3Timeline).toEqual({ ...configured, enabled: false })
+
+    state = loaderReducer(state, { type: "toggle-h3-timeline", enabled: true })
+    expect(state.h3Timeline).toEqual(configured)
+  })
+
   test("bounds timeline guide additions and round-trips timeline state", () => {
     let state = createEmptyLoaderState()
     state = loaderReducer(state, { type: "toggle-h3-timeline", enabled: true })

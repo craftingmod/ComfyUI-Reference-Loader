@@ -1,4 +1,8 @@
-import { validateH3Timeline, type H3GuideChannel } from "./h3-media-guides.ts"
+import {
+  pruneDisabledGuideMedia,
+  validateH3Timeline,
+  type H3GuideChannel,
+} from "./h3-media-guides.ts"
 import {
   isAudioItem,
   createEmptyH3Timeline,
@@ -96,12 +100,14 @@ function replaceTimeline(state: LoaderState, timeline: H3TimelineState): LoaderS
     h3Timeline: {
       ...timeline,
       guides: timeline.guides.map((guide) => ({ ...guide })),
+      ...(timeline.disabledVisualIds ? { disabledVisualIds: [...timeline.disabledVisualIds] } : {}),
+      ...(timeline.disabledAudioIds ? { disabledAudioIds: [...timeline.disabledAudioIds] } : {}),
     },
   }
 }
 
 function clearTimelineReferences(timeline: H3TimelineState, mediaId: string): H3TimelineState {
-  return {
+  return pruneDisabledGuideMedia({
     ...timeline,
     startImageId: timeline.startImageId === mediaId ? null : timeline.startImageId,
     endImageId: timeline.endImageId === mediaId ? null : timeline.endImageId,
@@ -111,7 +117,7 @@ function clearTimelineReferences(timeline: H3TimelineState, mediaId: string): H3
       audioId:
         guide.audioId === mediaId || guide.audioId === `${mediaId}:audio` ? null : guide.audioId,
     })),
-  }
+  })
 }
 
 function applyH3MediaEdit(

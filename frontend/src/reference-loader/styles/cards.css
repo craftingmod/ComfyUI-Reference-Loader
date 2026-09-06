@@ -8,6 +8,18 @@
   box-shadow: 0 2px 8px #0003;
   cursor: grab;
 }
+.rl-card--has-caption {
+  display: grid;
+  grid-template-rows: auto minmax(max-content, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+.rl-card--has-caption .rl-card__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
 .rl-card:active {
   cursor: grabbing;
 }
@@ -221,14 +233,22 @@
 .rl-card textarea {
   width: 100%;
   resize: vertical;
-  min-height: 39px;
-  max-height: 110px;
+  min-height: 58px;
+  max-height: 220px;
   border: 1px solid var(--rl-border);
   border-radius: 4px;
   background: var(--rl-panel);
   color: var(--rl-text);
   padding: 5px;
   user-select: text;
+}
+.rl-card--has-caption textarea[data-field="caption"] {
+  flex: 1 1 auto;
+}
+.rl-card--has-caption .rl-card__body>.rl-h3-card-badges,
+.rl-card--has-caption .rl-card__body>.rl-card__actions,
+.rl-card--has-caption .rl-card__body>.rl-card__error {
+  flex: 0 0 auto;
 }
 .rl-card button,
 .rl-card textarea {

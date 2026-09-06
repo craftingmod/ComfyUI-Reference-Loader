@@ -123,6 +123,12 @@ export function projectLoaderExecution(state: LoaderState): LoaderExecutionProje
     h3Timeline: {
       ...canonical.h3Timeline,
       guides: canonical.h3Timeline.guides.map((guide) => ({ ...guide })),
+      ...(canonical.h3Timeline.disabledVisualIds
+        ? { disabledVisualIds: [...canonical.h3Timeline.disabledVisualIds] }
+        : {}),
+      ...(canonical.h3Timeline.disabledAudioIds
+        ? { disabledAudioIds: [...canonical.h3Timeline.disabledAudioIds] }
+        : {}),
     },
     images,
     audios,

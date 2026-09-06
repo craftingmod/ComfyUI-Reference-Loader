@@ -18,6 +18,8 @@ export interface H3TimelineState {
   startImageId: string | null
   endImageId: string | null
   guides: H3GuideEntry[]
+  disabledVisualIds?: string[]
+  disabledAudioIds?: string[]
 }
 
 export interface MediaSource {

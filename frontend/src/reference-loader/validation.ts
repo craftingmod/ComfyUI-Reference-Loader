@@ -335,12 +335,63 @@ function sanitizeH3Timeline(
       guides.push({ id, frameIndex, visualId, audioId })
     }
   }
+  const guideVisualIds = new Set<string>()
+  if (startImageId !== null) guideVisualIds.add(startImageId)
+  if (endImageId !== null) guideVisualIds.add(endImageId)
+  const guideAudioIds = new Set<string>()
+  for (const guide of guides) {
+    if (guide.visualId !== null) guideVisualIds.add(guide.visualId)
+    if (guide.audioId !== null) guideAudioIds.add(guide.audioId)
+  }
+  const sanitizeDisabledIds = (
+    raw: unknown,
+    path: string,
+    predicate: (item: MediaItem) => boolean,
+    usedIds: Set<string>,
+  ): string[] | undefined => {
+    if (raw === undefined) return undefined
+    if (!Array.isArray(raw)) {
+      issues.push(`${path} was not an array and was reset.`)
+      return undefined
+    }
+    const seen = new Set<string>()
+    const ids: string[] = []
+    for (const [index, id] of raw.entries()) {
+      const entryPath = `${path}[${index}]`
+      if (typeof id !== "string" || !STABLE_ID_RE.test(id) || seen.has(id)) {
+        issues.push(`${entryPath} was discarded because its ID is invalid or duplicated.`)
+        continue
+      }
+      const item = items[id]
+      if (!item || !predicate(item) || !usedIds.has(id)) {
+        issues.push(`${entryPath} refers to an unavailable or unused Guide source.`)
+        continue
+      }
+      seen.add(id)
+      ids.push(id)
+    }
+    return ids.length > 0 ? ids : undefined
+  }
+  const disabledVisualIds = sanitizeDisabledIds(
+    value.disabledVisualIds,
+    "h3Timeline.disabledVisualIds",
+    (item) => item.kind === "image",
+    guideVisualIds,
+  )
+  const disabledAudioIds = sanitizeDisabledIds(
+    value.disabledAudioIds,
+    "h3Timeline.disabledAudioIds",
+    (item) => item.kind === "audio",
+    guideAudioIds,
+  )
   return {
     version: H3_TIMELINE_VERSION,
     enabled,
     startImageId,
     endImageId,
     guides,
+    ...(disabledVisualIds ? { disabledVisualIds } : {}),
+    ...(disabledAudioIds ? { disabledAudioIds } : {}),
   }
 }
 

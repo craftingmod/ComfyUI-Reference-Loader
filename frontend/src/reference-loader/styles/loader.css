@@ -186,9 +186,6 @@
   gap: 6px;
   min-height: 70px;
 }
-.rl-card-grid.has-h3-editor {
-  min-height: min(560px, 75vh);
-}
 .rl-card-grid.is-empty {
   min-height: 34px;
 }

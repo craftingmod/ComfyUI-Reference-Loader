@@ -497,20 +497,10 @@ def _timeline_media_id(
   items: Mapping[str, ReferenceItem],
   *,
   allowed_kinds: set[MediaKind],
-  derived_audio: bool = False,
 ) -> str | None:
   if value is None:
     return None
   media_id = _string(value, path, maximum=128)
-  if derived_audio and media_id.endswith(":audio"):
-    parent_id = media_id.removesuffix(":audio")
-    parent = items.get(parent_id)
-    if parent is None or parent.kind != "video":
-      raise _error(
-        path,
-        "must refer to the derived audio of an existing video item",
-      )
-    return media_id
   item = items.get(media_id)
   if item is None or item.kind not in allowed_kinds:
     allowed = ", ".join(sorted(allowed_kinds))
@@ -578,14 +568,13 @@ def _h3_timeline(value: Any, items: Mapping[str, ReferenceItem]) -> H3Timeline:
       guide.get("visualId"),
       f"{path}.visualId",
       items,
-      allowed_kinds={"image", "video"},
+      allowed_kinds={"image"},
     )
     audio_id = _timeline_media_id(
       guide.get("audioId"),
       f"{path}.audioId",
       items,
       allowed_kinds={"audio"},
-      derived_audio=True,
     )
     guides.append(
       H3GuideEntry(

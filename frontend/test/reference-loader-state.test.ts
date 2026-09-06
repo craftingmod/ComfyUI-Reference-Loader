@@ -173,30 +173,33 @@ describe("Reference Loader state", () => {
     const start = createMediaItem("image", source("start.png", "image/png"), "start")
     const end = createMediaItem("image", source("end.png", "image/png"), "end")
     const video = createMediaItem("video", source("guide.mp4", "video/mp4"), "video")
+    const guideImage = createMediaItem("image", source("guide.png", "image/png"), "guide-image")
     let state = createEmptyLoaderState()
-    for (const item of [start, end, video]) state = loaderReducer(state, { type: "add", item })
+    for (const item of [start, end, video, guideImage])
+      state = loaderReducer(state, { type: "add", item })
+    state = loaderReducer(state, { type: "toggle", id: "guide-image", channel: "image" })
     state = loaderReducer(state, { type: "toggle-h3-timeline", enabled: true })
     state = loaderReducer(state, { type: "set-h3-start", id: "start" })
     state = loaderReducer(state, { type: "set-h3-end", id: "end" })
     state = loaderReducer(state, {
       type: "add-h3-guide",
-      guide: { id: "guide-1", frameIndex: 48, visualId: "video", audioId: null },
+      guide: { id: "guide-1", frameIndex: 48, visualId: "guide-image", audioId: null },
     })
 
     expect(state.h3Timeline).toMatchObject({
       enabled: true,
       startImageId: "start",
       endImageId: "end",
-      guides: [{ id: "guide-1", frameIndex: 48, visualId: "video" }],
+      guides: [{ id: "guide-1", frameIndex: 48, visualId: "guide-image" }],
     })
     const projection = projectLoaderExecution(state)
-    expect(projection.images.map((item) => item.id)).toEqual(["start", "end"])
+    expect(projection.images.map((item) => item.id)).toEqual(["start", "end", "guide-image"])
     expect(projection.videos.map((item) => item.id)).toEqual(["video"])
     expect(executionFingerprintSource(state)).not.toBe(
       executionFingerprintSource(createEmptyLoaderState()),
     )
 
-    state = loaderReducer(state, { type: "remove", id: "video" })
+    state = loaderReducer(state, { type: "remove", id: "guide-image" })
     expect(state.h3Timeline.guides[0]).toMatchObject({ visualId: null, audioId: null })
     state = loaderReducer(state, { type: "remove", id: "start" })
     state = loaderReducer(state, { type: "remove", id: "end" })
@@ -303,10 +306,18 @@ describe("validation and serialization", () => {
           videoAudioEnabled: true,
           audioEnabled: false,
         },
+        audio: {
+          id: "audio",
+          kind: "audio",
+          source: source("a.wav", "audio/wav"),
+          originalSource: source("a.wav", "audio/wav"),
+          caption: "",
+          audioEnabled: false,
+        },
       },
       imageOrder: ["image"],
       videoOrder: ["video"],
-      audioOrder: ["video"],
+      audioOrder: ["video", "audio"],
       videoAudioPolicy: "preserve",
       h3Timeline: {
         version: 1,
@@ -314,7 +325,8 @@ describe("validation and serialization", () => {
         startImageId: "image",
         endImageId: "missing",
         guides: [
-          { id: "guide", frameIndex: 24, visualId: "video", audioId: "video:audio" },
+          { id: "guide", frameIndex: 24, visualId: "image", audioId: "audio" },
+          { id: "legacy-video", frameIndex: 48, visualId: "video", audioId: "video:audio" },
           { id: "bad", frameIndex: 72, visualId: "missing", audioId: null },
         ],
       },
@@ -325,7 +337,8 @@ describe("validation and serialization", () => {
       startImageId: "image",
       endImageId: null,
       guides: [
-        { id: "guide", frameIndex: 24, visualId: "video", audioId: "video:audio" },
+        { id: "guide", frameIndex: 24, visualId: "image", audioId: "audio" },
+        { id: "legacy-video", frameIndex: 48, visualId: null, audioId: null },
         { id: "bad", frameIndex: 72, visualId: null, audioId: null },
       ],
     })

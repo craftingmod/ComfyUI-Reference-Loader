@@ -1,3 +1,4 @@
+import { validateH3Timeline, type H3GuideChannel } from "./h3-media-guides.ts"
 import {
   isAudioItem,
   createEmptyH3Timeline,
@@ -48,6 +49,14 @@ export type LoaderAction =
   | { type: "add-h3-guide"; guide: H3GuideEntry }
   | { type: "update-h3-guide"; id: string; values: Partial<H3GuideEntry> }
   | { type: "remove-h3-guide"; id: string }
+  | {
+      type: "apply-h3-media-edit"
+      mediaId: string
+      channel: H3GuideChannel
+      referenceEnabled: boolean
+      timeline: H3TimelineState
+      twoImageMode?: boolean
+    }
 
 function replaceItem(state: LoaderState, item: MediaItem): LoaderState {
   return { ...state, items: { ...state.items, [item.id]: item } }
@@ -102,6 +111,49 @@ function clearTimelineReferences(timeline: H3TimelineState, mediaId: string): H3
       audioId:
         guide.audioId === mediaId || guide.audioId === `${mediaId}:audio` ? null : guide.audioId,
     })),
+  }
+}
+
+function applyH3MediaEdit(
+  state: LoaderState,
+  action: Extract<LoaderAction, { type: "apply-h3-media-edit" }>,
+): LoaderState {
+  const itemId =
+    action.channel === "audio" && action.mediaId.endsWith(":audio")
+      ? action.mediaId.slice(0, -6)
+      : action.mediaId
+  const item = state.items[itemId]
+  if (!item) return state
+  if (action.channel === "visual" && item.kind !== "image") return state
+  if (action.channel === "audio" && item.kind !== "audio") return state
+  if (validateH3Timeline(state, action.timeline, { allowIncomplete: true }).length > 0) return state
+
+  if (
+    action.twoImageMode &&
+    action.channel === "visual" &&
+    item.kind === "image" &&
+    action.referenceEnabled &&
+    !item.imageEnabled &&
+    state.imageOrder.reduce((count, id) => {
+      const image = state.items[id]
+      return count + (image?.kind === "image" && image.imageEnabled ? 1 : 0)
+    }, 0) >= 2
+  )
+    return state
+
+  let nextItem = item
+  if (action.channel === "visual" && item.kind === "image")
+    nextItem = { ...item, imageEnabled: action.referenceEnabled }
+  else if (action.channel === "audio" && isAudioItem(item))
+    nextItem = { ...item, audioEnabled: action.referenceEnabled }
+
+  const nextTimeline = replaceTimeline(state, action.timeline).h3Timeline
+  if (nextItem === item && JSON.stringify(nextTimeline) === JSON.stringify(state.h3Timeline))
+    return state
+  return {
+    ...state,
+    items: nextItem === item ? state.items : { ...state.items, [itemId]: nextItem },
+    h3Timeline: nextTimeline,
   }
 }
 
@@ -284,5 +336,7 @@ export function loaderReducer(state: LoaderState, action: LoaderAction): LoaderS
         ? state
         : replaceTimeline(state, { ...state.h3Timeline, guides })
     }
+    case "apply-h3-media-edit":
+      return applyH3MediaEdit(state, action)
   }
 }

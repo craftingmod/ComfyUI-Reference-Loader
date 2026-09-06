@@ -638,12 +638,11 @@ def validate_reference_sources(
     if item.audio_enabled:
       sources.add(item.source)
   for media_id in h3_timeline_media_ids(state):
-    if media_id.endswith(":audio"):
-      item = state.items.get(media_id.removesuffix(":audio"))
-      if item is not None:
-        sources.add(item.source)
-      continue
-    item = state.items[media_id]
+    item = state.items.get(media_id)
+    if item is None or item.kind not in {"image", "audio"}:
+      raise ReferenceMediaError(
+        "H3 timeline guides support only Image and standalone Audio sources."
+      )
     sources.add(item.source)
     if (
       item.kind == "image"
@@ -765,31 +764,17 @@ def load_reference_media(
   )
 
   for media_id in timeline_media_ids:
+    item = state.items.get(media_id)
+    if item is None or item.kind not in {"image", "audio"}:
+      raise ReferenceMediaError(
+        "H3 timeline guides support only Image and standalone Audio sources."
+      )
     if media_id in image_values:
       guide_media[media_id] = image_values[media_id]
-      continue
-    if media_id in video_values:
-      guide_media[media_id] = video_values[media_id]
       continue
     if media_id in audio_values:
       guide_media[media_id] = audio_values[media_id]
       continue
-    if media_id.endswith(":audio"):
-      item = state.items.get(media_id.removesuffix(":audio"))
-      if item is None or item.kind != "video":
-        raise ReferenceMediaError(
-          "An H3 timeline audio guide does not refer to a video item."
-        )
-      guide_media[media_id] = retain(
-        _load_audio(
-          source_path(item.source),
-          item.crop,
-          max_output_bytes=MAX_DECODED_OUTPUT_BYTES - decoded_output_bytes,
-        )
-      )
-      audio_values[media_id] = guide_media[media_id]
-      continue
-    item = state.items[media_id]
     if item.kind == "image":
       mask_path = (
         source_path(item.edit.mask)
@@ -817,13 +802,6 @@ def load_reference_media(
         )
       )
       image_values[media_id] = guide_media[media_id]
-    elif item.kind == "video":
-      guide_media[media_id] = _load_video(
-        source_path(item.source),
-        item.crop,
-        include_audio=bool(item.video_audio_enabled),
-      )
-      video_values[media_id] = guide_media[media_id]
     else:
       guide_media[media_id] = retain(
         _load_audio(

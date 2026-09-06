@@ -145,6 +145,7 @@
 }
 .rl-kind,
 .rl-output-index,
+.rl-guide-index,
 .rl-duration,
 .rl-megapixels {
   padding: 2px 4px;
@@ -175,6 +176,10 @@
 }
 .rl-output-index {
   color: color-mix(in srgb, var(--rl-accent) 80%, #fff);
+  font-variant-numeric: tabular-nums;
+}
+.rl-guide-index {
+  color: color-mix(in srgb, var(--rl-guide) 86%, #fff);
   font-variant-numeric: tabular-nums;
 }
 .rl-media-filename {
@@ -234,7 +239,7 @@
 }
 .rl-card__actions {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 3px;
 }
 .rl-card__actions button {
@@ -245,14 +250,44 @@
   border-color: var(--rl-accent);
   background: color-mix(in srgb, var(--rl-accent) 35%, var(--rl-panel));
 }
+.rl-card__actions .rl-output-button {
+  color: var(--rl-text);
+}
+.rl-card__actions .rl-output-button.is-on {
+  color: var(--rl-output);
+  border-color: var(--rl-output);
+  background: color-mix(in srgb, var(--rl-output) 10%, var(--rl-panel));
+}
+.rl-card__actions .rl-guide-button {
+  color: var(--rl-text);
+}
+.rl-card__actions .rl-guide-button.is-on {
+  color: var(--rl-guide);
+  border-color: var(--rl-guide);
+  background: color-mix(in srgb, var(--rl-guide) 10%, var(--rl-panel));
+}
+.rl-card__actions button:disabled {
+  color: var(--rl-muted) !important;
+  border-color: var(--rl-border) !important;
+  background: var(--rl-panel) !important;
+}
 .rl-card__actions .rl-preview-media.is-playing {
   border-color: var(--rl-accent);
   color: #fff;
   background: color-mix(in srgb, var(--rl-accent) 42%, var(--rl-panel));
 }
+.rl-edit-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+}
 .rl-edit-button {
-  display: inline-grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  line-height: 1;
   color: var(--rl-edit) !important;
   border-color: color-mix(in srgb, var(--rl-edit) 55%, var(--rl-border)) !important;
   background: color-mix(in srgb, var(--rl-edit) 10%, var(--rl-panel)) !important;
@@ -262,7 +297,18 @@
   border-color: var(--rl-edit) !important;
   background: color-mix(in srgb, var(--rl-edit) 25%, var(--rl-panel)) !important;
 }
+.rl-edit-button--guide {
+  color: var(--rl-guide-edit) !important;
+  border-color: color-mix(in srgb, var(--rl-guide-edit) 55%, var(--rl-border)) !important;
+  background: color-mix(in srgb, var(--rl-guide-edit) 10%, var(--rl-panel)) !important;
+}
+.reference-loader .rl-edit-button--guide:hover:not(:disabled) {
+  color: #fff7e8 !important;
+  border-color: var(--rl-guide-edit) !important;
+  background: color-mix(in srgb, var(--rl-guide-edit) 25%, var(--rl-panel)) !important;
+}
 .rl-edit-button svg {
+  display: block;
   width: 15px;
   height: 15px;
   fill: none;
@@ -271,9 +317,6 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   pointer-events: none;
-}
-.rl-card__actions button:last-child {
-  margin-left: auto;
 }
 .rl-card__error {
   margin: 0;

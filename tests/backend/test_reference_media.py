@@ -854,12 +854,6 @@ def test_loader_keeps_guide_only_media_out_of_reference_outputs(monkeypatch, tmp
       "endImageId": None,
       "guides": [
         {
-          "id": "visual-and-derived-audio",
-          "frameIndex": 48,
-          "visualId": "video",
-          "audioId": "video:audio",
-        },
-        {
           "id": "standalone-audio",
           "frameIndex": 72,
           "visualId": None,
@@ -893,11 +887,9 @@ def test_loader_keeps_guide_only_media_out_of_reference_outputs(monkeypatch, tmp
   assert loaded.audios == ()
   assert loaded.guide_media == {
     "image": "image:guide.png",
-    "video": "video:guide.mp4",
-    "video:audio": "audio:guide.mp4",
     "audio": "audio:guide.wav",
   }
-  assert video_calls == [{"include_audio": False}]
+  assert video_calls == []
 
 
 def test_materialized_image_edit_does_not_require_the_brush_mask_at_execution(

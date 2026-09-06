@@ -243,7 +243,6 @@ function sanitizeTimelineId(
   predicate: (item: MediaItem) => boolean,
   issues: string[],
   path: string,
-  derivedAudio = false,
 ): string | null {
   if (value === undefined || value === null) return null
   if (typeof value !== "string" || !value) {
@@ -252,9 +251,7 @@ function sanitizeTimelineId(
   }
   const derivedVideoId = value.endsWith(":audio") ? value.slice(0, -6) : undefined
   const item = derivedVideoId ? items[derivedVideoId] : items[value]
-  const valid = derivedVideoId
-    ? derivedAudio && item?.kind === "video"
-    : item !== undefined && predicate(item)
+  const valid = !derivedVideoId && item !== undefined && predicate(item)
   if (!valid) {
     issues.push(`${path} refers to an unavailable media kind.`)
     return null
@@ -323,7 +320,7 @@ function sanitizeH3Timeline(
       const visualId = sanitizeTimelineId(
         rawGuide.visualId,
         items,
-        (item) => item.kind === "image" || item.kind === "video",
+        (item) => item.kind === "image",
         issues,
         `${path}.visualId`,
       )
@@ -333,7 +330,6 @@ function sanitizeH3Timeline(
         (item) => item.kind === "audio",
         issues,
         `${path}.audioId`,
-        true,
       )
       seen.add(id)
       guides.push({ id, frameIndex, visualId, audioId })

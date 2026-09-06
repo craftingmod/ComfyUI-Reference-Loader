@@ -7,7 +7,12 @@
   --rl-text: var(--input-text, #e8eaf0);
   --rl-muted: #a4abba;
   --rl-accent: var(--p-primary-color, #6ba4ff);
-  --rl-edit: #77d5a0;
+  --rl-output: var(--rl-accent);
+  --rl-guide: #ffc078;
+  --rl-edit: var(--rl-accent);
+  --rl-guide-edit: #ffc078;
+  --rl-state-on: #65d8d4;
+  --rl-state-off: #ff9b9b;
   --rl-danger: #ff7c82;
   color: var(--rl-text);
   color-scheme: dark;

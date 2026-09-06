@@ -232,12 +232,16 @@ def _validated_timeline(
       raise ValueError(f"H3 timeline guide {guide_id} has an invalid frame index.")
     from ..core.reference_contract import H3GuideEntry
 
+    visual_id = raw_guide.get("visual_id")
+    audio_id = raw_guide.get("audio_id")
+    if isinstance(audio_id, str) and audio_id.endswith(":audio"):
+      raise ValueError("H3 timeline Guides do not accept video-derived Audio sources.")
     guides.append(
       H3GuideEntry(
         id=guide_id,
         frame_index=frame_index,
-        visual_id=raw_guide.get("visual_id"),
-        audio_id=raw_guide.get("audio_id"),
+        visual_id=visual_id,
+        audio_id=audio_id,
       )
     )
   version = raw.get("version")
@@ -356,6 +360,18 @@ def _timeline_media(
   return value
 
 
+def _timeline_visual_media(
+  references: ReferenceLoaderBundle,
+  media_id: str,
+  *,
+  role: str,
+) -> Any:
+  value = _timeline_media(references, media_id, role=role)
+  if hasattr(value, "get_components"):
+    raise ValueError("H3 Timeline Guides do not accept Video visual sources.")
+  return value
+
+
 def _timeline_entries(
   references: ReferenceLoaderBundle,
   timeline: H3Timeline,
@@ -368,7 +384,7 @@ def _timeline_entries(
       (
         "Start",
         0,
-        _timeline_media(references, timeline.start_image_id, role="Start"),
+        _timeline_visual_media(references, timeline.start_image_id, role="Start"),
         None,
         1,
         0,
@@ -381,11 +397,9 @@ def _timeline_entries(
       )
     image = None
     if guide.visual_id is not None:
-      image = _timeline_media(references, guide.visual_id, role=f"guide {guide.id}")
-      if guide.visual_id in references.guide_media and hasattr(image, "get_components"):
-        # VIDEO values expose the same components as reference videos; IMAGE
-        # tensors do not. Only convert values that actually look like VIDEO.
-        image = _video_frames_at_24fps(image)
+      image = _timeline_visual_media(
+        references, guide.visual_id, role=f"guide {guide.id}"
+      )
     audio = (
       _timeline_media(references, guide.audio_id, role=f"guide {guide.id}")
       if guide.audio_id is not None
@@ -406,7 +420,7 @@ def _timeline_entries(
       (
         "End",
         -1,
-        _timeline_media(references, timeline.end_image_id, role="End"),
+        _timeline_visual_media(references, timeline.end_image_id, role="End"),
         None,
         1,
         0,

@@ -223,13 +223,13 @@ def test_h3_timeline_round_trips_without_changing_reference_outputs():
         "id": "guide-middle",
         "frameIndex": 48,
         "visualId": None,
-        "audioId": "vid-c:audio",
+        "audioId": "aud-b",
       }
     ],
   }
   state = parse_reference_state(raw)
   assert state.h3_timeline.guides[0].frame_index == 48
-  assert state.h3_timeline.guides[0].audio_id == "vid-c:audio"
+  assert state.h3_timeline.guides[0].audio_id == "aud-b"
   assert execution_projection(state)["h3Timeline"] == raw["h3Timeline"]
 
   manifest = build_reference_manifest(state)
@@ -268,4 +268,29 @@ def test_h3_timeline_rejects_invalid_media_types_and_frame_values(field, value, 
   else:
     raw["h3Timeline"][field] = value
   with pytest.raises(ReferenceContractError, match=match):
+    parse_reference_state(raw)
+
+
+@pytest.mark.parametrize(
+  ("field", "value"),
+  [("visualId", "vid-c"), ("audioId", "vid-c:audio")],
+)
+def test_h3_timeline_rejects_video_and_video_derived_audio_guides(field, value):
+  raw = loader_state()
+  raw["h3Timeline"] = {
+    "version": 1,
+    "enabled": True,
+    "startImageId": None,
+    "endImageId": None,
+    "guides": [
+      {
+        "id": "guide-middle",
+        "frameIndex": 48,
+        "visualId": None,
+        "audioId": None,
+      }
+    ],
+  }
+  raw["h3Timeline"]["guides"][0][field] = value
+  with pytest.raises(ReferenceContractError, match=field):
     parse_reference_state(raw)

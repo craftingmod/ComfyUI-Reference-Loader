@@ -706,7 +706,7 @@ describe("Reference Loader DOM lifecycle", () => {
     expect(actions?.closest(".rl-card__body")).not.toBeNull()
     expect(actions?.previousElementSibling?.matches("textarea[data-field='caption']")).toBe(true)
     const editButton = card?.querySelector<HTMLButtonElement>('[data-action="edit"]')
-    expect(editButton?.textContent?.trim()).toBe("")
+    expect(editButton?.textContent?.trim()).toBe("R")
     expect(editButton?.getAttribute("aria-label")).toBe("Edit reference")
     expect(editButton?.querySelector("svg")).not.toBeNull()
     expect(card?.querySelector(".rl-card__title")).toBeNull()

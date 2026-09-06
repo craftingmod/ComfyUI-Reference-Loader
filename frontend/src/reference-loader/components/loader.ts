@@ -68,10 +68,16 @@ const MEDIA_EXTENSIONS = {
   video: new Set(["mp4", "mkv", "webm", "mov", "avi"]),
 } as const
 const MEDIA_LIMITS = { image: 32, audio: 8, video: 4 } as const
+type MediaDropKind = keyof typeof MEDIA_EXTENSIONS
 
-function fileMediaKind(file: File): keyof typeof MEDIA_EXTENSIONS | undefined {
-  const mimeMatch = /^(image|audio|video)\//.exec(file.type)
-  if (mimeMatch) return mimeMatch[1] as keyof typeof MEDIA_EXTENSIONS
+function mimeMediaKind(mime: string): MediaDropKind | undefined {
+  const match = /^(image|audio|video)\//.exec(mime)
+  return match?.[1] as MediaDropKind | undefined
+}
+
+function fileMediaKind(file: File): MediaDropKind | undefined {
+  const mimeKind = mimeMediaKind(file.type)
+  if (mimeKind) return mimeKind
   const extension = file.name.split(".").pop()?.toLowerCase()
   if (!extension) return undefined
   for (const [kind, extensions] of Object.entries(MEDIA_EXTENSIONS)) {
@@ -79,6 +85,30 @@ function fileMediaKind(file: File): keyof typeof MEDIA_EXTENSIONS | undefined {
       return kind as keyof typeof MEDIA_EXTENSIONS
   }
   return undefined
+}
+
+function mediaDropKinds(dataTransfer: DataTransfer | null): MediaDropKind[] {
+  if (!dataTransfer) return []
+  const kinds = new Set<MediaDropKind>()
+  for (const file of dataTransfer.files) {
+    const kind = fileMediaKind(file)
+    if (kind) kinds.add(kind)
+  }
+  if (kinds.size === 0) {
+    for (const item of dataTransfer.items) {
+      const kind = mimeMediaKind(item.type)
+      if (kind) kinds.add(kind)
+    }
+  }
+  return [...kinds]
+}
+
+function isSingleMediaDrop(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer) return false
+  const files = [...dataTransfer.files]
+  if (files.length > 0) return files.length === 1
+  const fileItems = [...dataTransfer.items].filter((item) => item.kind === "file")
+  return fileItems.length === 1
 }
 
 function isSingleImageCandidate(file: File): boolean {
@@ -289,6 +319,7 @@ export class ReferenceLoaderController {
   #drag: { id: string; channel: LoaderChannel } | undefined
   #armedDrag: { id: string; channel: LoaderChannel } | undefined
   #dropTarget: HTMLElement | undefined
+  #fileDropTarget: HTMLElement | undefined
   #composing = false
   #renderPending = false
   #renderFrame: number | undefined
@@ -413,7 +444,7 @@ export class ReferenceLoaderController {
     )
   }
 
-  async addDroppedFiles(files: Iterable<File>): Promise<boolean> {
+  async addDroppedFiles(files: Iterable<File>, replaceId?: string): Promise<boolean> {
     if (this.#destroyed) return false
     const dropped = [...files]
     if (
@@ -423,7 +454,7 @@ export class ReferenceLoaderController {
       })
     )
       return false
-    await this.#uploadFiles(dropped)
+    await this.#uploadFiles(dropped, replaceId)
     return true
   }
 
@@ -584,7 +615,9 @@ export class ReferenceLoaderController {
     this.#runtimeSequences.clear()
     this.#referenceListeners.clear()
     this.#dropTarget = undefined
+    this.#setFileDropTarget(undefined)
     this.root.classList.remove("is-dragging", "is-file-dragging")
+    delete this.root.dataset.fileDropKinds
     this.root.replaceChildren()
   }
 
@@ -673,7 +706,7 @@ export class ReferenceLoaderController {
         </div>
         ${
           hasImage && id
-            ? `<article class="rl-card rl-single-image-card${error ? " has-error" : ""}" data-id="${escapeHtml(id)}" data-channel="image" tabindex="0">
+            ? `<article class="rl-card rl-single-image-card${error ? " has-error" : ""}" data-id="${escapeHtml(id)}" data-channel="image" data-media-kind="image" data-replace-index="1" tabindex="0">
                 <div class="rl-card__media rl-single-image-preview is-transparent-preview" title="Double-click to edit">${preview}${loadingOverlay}</div>
                 ${error}
               </article>`
@@ -720,10 +753,10 @@ export class ReferenceLoaderController {
   #channelMarkup(channel: LoaderChannel, label: string, order: string[]): string {
     let outputIndex = 0
     const cards = order
-      .map((id) => {
+      .map((id, position) => {
         const item = this.state.items[id]
         const index = item && isChannelOutputEnabled(channel, item) ? ++outputIndex : undefined
-        return this.#cardMarkup(channel, id, index)
+        return this.#cardMarkup(channel, id, position + 1, index)
       })
       .join("")
     const accepts: Record<LoaderChannel, string> = {
@@ -733,7 +766,7 @@ export class ReferenceLoaderController {
     }
     const hasOpenCell = order.length > 0 && order.length % this.state.ui.gridColumns !== 0
     const addLabel = `Add ${label.toLowerCase()}`
-    const addControl = `<label class="rl-grid-add ${hasOpenCell ? "is-tile" : "is-wide"}" title="${addLabel}">
+    const addControl = `<label class="rl-grid-add ${hasOpenCell ? "is-tile" : "is-wide"}" data-media-kind="${channel}" title="${addLabel}">
       <span class="rl-grid-add__icon" aria-hidden="true">+</span>${hasOpenCell ? "" : `<span>${addLabel}</span>`}
       <input type="file" accept="${accepts[channel]}" data-upload-kind="${channel}" multiple aria-label="${addLabel}">
     </label>`
@@ -748,7 +781,12 @@ export class ReferenceLoaderController {
     </section>`
   }
 
-  #cardMarkup(channel: LoaderChannel, id: string, outputIndex?: number): string {
+  #cardMarkup(
+    channel: LoaderChannel,
+    id: string,
+    replaceIndex: number,
+    outputIndex?: number,
+  ): string {
     const item = this.state.items[id]
     if (!item) return ""
     const singleImage = this.#mode === "single-image"
@@ -789,7 +827,7 @@ export class ReferenceLoaderController {
       item.kind === "image" ? undefined : (runtime?.metadata?.duration ?? item.crop?.end)
     const audioPlaybackDisabled = silentVideo || runtime?.loading || playbackDuration === undefined
     const videoPlaybackDisabled = runtime?.loading || playbackDuration === undefined
-    return `<article class="rl-card${singleImage ? " rl-single-image-card" : ""}${selected ? " is-selected" : ""}${runtime?.error ? " has-error" : ""}${outputEnabled ? "" : " is-output-disabled"}" data-id="${escapeHtml(id)}" data-channel="${channel}" data-output-enabled="${String(outputEnabled)}" tabindex="0" draggable="${String(!singleImage)}" aria-selected="${String(selected)}">
+    return `<article class="rl-card${singleImage ? " rl-single-image-card" : ""}${selected ? " is-selected" : ""}${runtime?.error ? " has-error" : ""}${outputEnabled ? "" : " is-output-disabled"}" data-id="${escapeHtml(id)}" data-channel="${channel}" data-media-kind="${item.kind}" data-replace-index="${replaceIndex}" data-output-enabled="${String(outputEnabled)}" tabindex="0" draggable="${String(!singleImage)}" aria-selected="${String(selected)}">
       <div class="rl-card__media${channel === "image" && item.kind === "image" ? " is-transparent-preview" : ""}" title="Double-click to edit">${media}<div class="rl-media-badges"><span class="rl-kind rl-kind--${item.kind}">${item.kind}</span>${outputIndex === undefined ? "" : `<span class="rl-output-index" title="${labelForCaption(channel)} output #${outputIndex}">#${outputIndex}</span>`}${megapixels ? `<span class="rl-megapixels" title="Current source resolution: ${megapixels}">${megapixels}</span>` : ""}${duration ? `<span class="rl-duration">${duration}</span>` : ""}</div><span class="rl-media-filename" title="${escapeHtml(mediaFilename)}">${escapeHtml(mediaFilename)}</span><button type="button" class="rl-remove" data-action="remove" aria-label="Remove reference" title="Delete reference">×</button>${loading}</div>
       <div class="rl-card__body">
         ${showCaptionsProperty(this.#node) ? `<textarea data-field="caption" rows="2" maxlength="16384" placeholder="Caption" aria-label="${labelForCaption(channel)} caption">${escapeHtml(caption)}</textarea>` : ""}
@@ -967,6 +1005,8 @@ export class ReferenceLoaderController {
         this.#drag = undefined
         this.#armedDrag = undefined
         this.root.classList.remove("is-dragging", "is-file-dragging")
+        this.#setFileDropGuide(null)
+        this.#setFileDropTarget(undefined)
       },
       { signal },
     )
@@ -977,6 +1017,8 @@ export class ReferenceLoaderController {
         if (!fileDrop && !this.#drag) return
         event.preventDefault()
         this.root.classList.toggle("is-file-dragging", fileDrop)
+        this.#setFileDropGuide(fileDrop ? event.dataTransfer : null)
+        this.#updateFileDropTarget(fileDrop ? event : undefined)
         if (event.dataTransfer) event.dataTransfer.dropEffect = fileDrop ? "copy" : "move"
         this.#updateDropTarget(event)
       },
@@ -989,6 +1031,8 @@ export class ReferenceLoaderController {
         if (!(related instanceof Node) || !this.root.contains(related)) {
           this.#clearDropTarget()
           this.root.classList.remove("is-file-dragging")
+          this.#setFileDropGuide(null)
+          this.#setFileDropTarget(undefined)
         }
       },
       { signal },
@@ -1370,14 +1414,68 @@ export class ReferenceLoaderController {
     this.#setDropTarget(undefined)
   }
 
+  #setFileDropTarget(card: HTMLElement | undefined): void {
+    if (this.#fileDropTarget === card) return
+    this.#fileDropTarget?.classList.remove("is-file-drop-target")
+    this.#fileDropTarget = card
+    if (card) {
+      card.classList.add("is-file-drop-target")
+      this.root.dataset.fileDropTarget = card.classList.contains("rl-card") ? "replace" : "add"
+    } else {
+      delete this.root.dataset.fileDropTarget
+    }
+  }
+
+  #setFileDropGuide(dataTransfer: DataTransfer | null): void {
+    const kinds = mediaDropKinds(dataTransfer).filter(
+      (kind) => this.#mode !== "single-image" || kind === "image",
+    )
+    if (kinds.length > 0) this.root.dataset.fileDropKinds = kinds.join(" ")
+    else delete this.root.dataset.fileDropKinds
+  }
+
+  #updateFileDropTarget(event: DragEvent | undefined): void {
+    if (!event || !isSingleMediaDrop(event.dataTransfer)) {
+      this.#setFileDropTarget(undefined)
+      return
+    }
+    const target = (event.target as Element).closest<HTMLElement>(
+      ".rl-card, .rl-grid-add, .rl-single-image-preview.is-empty",
+    )
+    const targetId = target?.dataset.id
+    const targetItem = targetId ? this.state.items[targetId] : undefined
+    const targetKind = target?.dataset.mediaKind ?? target?.dataset.dropZone
+    const kinds = mediaDropKinds(event.dataTransfer)
+    const valid =
+      target &&
+      (targetItem?.kind ?? targetKind) &&
+      kinds.length === 1 &&
+      kinds[0] === (targetItem?.kind ?? targetKind)
+        ? target
+        : undefined
+    this.#setFileDropTarget(valid)
+  }
+
   #onDrop(event: DragEvent): void {
     this.#clearDropTarget()
     this.root.classList.remove("is-file-dragging")
+    this.#setFileDropGuide(null)
+    this.#setFileDropTarget(undefined)
     const files = [...(event.dataTransfer?.files ?? [])]
     if (files.length > 0) {
       if (!this.acceptsFileDrop(event.dataTransfer)) return
       event.preventDefault()
-      void this.addDroppedFiles(files)
+      const target = (event.target as Element).closest<HTMLElement>(".rl-card")
+      const targetId = target?.dataset.id
+      const targetItem = targetId ? this.state.items[targetId] : undefined
+      const replaceId =
+        files.length === 1 &&
+        targetId &&
+        targetItem &&
+        fileMediaKind(files[0] as File) === targetItem.kind
+          ? targetId
+          : undefined
+      void this.addDroppedFiles(files, replaceId)
       return
     }
     const zone = (event.target as Element).closest<HTMLElement>("[data-drop-zone]")
@@ -1395,7 +1493,7 @@ export class ReferenceLoaderController {
     this.#dispatch({ type: "reorder", channel, id: this.#drag.id, toIndex: Math.max(0, index) })
   }
 
-  async #uploadFiles(files: File[]): Promise<void> {
+  async #uploadFiles(files: File[], replaceId?: string): Promise<void> {
     if (this.#mode === "single-image") {
       const images = files.filter(isSingleImageCandidate)
       if (images.length === 0) {
@@ -1410,8 +1508,16 @@ export class ReferenceLoaderController {
       }
       if (images.length > 1)
         this.#status = `${images.length - 1} additional image${images.length === 2 ? " was" : "s were"} skipped.`
-      await this.#uploadFile(images[0] as File)
+      await this.#uploadFile(images[0] as File, replaceId)
       return
+    }
+    if (replaceId && files.length === 1) {
+      const target = this.state.items[replaceId]
+      const kind = fileMediaKind(files[0] as File)
+      if (target && kind === target.kind) {
+        await this.#uploadFile(files[0] as File, replaceId)
+        return
+      }
     }
     const counts = { image: 0, audio: 0, video: 0 }
     for (const item of Object.values(this.state.items)) counts[item.kind] += 1
@@ -1482,7 +1588,7 @@ export class ReferenceLoaderController {
     this.#node.setDirtyCanvas(true, true)
   }
 
-  async #uploadFile(file: File): Promise<void> {
+  async #uploadFile(file: File, replaceId?: string): Promise<void> {
     const epoch = this.#runtimeEpoch
     const stateController = this.#stateController
     const id = `pending-${globalThis.crypto?.randomUUID?.() ?? Math.random()}`
@@ -1500,16 +1606,32 @@ export class ReferenceLoaderController {
       const canonicalCount = Object.values(this.state.items).filter(
         (candidate) => candidate.kind === uploaded.kind,
       ).length
-      if (this.#mode !== "single-image" && canonicalCount >= MEDIA_LIMITS[uploaded.kind]) {
+      const currentTarget = replaceId ? this.state.items[replaceId] : undefined
+      if (replaceId && currentTarget?.kind !== uploaded.kind) {
+        this.#status = `${file.name}: the server identified a different media type, so the reference was not replaced.`
+        return
+      }
+      if (
+        this.#mode !== "single-image" &&
+        !replaceId &&
+        canonicalCount >= MEDIA_LIMITS[uploaded.kind]
+      ) {
         this.#status = `${file.name}: the server identified this as ${uploaded.kind}, but that media limit is already full.`
         return
       }
-      let item = createMediaItem(uploaded.kind, uploaded.source)
+      let item = createMediaItem(uploaded.kind, uploaded.source, replaceId)
       const addedDisabled =
-        item.kind === "image" && twoImageModeProperty(this.#node) && this.#activeImageCount() >= 2
+        !replaceId &&
+        item.kind === "image" &&
+        twoImageModeProperty(this.#node) &&
+        this.#activeImageCount() >= 2
       if (addedDisabled && item.kind === "image") item = { ...item, imageEnabled: false }
       this.#runtime.set(item.id, { loading: true, metadata: uploaded.metadata })
-      if (this.#mode === "single-image") {
+      if (replaceId) {
+        if (this.#audioPreview.snapshot.owner === `grid:${replaceId}`) this.#audioPreview.stop()
+        if (this.#videoPreview.snapshot.owner === `grid:${replaceId}`) this.#videoPreview.stop()
+        this.#dispatch({ type: "replace-media", id: replaceId, item })
+      } else if (this.#mode === "single-image") {
         const empty = loaderReducer(this.state, { type: "clear" })
         const replacement = loaderReducer(empty, { type: "add", item })
         this.#dispatch({ type: "replace", state: this.#stateForMode(replacement) })
@@ -1517,8 +1639,9 @@ export class ReferenceLoaderController {
         this.#dispatch({ type: "add", item })
       }
       this.#selectedId = item.id
-      this.#status =
-        this.#mode === "single-image"
+      this.#status = replaceId
+        ? `${file.name} replaced the existing reference.`
+        : this.#mode === "single-image"
           ? ""
           : addedDisabled
             ? `${file.name} added with its IMAGE output disabled by two-image mode.`

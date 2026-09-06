@@ -191,6 +191,45 @@ def test_optional_rembg_reuses_one_lazy_session(monkeypatch):
   assert calls == [(image, sessions[0]), (image, sessions[0])]
 
 
+def test_optional_rembg_logs_onnxruntime_provider(monkeypatch, caplog):
+  class FakeImage:
+    size = (4, 2)
+
+    def convert(self, _mode):
+      return self
+
+  class FakeSession:
+    inner_session = SimpleNamespace(
+      get_providers=lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    )
+
+  rembg = ModuleType("rembg")
+  rembg.new_session = lambda: FakeSession()
+  rembg.remove = lambda image, *, session: image
+  onnxruntime = ModuleType("onnxruntime")
+  onnxruntime.__version__ = "1.0.test"
+  onnxruntime.get_available_providers = lambda: [
+    "CUDAExecutionProvider",
+    "CPUExecutionProvider",
+  ]
+  monkeypatch.setattr(
+    reference_background.importlib.util, "find_spec", lambda _name: object()
+  )
+  monkeypatch.setattr(reference_background, "_SESSION", None)
+  monkeypatch.setattr(reference_background, "_RUNTIME_LOGGED", False)
+  monkeypatch.setitem(sys.modules, "rembg", rembg)
+  monkeypatch.setitem(sys.modules, "onnxruntime", onnxruntime)
+
+  with caplog.at_level("INFO", logger=reference_background.__name__):
+    reference_background.remove_reference_background(FakeImage())
+
+  assert "onnxruntime_installed=True" in caplog.text
+  assert (
+    "active_providers=('CUDAExecutionProvider', 'CPUExecutionProvider')" in caplog.text
+  )
+  assert "device=GPU" in caplog.text
+
+
 def test_resolver_verifies_input_boundary_size_and_hash(tmp_path):
   media = tmp_path / "reference_loader" / "sources" / "source.bin"
   media.parent.mkdir(parents=True)

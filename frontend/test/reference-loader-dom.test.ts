@@ -553,6 +553,106 @@ describe("Reference Loader DOM lifecycle", () => {
     root.remove()
   })
 
+  test("replaces a dropped card media while keeping its reference identity", async () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const node: ComfyNode = {
+      addWidget: () => ({ name: "unused", value: null }),
+      addDOMWidget: () => ({ name: "unused", value: null }),
+      setDirtyCanvas: () => undefined,
+    }
+    const original = createMediaItem(
+      "image",
+      {
+        path: "reference_loader/sources/original.png",
+        mime: "image/png",
+        sha256: "a".repeat(64),
+      },
+      "stable-reference",
+    )
+    original.caption = "Keep this caption"
+    const state = loaderReducer(createEmptyLoaderState(), { type: "add", item: original })
+    const api: ComfyApiLike = {
+      fetchApi: async (route) => {
+        if (route.endsWith("/upload")) {
+          return new Response(
+            JSON.stringify({
+              kind: "image",
+              source: {
+                path: "reference_loader/sources/replacement.png",
+                mime: "image/png",
+                sha256: "b".repeat(64),
+              },
+              metadata: { width: 2, height: 2 },
+            }),
+            { status: 201 },
+          )
+        }
+        if (route.endsWith("/metadata"))
+          return new Response(JSON.stringify({ metadata: { width: 2, height: 2 } }))
+        if (route.endsWith("/image_proxy"))
+          return new Response(JSON.stringify({ url: "/api/view?filename=replacement.webp" }))
+        return new Response("{}")
+      },
+    }
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi(api),
+      serializeLoaderState(state),
+    )
+    const card = root.querySelector<HTMLElement>('[data-id="stable-reference"]')
+    const transfer = new DataTransfer()
+    transfer.items.add(new File(["image"], "replacement.png", { type: "image/png" }))
+    const dragover = new DragEvent("dragover", { bubbles: true, cancelable: true })
+    Object.defineProperty(dragover, "dataTransfer", { value: transfer })
+    card?.querySelector<HTMLElement>(".rl-card__media")?.dispatchEvent(dragover)
+    expect(root.dataset.fileDropKinds).toBe("image")
+    expect(root.querySelector('.rl-grid-add[data-media-kind="image"]')).not.toBeNull()
+    expect(card?.classList.contains("is-file-drop-target")).toBe(true)
+    expect(root.dataset.fileDropTarget).toBe("replace")
+    const addControl = root.querySelector<HTMLElement>('.rl-grid-add[data-media-kind="image"]')
+    const addDragover = new DragEvent("dragover", { bubbles: true, cancelable: true })
+    Object.defineProperty(addDragover, "dataTransfer", { value: transfer })
+    addControl?.dispatchEvent(addDragover)
+    expect(addControl?.classList.contains("is-file-drop-target")).toBe(true)
+    expect(card?.classList.contains("is-file-drop-target")).toBe(false)
+    expect(root.dataset.fileDropTarget).toBe("add")
+    const genericDragover = new DragEvent("dragover", { bubbles: true, cancelable: true })
+    Object.defineProperty(genericDragover, "dataTransfer", { value: transfer })
+    root.dispatchEvent(genericDragover)
+    expect(root.dataset.fileDropTarget).toBeUndefined()
+    const replaceDragover = new DragEvent("dragover", { bubbles: true, cancelable: true })
+    Object.defineProperty(replaceDragover, "dataTransfer", { value: transfer })
+    card?.querySelector<HTMLElement>(".rl-card__media")?.dispatchEvent(replaceDragover)
+    expect(card?.classList.contains("is-file-drop-target")).toBe(true)
+    expect(root.dataset.fileDropTarget).toBe("replace")
+    expect(
+      root.querySelector('.rl-card[data-media-kind="image"][data-replace-index="1"]'),
+    ).not.toBeNull()
+    const drop = new DragEvent("drop", { bubbles: true, cancelable: true })
+    Object.defineProperty(drop, "dataTransfer", { value: transfer })
+    card?.querySelector<HTMLElement>(".rl-card__media")?.dispatchEvent(drop)
+    expect(root.dataset.fileDropKinds).toBeUndefined()
+    expect(root.dataset.fileDropTarget).toBeUndefined()
+    expect(card?.classList.contains("is-file-drop-target")).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(controller.state.imageOrder).toEqual(["stable-reference"])
+    expect(controller.state.items["stable-reference"]).toMatchObject({
+      id: "stable-reference",
+      sourceFilename: "replacement.png",
+      caption: "Keep this caption",
+      source: { path: "reference_loader/sources/replacement.png" },
+    })
+    expect(controller.promptReferences[0]).toMatchObject({
+      referenceId: "stable-reference",
+      filename: "replacement.png",
+    })
+    controller.destroy()
+    root.remove()
+  })
+
   test("arms native article dragging from the card surface but not its controls", () => {
     const root = document.createElement("div")
     document.body.append(root)

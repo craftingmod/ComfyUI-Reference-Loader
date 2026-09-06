@@ -23,9 +23,26 @@ describe("Reference Loader stylesheet", () => {
       new URL("../src/reference-loader/styles/loader.css", import.meta.url),
     ).text()
 
-    expect(css).toContain(".reference-loader.is-file-dragging::after")
+    expect(css).toContain('.reference-loader.is-file-dragging[data-file-drop-kinds~="image"]')
+    expect(css).toContain(".reference-loader.is-file-dragging:not([data-file-drop-target])::after")
     expect(css).toContain('content: "Drop media to add"')
+    expect(css).toContain('.rl-grid-add[data-media-kind="image"]::after')
+    expect(css).toContain('content: "+"')
+    expect(css).toContain("font-size: 24px;")
+    expect(css).toContain("line-height: 1;")
+    expect(css).toContain('.rl-grid-add[data-media-kind="image"].is-file-drop-target')
+    expect(css).toContain("border: 1px dashed var(--rl-accent);")
+    expect(css).toContain("background: color-mix(in srgb, var(--rl-accent) 18%, var(--rl-bg));")
+    expect(css).not.toContain("background: color-mix(in srgb, var(--rl-panel) 86%, transparent);")
     expect(css).toContain("pointer-events: none")
+    const cards = await Bun.file(
+      new URL("../src/reference-loader/styles/cards.css", import.meta.url),
+    ).text()
+    expect(cards).toContain('.rl-card[data-media-kind="image"]::after')
+    expect(cards).toContain('content: "⇄ " attr(data-replace-index)')
+    expect(cards).toContain("background: color-mix(in srgb, var(--rl-panel) 74%, transparent);")
+    expect(cards).toContain(".rl-card.is-file-drop-target")
+    expect(cards).toContain("background: color-mix(in srgb, var(--rl-accent) 42%, transparent);")
   })
 
   it("keeps the single-image loader compact and native-looking", async () => {
@@ -74,7 +91,8 @@ describe("Reference Loader stylesheet", () => {
     expect(loader).toContain(".rl-single-image-panel")
     expect(loader).toContain(".rl-single-image-select")
     expect(loader).toContain(".rl-single-image-edit")
-    expect(loader).toContain(".reference-image-loader.is-file-dragging::after")
+    expect(loader).toContain('.rl-grid-add[data-media-kind="image"]::after')
+    expect(loader).toContain(".rl-single-image-preview.is-empty::after")
   })
 
   afterEach(() => {
@@ -83,13 +101,20 @@ describe("Reference Loader stylesheet", () => {
 
   it("loads the CSS bundle next to the extension module exactly once", () => {
     const moduleUrl = "https://example.test/extensions/comfyui-reference-loader/index.js"
+    const stale = document.createElement("link")
+    stale.id = STYLESHEET_ID
+    stale.rel = "stylesheet"
+    stale.href = "https://example.test/extensions/comfyui-reference-loader/index.css"
+    document.head.append(stale)
 
     const first = installStylesheet(moduleUrl)
     const second = installStylesheet(moduleUrl)
 
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
-    expect(first.href).toBe("https://example.test/extensions/comfyui-reference-loader/index.css")
+    expect(first.href).toBe(
+      "https://example.test/extensions/comfyui-reference-loader/index.css?v=9",
+    )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })
 

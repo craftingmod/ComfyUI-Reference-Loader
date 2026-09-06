@@ -73,6 +73,27 @@ describe("Reference Loader state", () => {
     expect(state.items.b).toBeUndefined()
   })
 
+  test("replaces media without changing its reference identity or order", () => {
+    const original = createMediaItem("image", source("original.png", "image/png"), "image")
+    original.caption = "keep this caption"
+    if (original.kind !== "image") throw new Error("Expected an image test item.")
+    original.imageEnabled = false
+    let state = loaderReducer(createEmptyLoaderState(), { type: "add", item: original })
+    const replacement = createMediaItem("image", source("replacement.png", "image/png"), "image")
+
+    state = loaderReducer(state, { type: "replace-media", id: "image", item: replacement })
+
+    expect(state.imageOrder).toEqual(["image"])
+    expect(state.items.image).toMatchObject({
+      ...replacement,
+      caption: "keep this caption",
+      imageEnabled: false,
+    })
+    expect(loaderReducer(state, { type: "replace-media", id: "missing", item: replacement })).toBe(
+      state,
+    )
+  })
+
   test("clears every media channel while preserving UI preferences", () => {
     const image = createMediaItem("image", source("a.png", "image/png"), "a")
     const video = createMediaItem("video", source("v.mp4", "video/mp4"), "v")

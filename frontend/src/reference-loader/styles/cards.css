@@ -17,7 +17,8 @@
     0 0 0 1px var(--rl-accent),
     0 3px 10px #0005;
 }
-.rl-card.is-drop-target {
+.rl-card.is-drop-target,
+.rl-card.is-file-drop-target {
   border-color: var(--rl-accent);
   box-shadow:
     0 0 0 2px var(--rl-accent),
@@ -30,6 +31,37 @@
   inset: 0;
   pointer-events: none;
   background: color-mix(in srgb, var(--rl-accent) 28%, transparent);
+}
+.reference-loader.is-file-dragging[data-file-drop-kinds~="image"]
+  .rl-card[data-media-kind="image"]::after,
+.reference-loader.is-file-dragging[data-file-drop-kinds~="audio"]
+  .rl-card[data-media-kind="audio"]::after,
+.reference-loader.is-file-dragging[data-file-drop-kinds~="video"]
+  .rl-card[data-media-kind="video"]::after {
+  content: "⇄ " attr(data-replace-index);
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--rl-border) 68%, var(--rl-text) 32%);
+  background: color-mix(in srgb, var(--rl-panel) 74%, transparent);
+  color: var(--rl-text);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 3px #000;
+  pointer-events: none;
+}
+.reference-loader.is-file-dragging[data-file-drop-kinds~="image"]
+  .rl-card[data-media-kind="image"].is-file-drop-target::after,
+.reference-loader.is-file-dragging[data-file-drop-kinds~="audio"]
+  .rl-card[data-media-kind="audio"].is-file-drop-target::after,
+.reference-loader.is-file-dragging[data-file-drop-kinds~="video"]
+  .rl-card[data-media-kind="video"].is-file-drop-target::after {
+  border-color: var(--rl-accent);
+  background: color-mix(in srgb, var(--rl-accent) 42%, transparent);
+  box-shadow: inset 0 0 0 2px var(--rl-accent);
 }
 .rl-card.has-error {
   border-color: color-mix(in srgb, var(--rl-danger) 75%, var(--rl-border));

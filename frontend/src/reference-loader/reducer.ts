@@ -13,6 +13,7 @@ export type LoaderChannel = "image" | "video" | "audio"
 export type LoaderAction =
   | { type: "replace"; state: LoaderState }
   | { type: "add"; item: MediaItem }
+  | { type: "replace-media"; id: string; item: MediaItem }
   | { type: "clear" }
   | { type: "remove"; id: string }
   | { type: "set-caption"; id: string; caption: string; channel?: LoaderChannel }
@@ -41,6 +42,25 @@ function replaceItem(state: LoaderState, item: MediaItem): LoaderState {
   return { ...state, items: { ...state.items, [item.id]: item } }
 }
 
+function preserveMediaSettings(current: MediaItem, replacement: MediaItem): MediaItem {
+  if (current.kind === "image" && replacement.kind === "image")
+    return { ...replacement, caption: current.caption, imageEnabled: current.imageEnabled }
+  if (current.kind === "audio" && replacement.kind === "audio")
+    return { ...replacement, caption: current.caption, audioEnabled: current.audioEnabled }
+  if (current.kind === "video" && replacement.kind === "video")
+    return {
+      ...replacement,
+      caption: current.caption,
+      videoEnabled: current.videoEnabled,
+      videoAudioEnabled: current.videoAudioEnabled,
+      audioEnabled: current.audioEnabled,
+      ...(current.audioCaptionOverride === undefined
+        ? {}
+        : { audioCaptionOverride: current.audioCaptionOverride }),
+    }
+  return replacement
+}
+
 function moveInOrder(order: string[], id: string, toIndex: number): string[] {
   const fromIndex = order.indexOf(id)
   if (fromIndex < 0) return order
@@ -67,6 +87,12 @@ export function loaderReducer(state: LoaderState, action: LoaderAction): LoaderS
           ? [...state.audioOrder, action.item.id]
           : state.audioOrder,
       }
+    }
+    case "replace-media": {
+      const current = state.items[action.id]
+      if (!current || current.kind !== action.item.kind || action.item.id !== action.id)
+        return state
+      return replaceItem(state, preserveMediaSettings(current, action.item))
     }
     case "clear":
       return Object.keys(state.items).length === 0

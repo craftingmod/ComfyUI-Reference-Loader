@@ -175,6 +175,9 @@ class ReferenceLoaderNode(io.ComfyNode):
           dynamic_prompts=False,
           socketless=True,
           extra_dict={"widgetType": "REFERENCE_LOADER"},
+          tooltip=(
+            "Internal Reference Loader state for the custom editor."
+          )
         ),
         io.String.Input(
           "prompt",

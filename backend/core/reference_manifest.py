@@ -107,6 +107,7 @@ def build_reference_manifest(
   return {
     "version": state.version,
     "video_audio_policy": state.video_audio_policy,
+    "h3_timeline": state.h3_timeline.manifest_projection(),
     "image_output": (
       image_output or ImageOutputSettings(False, 2_000_000, False, "#000000")
     ).projection(),
@@ -201,16 +202,47 @@ def parse_reference_manifest_state(value: str | Mapping[str, Any]) -> ReferenceS
       item["audioCaptionOverride"] = manifest_item["audio_caption_override"]
     state_items[item_id] = item
 
-  return parse_reference_state(
-    {
-      "version": raw.get("version"),
-      "items": state_items,
-      "imageOrder": raw.get("image_order"),
-      "videoOrder": raw.get("video_order"),
-      "audioOrder": raw.get("audio_order"),
-      "videoAudioPolicy": raw.get("video_audio_policy"),
+  raw_timeline = raw.get("h3_timeline")
+  timeline: dict[str, Any] | None = None
+  if raw_timeline is not None:
+    if not isinstance(raw_timeline, Mapping):
+      raise ReferenceContractError("manifest.h3_timeline: must contain an object")
+    raw_guides = raw_timeline.get("guides")
+    if not isinstance(raw_guides, list):
+      raise ReferenceContractError("manifest.h3_timeline.guides: must be an array")
+    guides: list[dict[str, Any]] = []
+    for index, raw_guide in enumerate(raw_guides):
+      if not isinstance(raw_guide, Mapping):
+        raise ReferenceContractError(
+          f"manifest.h3_timeline.guides[{index}]: must contain an object"
+        )
+      guides.append(
+        {
+          "id": raw_guide.get("id"),
+          "frameIndex": raw_guide.get("frame_index"),
+          "visualId": raw_guide.get("visual_id"),
+          "audioId": raw_guide.get("audio_id"),
+        }
+      )
+    timeline = {
+      "version": raw_timeline.get("version"),
+      "enabled": raw_timeline.get("enabled"),
+      "startImageId": raw_timeline.get("start_image_id"),
+      "endImageId": raw_timeline.get("end_image_id"),
+      "guides": guides,
     }
-  )
+
+  state_payload: dict[str, Any] = {
+    "version": raw.get("version"),
+    "items": state_items,
+    "imageOrder": raw.get("image_order"),
+    "videoOrder": raw.get("video_order"),
+    "audioOrder": raw.get("audio_order"),
+    "videoAudioPolicy": raw.get("video_audio_policy"),
+  }
+  if timeline is not None:
+    state_payload["h3Timeline"] = timeline
+  return parse_reference_state(state_payload)
 
 
 __all__ = [

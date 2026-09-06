@@ -1,10 +1,14 @@
 import {
   isAudioItem,
+  createEmptyH3Timeline,
+  MAX_H3_GUIDES,
   type LoaderState,
   type LoaderUiPreferences,
   type ImageEditRecipe,
   type MediaItem,
   type TimeRange,
+  type H3GuideEntry,
+  type H3TimelineState,
 } from "./types.ts"
 import { validateLoaderState } from "./validation.ts"
 
@@ -37,6 +41,13 @@ export type LoaderAction =
       channel?: LoaderChannel
     }
   | { type: "set-ui"; values: Partial<LoaderUiPreferences> }
+  | { type: "set-h3-timeline"; timeline: H3TimelineState }
+  | { type: "toggle-h3-timeline"; enabled: boolean }
+  | { type: "set-h3-start"; id: string | null }
+  | { type: "set-h3-end"; id: string | null }
+  | { type: "add-h3-guide"; guide: H3GuideEntry }
+  | { type: "update-h3-guide"; id: string; values: Partial<H3GuideEntry> }
+  | { type: "remove-h3-guide"; id: string }
 
 function replaceItem(state: LoaderState, item: MediaItem): LoaderState {
   return { ...state, items: { ...state.items, [item.id]: item } }
@@ -70,6 +81,30 @@ function moveInOrder(order: string[], id: string, toIndex: number): string[] {
   return next.every((candidate, index) => candidate === order[index]) ? order : next
 }
 
+function replaceTimeline(state: LoaderState, timeline: H3TimelineState): LoaderState {
+  return {
+    ...state,
+    h3Timeline: {
+      ...timeline,
+      guides: timeline.guides.map((guide) => ({ ...guide })),
+    },
+  }
+}
+
+function clearTimelineReferences(timeline: H3TimelineState, mediaId: string): H3TimelineState {
+  return {
+    ...timeline,
+    startImageId: timeline.startImageId === mediaId ? null : timeline.startImageId,
+    endImageId: timeline.endImageId === mediaId ? null : timeline.endImageId,
+    guides: timeline.guides.map((guide) => ({
+      ...guide,
+      visualId: guide.visualId === mediaId ? null : guide.visualId,
+      audioId:
+        guide.audioId === mediaId || guide.audioId === `${mediaId}:audio` ? null : guide.audioId,
+    })),
+  }
+}
+
 export function loaderReducer(state: LoaderState, action: LoaderAction): LoaderState {
   switch (action.type) {
     case "replace":
@@ -95,9 +130,20 @@ export function loaderReducer(state: LoaderState, action: LoaderAction): LoaderS
       return replaceItem(state, preserveMediaSettings(current, action.item))
     }
     case "clear":
-      return Object.keys(state.items).length === 0
+      return Object.keys(state.items).length === 0 &&
+        !state.h3Timeline.enabled &&
+        state.h3Timeline.startImageId === null &&
+        state.h3Timeline.endImageId === null &&
+        state.h3Timeline.guides.length === 0
         ? state
-        : { ...state, items: {}, imageOrder: [], videoOrder: [], audioOrder: [] }
+        : {
+            ...state,
+            items: {},
+            imageOrder: [],
+            videoOrder: [],
+            audioOrder: [],
+            h3Timeline: createEmptyH3Timeline(),
+          }
     case "remove": {
       if (!state.items[action.id]) return state
       const items = { ...state.items }
@@ -108,6 +154,7 @@ export function loaderReducer(state: LoaderState, action: LoaderAction): LoaderS
         imageOrder: state.imageOrder.filter((id) => id !== action.id),
         videoOrder: state.videoOrder.filter((id) => id !== action.id),
         audioOrder: state.audioOrder.filter((id) => id !== action.id),
+        h3Timeline: clearTimelineReferences(state.h3Timeline, action.id),
       }
     }
     case "set-caption": {
@@ -208,5 +255,34 @@ export function loaderReducer(state: LoaderState, action: LoaderAction): LoaderS
     }
     case "set-ui":
       return { ...state, ui: { ...state.ui, ...action.values } }
+    case "set-h3-timeline":
+      return replaceTimeline(state, action.timeline)
+    case "toggle-h3-timeline":
+      return replaceTimeline(state, { ...state.h3Timeline, enabled: action.enabled })
+    case "set-h3-start":
+      return replaceTimeline(state, { ...state.h3Timeline, startImageId: action.id })
+    case "set-h3-end":
+      return replaceTimeline(state, { ...state.h3Timeline, endImageId: action.id })
+    case "add-h3-guide":
+      return state.h3Timeline.guides.length >= MAX_H3_GUIDES
+        ? state
+        : replaceTimeline(state, {
+            ...state.h3Timeline,
+            guides: [...state.h3Timeline.guides, { ...action.guide }],
+          })
+    case "update-h3-guide": {
+      const index = state.h3Timeline.guides.findIndex((guide) => guide.id === action.id)
+      if (index < 0) return state
+      const guides = state.h3Timeline.guides.map((guide, guideIndex) =>
+        guideIndex === index ? { ...guide, ...action.values, id: guide.id } : guide,
+      )
+      return replaceTimeline(state, { ...state.h3Timeline, guides })
+    }
+    case "remove-h3-guide": {
+      const guides = state.h3Timeline.guides.filter((guide) => guide.id !== action.id)
+      return guides.length === state.h3Timeline.guides.length
+        ? state
+        : replaceTimeline(state, { ...state.h3Timeline, guides })
+    }
   }
 }

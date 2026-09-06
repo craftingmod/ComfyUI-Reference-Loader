@@ -5,13 +5,15 @@ import json
 import math
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Any, Literal
 
 REFERENCE_STATE_VERSION = 1
 VIDEO_AUDIO_POLICY = "preserve"
+H3_TIMELINE_VERSION = 1
+MAX_H3_GUIDES = 32
 
 MAX_STATE_CHARACTERS = 1_000_000
 MAX_IMAGES = 32
@@ -32,6 +34,61 @@ MediaKind = Literal["image", "audio", "video"]
 
 class ReferenceContractError(ValueError):
   """Raised when serialized Reference Loader state violates its contract."""
+
+
+@dataclass(frozen=True, slots=True)
+class H3GuideEntry:
+  id: str
+  frame_index: int
+  visual_id: str | None
+  audio_id: str | None
+
+  def state_projection(self) -> dict[str, Any]:
+    return {
+      "id": self.id,
+      "frameIndex": self.frame_index,
+      "visualId": self.visual_id,
+      "audioId": self.audio_id,
+    }
+
+  def manifest_projection(self) -> dict[str, Any]:
+    return {
+      "id": self.id,
+      "frame_index": self.frame_index,
+      "visual_id": self.visual_id,
+      "audio_id": self.audio_id,
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class H3Timeline:
+  version: int
+  enabled: bool
+  start_image_id: str | None
+  end_image_id: str | None
+  guides: tuple[H3GuideEntry, ...]
+
+  @classmethod
+  def empty(cls) -> H3Timeline:
+    return cls(H3_TIMELINE_VERSION, False, None, None, ())
+
+  def state_projection(self) -> dict[str, Any]:
+    return {
+      "version": self.version,
+      "enabled": self.enabled,
+      "startImageId": self.start_image_id,
+      "endImageId": self.end_image_id,
+      "guides": [guide.state_projection() for guide in self.guides],
+    }
+
+  def manifest_projection(self) -> dict[str, Any]:
+    return {
+      "version": self.version,
+      "enabled": self.enabled,
+      "start_image_id": self.start_image_id,
+      "end_image_id": self.end_image_id,
+      "guides": [guide.manifest_projection() for guide in self.guides],
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +211,7 @@ class ReferenceState:
   video_order: tuple[str, ...]
   audio_order: tuple[str, ...]
   video_audio_policy: Literal["preserve"]
+  h3_timeline: H3Timeline = field(default_factory=H3Timeline.empty)
 
 
 def _error(path: str, message: str) -> ReferenceContractError:
@@ -433,6 +491,137 @@ def _order(
   return order
 
 
+def _timeline_media_id(
+  value: Any,
+  path: str,
+  items: Mapping[str, ReferenceItem],
+  *,
+  allowed_kinds: set[MediaKind],
+  derived_audio: bool = False,
+) -> str | None:
+  if value is None:
+    return None
+  media_id = _string(value, path, maximum=128)
+  if derived_audio and media_id.endswith(":audio"):
+    parent_id = media_id.removesuffix(":audio")
+    parent = items.get(parent_id)
+    if parent is None or parent.kind != "video":
+      raise _error(
+        path,
+        "must refer to the derived audio of an existing video item",
+      )
+    return media_id
+  item = items.get(media_id)
+  if item is None or item.kind not in allowed_kinds:
+    allowed = ", ".join(sorted(allowed_kinds))
+    raise _error(path, f"must refer to an existing {allowed} item")
+  return media_id
+
+
+def _h3_timeline(value: Any, items: Mapping[str, ReferenceItem]) -> H3Timeline:
+  if value is None:
+    return H3Timeline.empty()
+  timeline = _mapping(value, "state.h3Timeline")
+  version = timeline.get("version")
+  if isinstance(version, bool) or version != H3_TIMELINE_VERSION:
+    raise _error(
+      "state.h3Timeline.version",
+      f"must equal {H3_TIMELINE_VERSION}",
+    )
+  enabled = _boolean(timeline.get("enabled"), "state.h3Timeline.enabled")
+
+  start_image_id = _timeline_media_id(
+    timeline.get("startImageId"),
+    "state.h3Timeline.startImageId",
+    items,
+    allowed_kinds={"image"},
+  )
+  end_image_id = _timeline_media_id(
+    timeline.get("endImageId"),
+    "state.h3Timeline.endImageId",
+    items,
+    allowed_kinds={"image"},
+  )
+
+  raw_guides = timeline.get("guides")
+  if not isinstance(raw_guides, list):
+    raise _error("state.h3Timeline.guides", "must be an array")
+  if len(raw_guides) > MAX_H3_GUIDES:
+    raise _error(
+      "state.h3Timeline.guides",
+      f"must contain at most {MAX_H3_GUIDES} guides",
+    )
+
+  guides: list[H3GuideEntry] = []
+  guide_ids: set[str] = set()
+  for index, raw_guide in enumerate(raw_guides):
+    path = f"state.h3Timeline.guides[{index}]"
+    guide = _mapping(raw_guide, path)
+    guide_id = _string(guide.get("id"), f"{path}.id", maximum=128)
+    if not _ID_RE.fullmatch(guide_id):
+      raise _error(f"{path}.id", "must be a stable identifier")
+    if guide_id in guide_ids:
+      raise _error(f"{path}.id", "must be unique")
+    guide_ids.add(guide_id)
+
+    raw_frame_index = guide.get("frameIndex")
+    if (
+      isinstance(raw_frame_index, bool)
+      or not isinstance(raw_frame_index, int)
+      or raw_frame_index < 0
+    ):
+      raise _error(
+        f"{path}.frameIndex",
+        "must be a non-negative integer",
+      )
+    visual_id = _timeline_media_id(
+      guide.get("visualId"),
+      f"{path}.visualId",
+      items,
+      allowed_kinds={"image", "video"},
+    )
+    audio_id = _timeline_media_id(
+      guide.get("audioId"),
+      f"{path}.audioId",
+      items,
+      allowed_kinds={"audio"},
+      derived_audio=True,
+    )
+    guides.append(
+      H3GuideEntry(
+        id=guide_id,
+        frame_index=raw_frame_index,
+        visual_id=visual_id,
+        audio_id=audio_id,
+      )
+    )
+
+  return H3Timeline(
+    version=H3_TIMELINE_VERSION,
+    enabled=enabled,
+    start_image_id=start_image_id,
+    end_image_id=end_image_id,
+    guides=tuple(guides),
+  )
+
+
+def h3_timeline_media_ids(state: ReferenceState) -> tuple[str, ...]:
+  """Return unique media IDs consumed by an enabled H3 timeline."""
+
+  timeline = state.h3_timeline
+  if not timeline.enabled:
+    return ()
+  values: list[str] = []
+  for media_id in (timeline.start_image_id, timeline.end_image_id):
+    if media_id is not None and media_id not in values:
+      values.append(media_id)
+  for guide in timeline.guides:
+    for media_id in (guide.visual_id, guide.audio_id):
+      if media_id is not None and media_id not in values:
+        values.append(media_id)
+  return tuple(values)
+
+
 def parse_reference_state(value: str | Mapping[str, Any]) -> ReferenceState:
   """Parse and strictly validate version 1 persisted state."""
 
@@ -475,6 +664,8 @@ def parse_reference_state(value: str | Mapping[str, Any]) -> ReferenceState:
   if state.get("videoAudioPolicy") != VIDEO_AUDIO_POLICY:
     raise _error("state.videoAudioPolicy", f"must equal {VIDEO_AUDIO_POLICY!r}")
 
+  h3_timeline = _h3_timeline(state.get("h3Timeline"), items)
+
   return ReferenceState(
     version=REFERENCE_STATE_VERSION,
     items=MappingProxyType(items),
@@ -482,6 +673,7 @@ def parse_reference_state(value: str | Mapping[str, Any]) -> ReferenceState:
     video_order=video_order,
     audio_order=audio_order,
     video_audio_policy=VIDEO_AUDIO_POLICY,
+    h3_timeline=h3_timeline,
   )
 
 
@@ -553,6 +745,7 @@ def execution_projection(
     "videoOrder": list(state.video_order),
     "audioOrder": list(state.audio_order),
     "videoAudioPolicy": state.video_audio_policy,
+    "h3Timeline": state.h3_timeline.state_projection(),
     "images": images,
     "audios": audios,
     "videos": videos,
@@ -597,10 +790,14 @@ def reference_loader_fingerprint(
 
 
 __all__ = [
+  "H3_TIMELINE_VERSION",
+  "MAX_H3_GUIDES",
   "MAX_OUTPUT_IMAGE_PIXELS",
   "MIN_OUTPUT_IMAGE_PIXELS",
   "REFERENCE_STATE_VERSION",
   "VIDEO_AUDIO_POLICY",
+  "H3GuideEntry",
+  "H3Timeline",
   "ImageEdit",
   "ImageOutputSettings",
   "NormalizedCrop",
@@ -611,6 +808,7 @@ __all__ = [
   "TimeRange",
   "execution_fingerprint",
   "execution_projection",
+  "h3_timeline_media_ids",
   "image_output_settings",
   "parse_reference_state",
   "reference_loader_fingerprint",

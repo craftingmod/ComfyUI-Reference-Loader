@@ -21,6 +21,7 @@ import {
 import {
   createEmptyLoaderState,
   createMediaItem,
+  MAX_H3_GUIDES,
   type MediaSource,
 } from "../src/reference-loader/types.ts"
 import { validateLoaderState } from "../src/reference-loader/validation.ts"
@@ -167,6 +168,54 @@ describe("Reference Loader state", () => {
     expect(projectLoaderExecution(state).videos[0]?.videoAudioEnabled).toBe(false)
     expect(deserializeLoaderState(serializeLoaderState(state)).state).toEqual(state)
   })
+
+  test("stores timeline roles separately and clears them with removed media", () => {
+    const start = createMediaItem("image", source("start.png", "image/png"), "start")
+    const end = createMediaItem("image", source("end.png", "image/png"), "end")
+    const video = createMediaItem("video", source("guide.mp4", "video/mp4"), "video")
+    let state = createEmptyLoaderState()
+    for (const item of [start, end, video]) state = loaderReducer(state, { type: "add", item })
+    state = loaderReducer(state, { type: "toggle-h3-timeline", enabled: true })
+    state = loaderReducer(state, { type: "set-h3-start", id: "start" })
+    state = loaderReducer(state, { type: "set-h3-end", id: "end" })
+    state = loaderReducer(state, {
+      type: "add-h3-guide",
+      guide: { id: "guide-1", frameIndex: 48, visualId: "video", audioId: null },
+    })
+
+    expect(state.h3Timeline).toMatchObject({
+      enabled: true,
+      startImageId: "start",
+      endImageId: "end",
+      guides: [{ id: "guide-1", frameIndex: 48, visualId: "video" }],
+    })
+    const projection = projectLoaderExecution(state)
+    expect(projection.images.map((item) => item.id)).toEqual(["start", "end"])
+    expect(projection.videos.map((item) => item.id)).toEqual(["video"])
+    expect(executionFingerprintSource(state)).not.toBe(
+      executionFingerprintSource(createEmptyLoaderState()),
+    )
+
+    state = loaderReducer(state, { type: "remove", id: "video" })
+    expect(state.h3Timeline.guides[0]).toMatchObject({ visualId: null, audioId: null })
+    state = loaderReducer(state, { type: "remove", id: "start" })
+    state = loaderReducer(state, { type: "remove", id: "end" })
+    expect(state.h3Timeline.startImageId).toBeNull()
+    expect(state.h3Timeline.endImageId).toBeNull()
+  })
+
+  test("bounds timeline guide additions and round-trips timeline state", () => {
+    let state = createEmptyLoaderState()
+    state = loaderReducer(state, { type: "toggle-h3-timeline", enabled: true })
+    for (let index = 0; index < MAX_H3_GUIDES + 1; index += 1) {
+      state = loaderReducer(state, {
+        type: "add-h3-guide",
+        guide: { id: `guide-${index}`, frameIndex: index, visualId: null, audioId: null },
+      })
+    }
+    expect(state.h3Timeline.guides).toHaveLength(MAX_H3_GUIDES)
+    expect(deserializeLoaderState(serializeLoaderState(state)).state).toEqual(state)
+  })
 })
 
 describe("validation and serialization", () => {
@@ -231,6 +280,57 @@ describe("validation and serialization", () => {
       videoAudioEnabled: true,
       audioEnabled: false,
     })
+  })
+
+  test("repairs unavailable timeline sources while preserving valid guide rows", () => {
+    const result = validateLoaderState({
+      version: 1,
+      items: {
+        image: {
+          id: "image",
+          kind: "image",
+          source: source("i.png", "image/png"),
+          originalSource: source("i.png", "image/png"),
+          caption: "",
+          imageEnabled: false,
+        },
+        video: {
+          id: "video",
+          kind: "video",
+          source: source("v.mp4", "video/mp4"),
+          caption: "",
+          videoEnabled: false,
+          videoAudioEnabled: true,
+          audioEnabled: false,
+        },
+      },
+      imageOrder: ["image"],
+      videoOrder: ["video"],
+      audioOrder: ["video"],
+      videoAudioPolicy: "preserve",
+      h3Timeline: {
+        version: 1,
+        enabled: true,
+        startImageId: "image",
+        endImageId: "missing",
+        guides: [
+          { id: "guide", frameIndex: 24, visualId: "video", audioId: "video:audio" },
+          { id: "bad", frameIndex: 72, visualId: "missing", audioId: null },
+        ],
+      },
+    })
+
+    expect(result.state.h3Timeline).toMatchObject({
+      enabled: true,
+      startImageId: "image",
+      endImageId: null,
+      guides: [
+        { id: "guide", frameIndex: 24, visualId: "video", audioId: "video:audio" },
+        { id: "bad", frameIndex: 72, visualId: null, audioId: null },
+      ],
+    })
+    expect(result.issues.some((issue) => issue.includes("endImageId"))).toBe(true)
+    expect(result.issues.some((issue) => issue.includes("visualId"))).toBe(true)
   })
 
   test("rejects oversized workflow state before parsing JSON", () => {

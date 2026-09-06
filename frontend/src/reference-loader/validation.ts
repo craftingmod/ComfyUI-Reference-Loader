@@ -1,13 +1,18 @@
 import {
   DEFAULT_UI_PREFERENCES,
+  H3_TIMELINE_VERSION,
   LOADER_STATE_VERSION,
+  MAX_H3_GUIDES,
   VIDEO_AUDIO_POLICY,
+  createEmptyH3Timeline,
   createEmptyLoaderState,
   isAudioItem,
   type BackgroundEdit,
   type LoaderState,
   type LoaderUiPreferences,
   type ImageEditRecipe,
+  type H3GuideEntry,
+  type H3TimelineState,
   type MediaItem,
   type MediaKind,
   type MediaSource,
@@ -230,6 +235,119 @@ function sanitizeUi(value: unknown): LoaderUiPreferences {
   }
 }
 
+const STABLE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
+
+function sanitizeTimelineId(
+  value: unknown,
+  items: Record<string, MediaItem>,
+  predicate: (item: MediaItem) => boolean,
+  issues: string[],
+  path: string,
+  derivedAudio = false,
+): string | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== "string" || !value) {
+    issues.push(`${path} must be null or a stable media ID.`)
+    return null
+  }
+  const derivedVideoId = value.endsWith(":audio") ? value.slice(0, -6) : undefined
+  const item = derivedVideoId ? items[derivedVideoId] : items[value]
+  const valid = derivedVideoId
+    ? derivedAudio && item?.kind === "video"
+    : item !== undefined && predicate(item)
+  if (!valid) {
+    issues.push(`${path} refers to an unavailable media kind.`)
+    return null
+  }
+  return value
+}
+
+function sanitizeH3Timeline(
+  value: unknown,
+  items: Record<string, MediaItem>,
+  issues: string[],
+): H3TimelineState {
+  if (value === undefined) return createEmptyH3Timeline()
+  if (!isRecord(value)) {
+    issues.push("h3Timeline was not an object and was reset.")
+    return createEmptyH3Timeline()
+  }
+  if (value.version !== H3_TIMELINE_VERSION) {
+    issues.push(`Unsupported h3Timeline version: ${String(value.version)}.`)
+    return createEmptyH3Timeline()
+  }
+  const enabled = booleanValue(value.enabled, false)
+  if (typeof value.enabled !== "boolean") issues.push("h3Timeline.enabled was reset.")
+  const startImageId = sanitizeTimelineId(
+    value.startImageId,
+    items,
+    (item) => item.kind === "image",
+    issues,
+    "h3Timeline.startImageId",
+  )
+  const endImageId = sanitizeTimelineId(
+    value.endImageId,
+    items,
+    (item) => item.kind === "image",
+    issues,
+    "h3Timeline.endImageId",
+  )
+  const guides: H3GuideEntry[] = []
+  if (!Array.isArray(value.guides)) {
+    issues.push("h3Timeline.guides was not an array and was reset.")
+  } else {
+    const seen = new Set<string>()
+    for (const [index, rawGuide] of value.guides.entries()) {
+      const path = `h3Timeline.guides[${index}]`
+      if (guides.length >= MAX_H3_GUIDES) {
+        issues.push(`h3Timeline contains at most ${MAX_H3_GUIDES} guides.`)
+        break
+      }
+      if (!isRecord(rawGuide)) {
+        issues.push(`${path} was discarded because it was not an object.`)
+        continue
+      }
+      const id = rawGuide.id
+      const frameIndex = rawGuide.frameIndex
+      if (
+        typeof id !== "string" ||
+        !STABLE_ID_RE.test(id) ||
+        seen.has(id) ||
+        typeof frameIndex !== "number" ||
+        !Number.isInteger(frameIndex) ||
+        frameIndex < 0
+      ) {
+        issues.push(`${path} was discarded because its ID or frameIndex is invalid.`)
+        continue
+      }
+      const visualId = sanitizeTimelineId(
+        rawGuide.visualId,
+        items,
+        (item) => item.kind === "image" || item.kind === "video",
+        issues,
+        `${path}.visualId`,
+      )
+      const audioId = sanitizeTimelineId(
+        rawGuide.audioId,
+        items,
+        (item) => item.kind === "audio",
+        issues,
+        `${path}.audioId`,
+        true,
+      )
+      seen.add(id)
+      guides.push({ id, frameIndex, visualId, audioId })
+    }
+  }
+  return {
+    version: H3_TIMELINE_VERSION,
+    enabled,
+    startImageId,
+    endImageId,
+    guides,
+  }
+}
+
 function sanitizeOrder(
   value: unknown,
   items: Record<string, MediaItem>,
@@ -307,6 +425,7 @@ export function validateLoaderState(value: unknown): LoaderValidationResult {
   if (value.videoAudioPolicy !== undefined && value.videoAudioPolicy !== VIDEO_AUDIO_POLICY) {
     issues.push("Unsupported videoAudioPolicy was reset to preserve.")
   }
+  const h3Timeline = sanitizeH3Timeline(value.h3Timeline, items, issues)
 
   return {
     state: {
@@ -316,6 +435,7 @@ export function validateLoaderState(value: unknown): LoaderValidationResult {
       videoOrder,
       audioOrder,
       videoAudioPolicy: VIDEO_AUDIO_POLICY,
+      h3Timeline,
       ui: sanitizeUi(value.ui),
     },
     issues,

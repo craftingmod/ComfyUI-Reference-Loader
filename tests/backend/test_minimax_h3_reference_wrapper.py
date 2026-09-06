@@ -57,6 +57,15 @@ class FakeMiniMaxH3:
     return io.NodeOutput("conditioning", "latent")
 
 
+class FakeAddGuide:
+  calls: ClassVar[list[dict]] = []
+
+  @classmethod
+  def execute(cls, **kwargs):
+    cls.calls.append(kwargs)
+    return io.NodeOutput(f"positive-{len(cls.calls)}")
+
+
 def _bundle(module):
   manifest = {
     "outputs": {
@@ -242,3 +251,134 @@ def test_wrapper_rejects_manifest_alignment_mismatch(monkeypatch):
       height=768,
       length=124,
     )
+
+
+def test_wrapper_applies_enabled_timeline_in_native_order(monkeypatch):
+  module = importlib.import_module("backend.nodes.minimax_h3_reference_wrapper")
+
+  class TimelineNative(FakeMiniMaxH3):
+    @classmethod
+    def execute(cls, **kwargs):
+      cls.calls.append(kwargs)
+      return io.NodeOutput("base-positive", {"frame_count": 124})
+
+  TimelineNative.calls.clear()
+  FakeAddGuide.calls.clear()
+  monkeypatch.setattr(module, "_minimax_h3_node", lambda: TimelineNative)
+  monkeypatch.setattr(module, "_minimax_h3_add_guide_node", lambda: FakeAddGuide)
+  manifest = {
+    "outputs": {"images": [], "videos": [], "audios": []},
+    "h3_timeline": {
+      "version": 1,
+      "enabled": True,
+      "start_image_id": "start",
+      "end_image_id": "end",
+      "guides": [
+        {
+          "id": "middle",
+          "frame_index": 48,
+          "visual_id": "middle",
+          "audio_id": "sound",
+        }
+      ],
+    },
+  }
+  bundle = module.ReferenceLoaderBundle(
+    images=(),
+    image_captions=(),
+    audios=(),
+    audio_captions=(),
+    videos=(),
+    video_captions=(),
+    manifest_json=json.dumps(manifest),
+    guide_media={
+      "start": "start-image",
+      "end": "end-image",
+      "middle": "middle-image",
+      "sound": "audio",
+    },
+  )
+
+  output = module.MiniMaxH3ReferenceToVideoWrapperNode.execute(
+    clip="clip",
+    vae="vae",
+    audio_vae="audio vae",
+    references=bundle,
+    prompt="prompt",
+    width=1344,
+    height=768,
+    length=120,
+  )
+
+  assert output == ("positive-3", {"frame_count": 124})
+  assert [call["frame_idx"] for call in FakeAddGuide.calls] == [0, 48, -1]
+  assert FakeAddGuide.calls[0]["image"] == "start-image"
+  assert FakeAddGuide.calls[1]["image"] == "middle-image"
+  assert FakeAddGuide.calls[1]["audio"] == "audio"
+  assert FakeAddGuide.calls[2]["image"] == "end-image"
+
+
+def test_wrapper_allows_audio_only_timeline_guides_with_reference_inputs(monkeypatch):
+  module = importlib.import_module("backend.nodes.minimax_h3_reference_wrapper")
+
+  class TimelineNative(FakeMiniMaxH3):
+    @classmethod
+    def execute(cls, **kwargs):
+      cls.calls.append(kwargs)
+      return io.NodeOutput("base-positive", {"frame_count": 124})
+
+  TimelineNative.calls.clear()
+  FakeAddGuide.calls.clear()
+  monkeypatch.setattr(module, "_minimax_h3_node", lambda: TimelineNative)
+  monkeypatch.setattr(module, "_minimax_h3_add_guide_node", lambda: FakeAddGuide)
+  manifest = {
+    "outputs": {"images": [], "videos": [], "audios": []},
+    "h3_timeline": {
+      "version": 1,
+      "enabled": True,
+      "start_image_id": None,
+      "end_image_id": None,
+      "guides": [
+        {
+          "id": "audio-guide",
+          "frame_index": 48,
+          "visual_id": None,
+          "audio_id": "guide-audio",
+        }
+      ],
+    },
+  }
+  bundle = module.ReferenceLoaderBundle(
+    images=(),
+    image_captions=(),
+    audios=(),
+    audio_captions=(),
+    videos=(),
+    video_captions=(),
+    manifest_json=json.dumps(manifest),
+    guide_media={"guide-audio": "audio"},
+  )
+
+  output = module.MiniMaxH3ReferenceToVideoWrapperNode.execute(
+    clip="clip",
+    vae=None,
+    audio_vae="audio vae",
+    references=bundle,
+    prompt="prompt",
+    width=1344,
+    height=768,
+    length=120,
+  )
+
+  assert output == ("positive-1", {"frame_count": 124})
+  assert FakeAddGuide.calls == [
+    {
+      "positive": "base-positive",
+      "latent": {"frame_count": 124},
+      "frame_idx": 48,
+      "vae": None,
+      "audio_vae": "audio vae",
+      "image": None,
+      "audio": "audio",
+    }
+  ]

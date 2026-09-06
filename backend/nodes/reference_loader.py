@@ -38,6 +38,13 @@ EMPTY_LOADER_STATE_JSON = json.dumps(
     "videoOrder": [],
     "audioOrder": [],
     "videoAudioPolicy": "preserve",
+    "h3Timeline": {
+      "version": 1,
+      "enabled": False,
+      "startImageId": None,
+      "endImageId": None,
+      "guides": [],
+    },
     "ui": {
       "cardAspectRatio": "4 / 3",
       "gridColumns": 3,
@@ -175,9 +182,7 @@ class ReferenceLoaderNode(io.ComfyNode):
           dynamic_prompts=False,
           socketless=True,
           extra_dict={"widgetType": "REFERENCE_LOADER"},
-          tooltip=(
-            "Internal Reference Loader state for the custom editor."
-          )
+          tooltip=("Internal Reference Loader state for the custom editor."),
         ),
         io.String.Input(
           "prompt",
@@ -420,6 +425,7 @@ class ReferenceLoaderNode(io.ComfyNode):
         audio_captions=plan.audio_captions,
         videos=loaded.videos,
         video_captions=plan.video_captions,
+        guide_media=loaded.guide_media,
         manifest_json=manifest_json,
         prompt_state_json=prompt_state_json,
         compiled_prompt=compiled_prompt,

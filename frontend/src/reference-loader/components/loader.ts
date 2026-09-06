@@ -16,8 +16,10 @@ import type { PromptReference } from "../prompt-state.ts"
 import { loaderReducer, type LoaderAction, type LoaderChannel } from "../reducer.ts"
 import { deserializeLoaderState, serializeLoaderState } from "../serialization.ts"
 import {
+  createEmptyH3Timeline,
   createMediaItem,
   isAudioItem,
+  type H3TimelineState,
   type LoaderState,
   type ItemRuntime,
   type MediaItem,
@@ -48,6 +50,20 @@ export type ReferenceLoaderMode = "references" | "single-image"
 export interface ReferenceLoaderControllerOptions {
   mode?: ReferenceLoaderMode
 }
+
+export type LoaderTimelineAction = Extract<
+  LoaderAction,
+  {
+    type:
+      | "set-h3-timeline"
+      | "toggle-h3-timeline"
+      | "set-h3-start"
+      | "set-h3-end"
+      | "add-h3-guide"
+      | "update-h3-guide"
+      | "remove-h3-guide"
+  }
+>
 
 export interface LoaderDisplayState {
   gridColumns: number
@@ -328,6 +344,7 @@ export class ReferenceLoaderController {
   #changeEvents: LoaderChangeEvents
   #mode: ReferenceLoaderMode
   #referenceListeners = new Set<() => void>()
+  #timelineListeners = new Set<() => void>()
 
   constructor(
     root: HTMLElement,
@@ -354,6 +371,10 @@ export class ReferenceLoaderController {
 
   get state(): LoaderState {
     return this.#history.present
+  }
+
+  get h3Timeline(): H3TimelineState {
+    return this.state.h3Timeline
   }
 
   get displayState(): LoaderDisplayState {
@@ -430,6 +451,17 @@ export class ReferenceLoaderController {
     this.#referenceListeners.add(listener)
     listener()
     return () => this.#referenceListeners.delete(listener)
+  }
+
+  subscribeH3Timeline(listener: () => void): () => void {
+    if (this.#destroyed) return () => undefined
+    this.#timelineListeners.add(listener)
+    listener()
+    return () => this.#timelineListeners.delete(listener)
+  }
+
+  dispatchH3Timeline(action: LoaderTimelineAction): void {
+    this.#dispatch(action)
   }
 
   acceptsFileDrop(dataTransfer: DataTransfer | null): boolean {
@@ -594,6 +626,7 @@ export class ReferenceLoaderController {
       imageOrder: id && item?.kind === "image" ? [id] : [],
       videoOrder: [],
       audioOrder: [],
+      h3Timeline: createEmptyH3Timeline(),
       ui: { ...state.ui, gridColumns: 1 },
     }
   }
@@ -614,6 +647,7 @@ export class ReferenceLoaderController {
     this.#runtime.clear()
     this.#runtimeSequences.clear()
     this.#referenceListeners.clear()
+    this.#timelineListeners.clear()
     this.#dropTarget = undefined
     this.#setFileDropTarget(undefined)
     this.root.classList.remove("is-dragging", "is-file-dragging")
@@ -671,6 +705,7 @@ export class ReferenceLoaderController {
     this.#drawWaveforms()
     this.#syncPlaybackUi()
     for (const listener of this.#referenceListeners) listener()
+    for (const listener of this.#timelineListeners) listener()
   }
 
   #renderSingleImage(state: LoaderState): void {

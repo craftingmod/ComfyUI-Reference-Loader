@@ -137,6 +137,65 @@ def test_options_override_schema_and_execute_preserve_non_image_media(monkeypatc
   }
 
 
+def test_options_override_reloads_guide_only_images_and_preserves_other_guides(
+  monkeypatch,
+):
+  module = importlib.import_module("backend.nodes.reference_loader_options_override")
+  contract = importlib.import_module("backend.core.reference_contract")
+  manifest = importlib.import_module("backend.core.reference_manifest")
+  raw = _state()
+  raw["items"]["img"]["imageEnabled"] = False
+  raw["h3Timeline"] = {
+    "version": 1,
+    "enabled": True,
+    "startImageId": None,
+    "endImageId": None,
+    "guides": [
+      {"id": "guide", "frameIndex": 24, "visualId": "img", "audioId": "audio"}
+    ],
+  }
+  state = contract.parse_reference_state(raw)
+  bundle = module.ReferenceLoaderBundle(
+    images=(),
+    image_captions=(),
+    audios=("original-audio",),
+    audio_captions=("audio caption",),
+    videos=("original-video",),
+    video_captions=("video caption",),
+    guide_media={"img": "old-guide-image", "audio": "old-guide-audio"},
+    manifest_json=json.dumps(manifest.build_reference_manifest(state)),
+    prompt_state_json=(
+      '{"sections":[{"parts":[{"text":"Keep this prompt",'
+      '"type":"text"}],"title":"scene"}],"subjects":[],"version":4}'
+    ),
+    compiled_prompt="scene:\nKeep this prompt",
+  )
+  loaded_type = importlib.import_module(
+    "backend.core.reference_media"
+  ).LoadedReferenceMedia
+  calls = []
+
+  def fake_load(state, *, image_output, guide_media_ids):
+    calls.append((state, image_output, guide_media_ids))
+    assert state.items["img"].image_enabled is False
+    return loaded_type(images=(), guide_media={"img": "new-guide-image"})
+
+  monkeypatch.setattr(module, "load_reference_media", fake_load)
+  output = module.ReferenceLoaderOptionsOverrideNode.execute(
+    bundle,
+    limit_image_pixels=True,
+    max_image_pixels=3.5,
+  )[0]
+
+  assert calls[0][2] == ("img",)
+  assert output.guide_media == {
+    "img": "new-guide-image",
+    "audio": "old-guide-audio",
+  }
+  assert output.audios == bundle.audios
+  assert output.videos == bundle.videos
+
+
 def test_options_override_rejects_manifest_bundle_mismatch():
   module = importlib.import_module("backend.nodes.reference_loader_options_override")
   bundle = _bundle(module)

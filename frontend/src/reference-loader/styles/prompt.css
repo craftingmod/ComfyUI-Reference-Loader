@@ -10,7 +10,8 @@
   display: grid;
   grid-template-rows: auto minmax(110px, 1fr) auto;
   gap: 6px;
-  height: 100%;
+  flex: 0 0 auto;
+  height: auto;
 }
 
 .rl-prompt-toolbar {

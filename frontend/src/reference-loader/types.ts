@@ -1,7 +1,24 @@
 export const LOADER_STATE_VERSION = 1 as const
 export const VIDEO_AUDIO_POLICY = "preserve" as const
+export const H3_TIMELINE_VERSION = 1 as const
+export const MAX_H3_GUIDES = 32
 
 export type MediaKind = "image" | "audio" | "video"
+
+export interface H3GuideEntry {
+  id: string
+  frameIndex: number
+  visualId: string | null
+  audioId: string | null
+}
+
+export interface H3TimelineState {
+  version: typeof H3_TIMELINE_VERSION
+  enabled: boolean
+  startImageId: string | null
+  endImageId: string | null
+  guides: H3GuideEntry[]
+}
 
 export interface MediaSource {
   path: string
@@ -86,6 +103,7 @@ export interface LoaderState {
   videoOrder: string[]
   audioOrder: string[]
   videoAudioPolicy: typeof VIDEO_AUDIO_POLICY
+  h3Timeline: H3TimelineState
   ui: LoaderUiPreferences
 }
 
@@ -124,7 +142,18 @@ export function createEmptyLoaderState(): LoaderState {
     videoOrder: [],
     audioOrder: [],
     videoAudioPolicy: VIDEO_AUDIO_POLICY,
+    h3Timeline: createEmptyH3Timeline(),
     ui: { ...DEFAULT_UI_PREFERENCES },
+  }
+}
+
+export function createEmptyH3Timeline(): H3TimelineState {
+  return {
+    version: H3_TIMELINE_VERSION,
+    enabled: false,
+    startImageId: null,
+    endImageId: null,
+    guides: [],
   }
 }
 

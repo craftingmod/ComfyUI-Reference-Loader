@@ -155,6 +155,16 @@ Native VIDEO values are decoded through `get_components()`. When the source is n
 
 The Loader's Audio board retains its independent user-defined order. Native MiniMax H3 instead presents active video soundtracks first in Video order and then presents standalone Audio inputs. Immediately before delegation, the Wrapper remaps valid `<Audio N>` tags from Loader Audio order to this native presentation order. Unknown or out-of-range Audio tags remain literal, while Picture and Video ordinals pass through unchanged.
 
+### H3 Timeline Guides
+
+The Prompt-adjacent **H3 Timeline Guides** panel is collapsed and disabled by default. When enabled, it stores one `h3Timeline` object in `loader_state` with optional Image Start/End selections and up to 32 intermediate rows. Each row has a stable ID, a non-negative frame index at 24 fps, and optional Visual and Audio selections. Visual selections may be Images or Videos; Audio selections may be standalone AUDIO or a video's derived `<video-id>:audio`. The panel can select disabled media cards because timeline sources are independent from ordinary reference output enablement.
+
+Timeline sources are decoded into the bundle's runtime-only `guide_media` mapping. They are not added to `images`, `videos`, `audios`, caption lists, Prompt mentions, or native reference ordinals. An already-loaded active reference is reused when the same source is also a Guide. Source containment, size, hash, image edit, crop, and aggregate decoded-memory checks still apply. Options Override reloads Guide Images with the selected image settings and preserves Guide VIDEO/AUDIO values.
+
+With Timeline enabled and at least one selected position, the H3 Wrapper delegates the base conditioning/AV latent to native `MiniMaxH3ReferenceToVideo`, resolves the actual latent frame count, and then calls native `MiniMaxH3AddGuide` in `(frame, stable ID)` order. Start uses `frame_idx=0`, ordinary rows use their stored frame, and End uses `frame_idx=-1`. Image/video guides require the video VAE; audio guides require the audio VAE. Visual ranges may not overlap other visual ranges, audio ranges may not overlap other audio ranges, and a visual plus audio guide at the same frame is allowed. Native VIDEO guide batches are converted to 24 fps and cropped to ComfyUI's supported guide lengths; audio is cropped by the native node to the remaining AV timeline. Timeline OFF, or an enabled but empty timeline, retains the ordinary R2V path and does not require `MiniMaxH3AddGuide`.
+
+The timeline contract is versioned independently of the main Loader state. Older states without `h3Timeline` restore as an empty OFF timeline, unsupported timeline versions are rejected by the backend, and incomplete rows can be saved but fail clearly at execution. The 32-row limit is a product/UI bound, not an official H3 limit. The implementation has fake-native routing and contract tests; a real H3 checkpoint/runtime generation is still required to verify model-quality and full upstream conditioning compatibility.
+
 ### Video audio policy
 
 Version 1 fixes `videoAudioPolicy` to `preserve`:

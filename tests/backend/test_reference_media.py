@@ -805,6 +805,101 @@ def test_loader_preserves_independent_output_order_and_video_audio(
   assert video_calls == [{"include_audio": False}]
 
 
+def test_loader_keeps_guide_only_media_out_of_reference_outputs(monkeypatch, tmp_path):
+  def source(name, payload, mime):
+    path = tmp_path / name
+    path.write_bytes(payload)
+    return {
+      "path": name,
+      "mime": mime,
+      "sha256": hashlib.sha256(payload).hexdigest(),
+      "size": len(payload),
+    }
+
+  raw = {
+    "version": 1,
+    "items": {
+      "image": {
+        "id": "image",
+        "kind": "image",
+        "source": source("guide.png", b"image", "image/png"),
+        "caption": "",
+        "imageEnabled": False,
+      },
+      "video": {
+        "id": "video",
+        "kind": "video",
+        "source": source("guide.mp4", b"video", "video/mp4"),
+        "caption": "",
+        "videoEnabled": False,
+        "videoAudioEnabled": False,
+        "audioEnabled": False,
+      },
+      "audio": {
+        "id": "audio",
+        "kind": "audio",
+        "source": source("guide.wav", b"audio", "audio/wav"),
+        "caption": "",
+        "audioEnabled": False,
+      },
+    },
+    "imageOrder": ["image"],
+    "videoOrder": ["video"],
+    "audioOrder": ["audio", "video"],
+    "videoAudioPolicy": "preserve",
+    "h3Timeline": {
+      "version": 1,
+      "enabled": True,
+      "startImageId": "image",
+      "endImageId": None,
+      "guides": [
+        {
+          "id": "visual-and-derived-audio",
+          "frameIndex": 48,
+          "visualId": "video",
+          "audioId": "video:audio",
+        },
+        {
+          "id": "standalone-audio",
+          "frameIndex": 72,
+          "visualId": None,
+          "audioId": "audio",
+        },
+      ],
+    },
+  }
+  state = parse_reference_state(raw)
+  video_calls = []
+  monkeypatch.setattr(
+    reference_media,
+    "_load_image",
+    lambda path, *_args, **_kwargs: f"image:{path.name}",
+  )
+  monkeypatch.setattr(
+    reference_media,
+    "_load_video",
+    lambda path, *_args, **kwargs: video_calls.append(kwargs) or f"video:{path.name}",
+  )
+  monkeypatch.setattr(
+    reference_media,
+    "_load_audio",
+    lambda path, *_args, **_kwargs: f"audio:{path.name}",
+  )
+
+  loaded = reference_media.load_reference_media(state, input_directory=tmp_path)
+
+  assert loaded.images == ()
+  assert loaded.videos == ()
+  assert loaded.audios == ()
+  assert loaded.guide_media == {
+    "image": "image:guide.png",
+    "video": "video:guide.mp4",
+    "video:audio": "audio:guide.mp4",
+    "audio": "audio:guide.wav",
+  }
+  assert video_calls == [{"include_audio": False}]
+
+
 def test_materialized_image_edit_does_not_require_the_brush_mask_at_execution(
   monkeypatch,
   tmp_path,

@@ -209,3 +209,63 @@ def test_contract_requires_a_safe_image_descriptor_for_edit_masks():
   state["items"]["img-a"]["edit"]["mask"].pop("mime")
   with pytest.raises(ReferenceContractError, match="mask.mime"):
     parse_reference_state(state)
+
+
+def test_h3_timeline_round_trips_without_changing_reference_outputs():
+  raw = loader_state()
+  raw["h3Timeline"] = {
+    "version": 1,
+    "enabled": True,
+    "startImageId": "img-a",
+    "endImageId": None,
+    "guides": [
+      {
+        "id": "guide-middle",
+        "frameIndex": 48,
+        "visualId": None,
+        "audioId": "vid-c:audio",
+      }
+    ],
+  }
+  state = parse_reference_state(raw)
+  assert state.h3_timeline.guides[0].frame_index == 48
+  assert state.h3_timeline.guides[0].audio_id == "vid-c:audio"
+  assert execution_projection(state)["h3Timeline"] == raw["h3Timeline"]
+
+  manifest = build_reference_manifest(state)
+  restored = parse_reference_manifest_state(manifest)
+  assert restored.h3_timeline == state.h3_timeline
+  assert build_reference_output_plan(restored) == build_reference_output_plan(state)
+
+
+@pytest.mark.parametrize(
+  ("field", "value", "match"),
+  [
+    ("startImageId", "vid-c", "startImageId"),
+    ("audioId", "img-a", "audioId"),
+    ("frameIndex", True, "frameIndex"),
+    ("id", "bad id", "stable identifier"),
+  ],
+)
+def test_h3_timeline_rejects_invalid_media_types_and_frame_values(field, value, match):
+  raw = loader_state()
+  raw["h3Timeline"] = {
+    "version": 1,
+    "enabled": True,
+    "startImageId": None,
+    "endImageId": None,
+    "guides": [
+      {
+        "id": "guide-middle",
+        "frameIndex": 48,
+        "visualId": None,
+        "audioId": None,
+      }
+    ],
+  }
+  if field in {"audioId", "frameIndex", "id"}:
+    raw["h3Timeline"]["guides"][0][field] = value
+  else:
+    raw["h3Timeline"][field] = value
+  with pytest.raises(ReferenceContractError, match=match):
+    parse_reference_state(raw)

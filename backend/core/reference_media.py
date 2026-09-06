@@ -4,7 +4,7 @@ import hashlib
 import math
 import os
 import warnings
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
@@ -19,6 +19,7 @@ from .reference_contract import (
   ReferenceSource,
   ReferenceState,
   TimeRange,
+  h3_timeline_media_ids,
 )
 
 MAX_IMAGE_PIXELS = 40_000_000
@@ -37,6 +38,7 @@ class LoadedReferenceMedia:
   images: tuple[Any, ...] = ()
   audios: tuple[Any, ...] = ()
   videos: tuple[Any, ...] = ()
+  guide_media: dict[str, Any] = field(default_factory=dict)
 
 
 class ReferenceMediaLoader(Protocol):
@@ -635,6 +637,21 @@ def validate_reference_sources(
     item = state.items[item_id]
     if item.audio_enabled:
       sources.add(item.source)
+  for media_id in h3_timeline_media_ids(state):
+    if media_id.endswith(":audio"):
+      item = state.items.get(media_id.removesuffix(":audio"))
+      if item is not None:
+        sources.add(item.source)
+      continue
+    item = state.items[media_id]
+    sources.add(item.source)
+    if (
+      item.kind == "image"
+      and not _is_materialized_edit(item.source)
+      and item.edit is not None
+      and item.edit.mask is not None
+    ):
+      sources.add(item.edit.mask)
   for source in sources:
     resolve_reference_source(source, input_root=root)
 
@@ -644,6 +661,7 @@ def load_reference_media(
   *,
   input_directory: str | os.PathLike[str] | None = None,
   image_output: ImageOutputSettings | None = None,
+  guide_media_ids: tuple[str, ...] | None = None,
 ) -> LoadedReferenceMedia:
   """Decode active references into independent native ComfyUI list items.
 
@@ -662,6 +680,10 @@ def load_reference_media(
   images: list[Any] = []
   videos: list[Any] = []
   audios: list[Any] = []
+  guide_media: dict[str, Any] = {}
+  image_values: dict[str, Any] = {}
+  video_values: dict[str, Any] = {}
+  audio_values: dict[str, Any] = {}
   decoded_output_bytes = 0
   max_image_pixels = (
     image_output.max_pixels
@@ -669,7 +691,7 @@ def load_reference_media(
     else None
   )
 
-  def retain(value: Any, output: list[Any]) -> None:
+  def retain(value: Any, output: list[Any] | None = None) -> Any:
     nonlocal decoded_output_bytes
 
     decoded_output_bytes += _tensor_nbytes(value)
@@ -677,7 +699,9 @@ def load_reference_media(
       raise ReferenceMediaError(
         "Decoded IMAGE/AUDIO outputs exceed the 1 GiB aggregate memory limit."
       )
-    output.append(value)
+    if output is not None:
+      output.append(value)
+    return value
 
   for item_id in state.image_order:
     item = state.items[item_id]
@@ -693,7 +717,7 @@ def load_reference_media(
       )
       else None
     )
-    retain(
+    image = retain(
       _load_image(
         path,
         item.source,
@@ -710,22 +734,23 @@ def load_reference_media(
       ),
       images,
     )
+    image_values[item_id] = image
   for item_id in state.video_order:
     item = state.items[item_id]
     if not item.video_enabled:
       continue
-    videos.append(
-      _load_video(
-        source_path(item.source),
-        item.crop,
-        include_audio=bool(item.video_audio_enabled),
-      )
+    video = _load_video(
+      source_path(item.source),
+      item.crop,
+      include_audio=bool(item.video_audio_enabled),
     )
+    videos.append(video)
+    video_values[item_id] = video
   for item_id in state.audio_order:
     item = state.items[item_id]
     if not item.audio_enabled:
       continue
-    retain(
+    audio = retain(
       _load_audio(
         source_path(item.source),
         item.crop,
@@ -733,10 +758,86 @@ def load_reference_media(
       ),
       audios,
     )
+    audio_values[f"{item_id}:audio" if item.kind == "video" else item_id] = audio
+
+  timeline_media_ids = (
+    h3_timeline_media_ids(state) if guide_media_ids is None else tuple(guide_media_ids)
+  )
+
+  for media_id in timeline_media_ids:
+    if media_id in image_values:
+      guide_media[media_id] = image_values[media_id]
+      continue
+    if media_id in video_values:
+      guide_media[media_id] = video_values[media_id]
+      continue
+    if media_id in audio_values:
+      guide_media[media_id] = audio_values[media_id]
+      continue
+    if media_id.endswith(":audio"):
+      item = state.items.get(media_id.removesuffix(":audio"))
+      if item is None or item.kind != "video":
+        raise ReferenceMediaError(
+          "An H3 timeline audio guide does not refer to a video item."
+        )
+      guide_media[media_id] = retain(
+        _load_audio(
+          source_path(item.source),
+          item.crop,
+          max_output_bytes=MAX_DECODED_OUTPUT_BYTES - decoded_output_bytes,
+        )
+      )
+      audio_values[media_id] = guide_media[media_id]
+      continue
+    item = state.items[media_id]
+    if item.kind == "image":
+      mask_path = (
+        source_path(item.edit.mask)
+        if (
+          not _is_materialized_edit(item.source)
+          and item.edit is not None
+          and item.edit.mask is not None
+        )
+        else None
+      )
+      guide_media[media_id] = retain(
+        _load_image(
+          source_path(item.source),
+          item.source,
+          item.edit,
+          mask_path,
+          max_output_bytes=MAX_DECODED_OUTPUT_BYTES - decoded_output_bytes,
+          max_pixels=max_image_pixels,
+          composite_alpha=(
+            image_output.composite_alpha if image_output is not None else False
+          ),
+          alpha_background=(
+            image_output.alpha_background if image_output is not None else "#000000"
+          ),
+        )
+      )
+      image_values[media_id] = guide_media[media_id]
+    elif item.kind == "video":
+      guide_media[media_id] = _load_video(
+        source_path(item.source),
+        item.crop,
+        include_audio=bool(item.video_audio_enabled),
+      )
+      video_values[media_id] = guide_media[media_id]
+    else:
+      guide_media[media_id] = retain(
+        _load_audio(
+          source_path(item.source),
+          item.crop,
+          max_output_bytes=MAX_DECODED_OUTPUT_BYTES - decoded_output_bytes,
+        )
+      )
+      audio_values[media_id] = guide_media[media_id]
   return LoadedReferenceMedia(
     images=tuple(images),
     audios=tuple(audios),
     videos=tuple(videos),
+    guide_media=guide_media,
   )
 
 

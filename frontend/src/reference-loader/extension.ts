@@ -7,6 +7,7 @@ import type {
   ComfyWidget,
 } from "../comfyui.ts"
 import { ReferenceLoaderApi } from "./api.ts"
+import { H3TimelineController } from "./components/h3-timeline.ts"
 import { promptByOrderProperty, ReferenceLoaderController } from "./components/loader.ts"
 import { ReferencePromptController } from "./components/prompt-editor.ts"
 import {
@@ -23,6 +24,8 @@ export const REFERENCE_IMAGE_LOADER_WIDGET_TYPE = "REFERENCE_IMAGE_LOADER"
 export const REFERENCE_PROMPT_WIDGET_TYPE = "REFERENCE_PROMPT"
 const controllers = new WeakMap<ComfyNode, ReferenceLoaderController>()
 const promptControllers = new WeakMap<ComfyNode, ReferencePromptController>()
+const promptRoots = new WeakMap<ComfyNode, HTMLElement>()
+const timelineControllers = new WeakMap<ComfyNode, H3TimelineController>()
 const promptSubscriptions = new WeakMap<ComfyNode, () => void>()
 const promptPresetBindings = new WeakMap<ComfyNode, PromptPresetBinding>()
 const removalHooks = new WeakSet<ComfyNode>()
@@ -56,6 +59,8 @@ export function registerReferenceLoader(
         singleImage: boolean,
       ) => {
         controllers.get(node)?.destroy()
+        timelineControllers.get(node)?.destroy()
+        timelineControllers.delete(node)
         nodeFileDropBindings.get(node)?.()
         nodeFileDropBindings.delete(node)
         displayProxies.get(node)?.dispose()
@@ -148,10 +153,13 @@ export function registerReferenceLoader(
           displayProxy?.dispose()
           if (displayProxies.get(node) === displayProxy) displayProxies.delete(node)
           if (controllers.get(node) === controller) controllers.delete(node)
+          timelineControllers.get(node)?.destroy()
+          timelineControllers.delete(node)
           controller.destroy()
           originalWidgetRemove?.call(widget)
         }
         controllers.set(node, controller)
+        mountH3Timeline(node)
         if (!singleImage) bindPromptReferences(node)
         installNodeRemovalHook(node)
         if (!singleImage) {
@@ -173,6 +181,9 @@ export function registerReferenceLoader(
           promptPresetBindings.get(node)?.dispose()
           promptPresetBindings.delete(node)
           promptControllers.get(node)?.destroy()
+          timelineControllers.get(node)?.destroy()
+          timelineControllers.delete(node)
+          promptRoots.delete(node)
           const root = document.createElement("div")
           root.className = "reference-prompt"
           root.dataset.input = inputName
@@ -195,8 +206,8 @@ export function registerReferenceLoader(
             hideOnZoom: false,
             getValue: () => controller.serialize(),
             setValue: (value) => controller.restore(value),
-            getMinHeight: () => 180,
-            getMaxHeight: () => 480,
+            getMinHeight: () => Math.max(180, Math.min(1200, root.scrollHeight + 9)),
+            getMaxHeight: () => Math.max(180, Math.min(1200, root.scrollHeight + 9)),
           })
           const releaseRenderedRoot = bindRenderedWidgetRoot(node, root, ".reference-prompt")
           widget.serialize = true
@@ -218,10 +229,17 @@ export function registerReferenceLoader(
             promptPresetBindings.get(node)?.dispose()
             promptPresetBindings.delete(node)
             if (promptControllers.get(node) === controller) promptControllers.delete(node)
+            if (timelineControllers.get(node)) {
+              timelineControllers.get(node)?.destroy()
+              timelineControllers.delete(node)
+            }
+            promptRoots.delete(node)
             controller.destroy()
             originalWidgetRemove?.call(widget)
           }
           promptControllers.set(node, controller)
+          promptRoots.set(node, root)
+          mountH3Timeline(node)
           bindPromptReferences(node)
           installNodeRemovalHook(node)
           const [width = 560, height = 680] = node.size ?? []
@@ -303,6 +321,16 @@ function bindPromptReferences(node: ComfyNode): void {
   )
 }
 
+function mountH3Timeline(node: ComfyNode): void {
+  if (timelineControllers.has(node)) return
+  const loader = controllers.get(node)
+  const promptRoot = promptRoots.get(node)
+  if (!loader || !promptRoot) return
+  const timelineRoot = document.createElement("section")
+  promptRoot.append(timelineRoot)
+  timelineControllers.set(node, new H3TimelineController(timelineRoot, loader, node))
+}
+
 /**
  * ComfyUI rebuilds the graph for undo/redo. Its Vue DOM-widget list can retain the
  * previous widget component while the replacement node is configured, leaving the
@@ -377,6 +405,9 @@ function installNodeRemovalHook(node: ComfyNode): void {
     promptPresetBindings.delete(this)
     promptControllers.get(this)?.destroy()
     promptControllers.delete(this)
+    timelineControllers.get(this)?.destroy()
+    timelineControllers.delete(this)
+    promptRoots.delete(this)
     nodeFileDropBindings.get(this)?.()
     nodeFileDropBindings.delete(this)
     controllers.get(this)?.destroy()

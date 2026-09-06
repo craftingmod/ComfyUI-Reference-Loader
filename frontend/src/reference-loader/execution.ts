@@ -1,4 +1,10 @@
-import type { LoaderState, ImageEditRecipe, MediaSource, TimeRange } from "./types.ts"
+import type {
+  H3TimelineState,
+  ImageEditRecipe,
+  LoaderState,
+  MediaSource,
+  TimeRange,
+} from "./types.ts"
 import { validateLoaderState } from "./validation.ts"
 
 export interface ExecutionItem {
@@ -19,6 +25,7 @@ export interface LoaderExecutionProjection {
   videoOrder: string[]
   audioOrder: string[]
   videoAudioPolicy: "preserve"
+  h3Timeline: H3TimelineState
   images: ExecutionItem[]
   audios: ExecutionItem[]
   videos: ExecutionItem[]
@@ -113,6 +120,10 @@ export function projectLoaderExecution(state: LoaderState): LoaderExecutionProje
     videoOrder: [...canonical.videoOrder],
     audioOrder: [...canonical.audioOrder],
     videoAudioPolicy: canonical.videoAudioPolicy,
+    h3Timeline: {
+      ...canonical.h3Timeline,
+      guides: canonical.h3Timeline.guides.map((guide) => ({ ...guide })),
+    },
     images,
     audios,
     videos,

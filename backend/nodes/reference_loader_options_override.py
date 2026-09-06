@@ -9,6 +9,7 @@ from comfy_api.latest import io
 from ..core.reference_contract import (
   ReferenceContractError,
   ReferenceState,
+  h3_timeline_media_ids,
   image_output_settings,
   reference_loader_fingerprint,
 )
@@ -133,10 +134,15 @@ class ReferenceLoaderOptionsOverrideNode(io.ComfyNode):
       composite_alpha,
       alpha_background,
     )
-    loaded = load_reference_media(
-      _image_only_state(state),
-      image_output=settings,
+    guide_image_ids = tuple(
+      media_id
+      for media_id in h3_timeline_media_ids(state)
+      if not media_id.endswith(":audio") and state.items[media_id].kind == "image"
     )
+    load_kwargs = {"image_output": settings}
+    if guide_image_ids:
+      load_kwargs["guide_media_ids"] = guide_image_ids
+    loaded = load_reference_media(_image_only_state(state), **load_kwargs)
     if len(loaded.images) != len(references.images):
       raise ReferenceContractError(
         "Reloaded IMAGE count does not match the Reference Loader bundle."
@@ -147,6 +153,8 @@ class ReferenceLoaderOptionsOverrideNode(io.ComfyNode):
       sort_keys=True,
       separators=(",", ":"),
     )
+    guide_media = dict(references.guide_media)
+    guide_media.update(loaded.guide_media)
     return io.NodeOutput(
       ReferenceLoaderBundle(
         images=loaded.images,
@@ -155,6 +163,7 @@ class ReferenceLoaderOptionsOverrideNode(io.ComfyNode):
         audio_captions=references.audio_captions,
         videos=references.videos,
         video_captions=references.video_captions,
+        guide_media=guide_media,
         manifest_json=manifest_json,
         prompt_state_json=references.prompt_state_json,
         compiled_prompt=references.compiled_prompt,

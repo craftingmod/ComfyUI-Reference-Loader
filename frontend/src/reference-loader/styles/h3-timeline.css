@@ -1,0 +1,147 @@
+.rl-h3-timeline {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--rl-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--rl-panel) 82%, transparent);
+}
+
+.rl-h3-timeline__header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.rl-h3-timeline__collapse,
+.rl-h3-timeline__toggle,
+.rl-h3-timeline__add {
+  flex: none;
+}
+
+.rl-h3-timeline__collapse {
+  min-width: 142px;
+  padding: 3px 5px;
+  border: 0;
+  background: transparent;
+  color: var(--rl-text);
+  text-align: left;
+}
+
+.rl-h3-timeline__status {
+  padding: 1px 6px;
+  border: 1px solid var(--rl-border);
+  border-radius: 999px;
+  color: var(--rl-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.rl-h3-timeline__status.is-on {
+  border-color: color-mix(in srgb, var(--rl-accent) 55%, var(--rl-border));
+  color: var(--rl-accent);
+}
+
+.rl-h3-timeline__summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rl-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rl-h3-timeline__toggle {
+  margin-left: auto;
+  padding: 3px 7px;
+}
+
+.rl-h3-timeline__body {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rl-border);
+}
+
+.rl-h3-timeline__hint,
+.rl-h3-timeline__error {
+  margin: 0;
+  color: var(--rl-muted);
+  font-size: 10px;
+}
+
+.rl-h3-timeline__error {
+  color: var(--rl-danger);
+}
+
+.rl-h3-timeline__roles,
+.rl-h3-timeline__guide {
+  display: grid;
+  gap: 7px;
+}
+
+.rl-h3-timeline__roles {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rl-h3-timeline__guide {
+  padding: 7px;
+  border: 1px solid color-mix(in srgb, var(--rl-border) 80%, transparent);
+  border-radius: 6px;
+}
+
+.rl-h3-timeline__guide-heading,
+.rl-h3-timeline__field,
+.rl-h3-timeline__frame {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rl-h3-timeline__guide-heading strong {
+  color: var(--rl-text);
+  font-size: 11px;
+}
+
+.rl-h3-timeline__guide-heading span {
+  color: var(--rl-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rl-h3-timeline__guide-heading button {
+  margin-left: auto;
+  padding: 2px 6px;
+}
+
+.rl-h3-timeline__field > span,
+.rl-h3-timeline__frame > span {
+  flex: 0 0 54px;
+  color: var(--rl-muted);
+  font-size: 10px;
+}
+
+.rl-h3-timeline select,
+.rl-h3-timeline input {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 3px 5px;
+  border: 1px solid var(--rl-border);
+  border-radius: 4px;
+  background: var(--rl-panel);
+  color: var(--rl-text);
+  font-size: 11px;
+}
+
+.rl-h3-timeline__add {
+  justify-self: start;
+  padding: 3px 7px;
+}
+
+@media (max-width: 460px) {
+  .rl-h3-timeline__roles {
+    grid-template-columns: 1fr;
+  }
+}

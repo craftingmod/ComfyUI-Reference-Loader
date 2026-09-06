@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 from comfy_api.latest import io
@@ -10,7 +12,11 @@ from ..core.prompt_contract import (
   compile_prompt,
   parse_prompt_state,
 )
-from ..core.reference_contract import ReferenceContractError, ReferenceState
+from ..core.reference_contract import (
+  ReferenceContractError,
+  ReferenceState,
+  h3_timeline_media_ids,
+)
 from ..core.reference_manifest import (
   build_reference_output_plan,
   parse_reference_manifest_state,
@@ -31,6 +37,7 @@ class ReferenceLoaderBundle:
   prompt_state_json: str = EMPTY_PROMPT_STATE_JSON
   compiled_prompt: str = ""
   reference_fingerprint: str = ""
+  guide_media: Mapping[str, Any] = field(default_factory=dict)
 
 
 def validate_reference_loader_bundle(
@@ -41,7 +48,51 @@ def validate_reference_loader_bundle(
   if not isinstance(references, ReferenceLoaderBundle):
     raise TypeError("references must be a REFERENCE_LOADER_BUNDLE value.")
   state = parse_reference_manifest_state(references.manifest_json)
+  if not isinstance(references.guide_media, Mapping):
+    raise TypeError("Reference Loader bundle guide_media must be a mapping.")
+  expected_guide_ids = set(h3_timeline_media_ids(state))
+  actual_guide_ids = set(references.guide_media)
+  if actual_guide_ids != expected_guide_ids:
+    missing = sorted(expected_guide_ids - actual_guide_ids)
+    extra = sorted(actual_guide_ids - expected_guide_ids)
+    detail = []
+    if missing:
+      detail.append(f"missing guide media {missing}")
+    if extra:
+      detail.append(f"unexpected guide media {extra}")
+    raise ReferenceContractError(
+      "Reference Loader manifest does not match bundled guide media: "
+      + "; ".join(detail)
+    )
+  if any(references.guide_media[media_id] is None for media_id in actual_guide_ids):
+    raise ReferenceContractError(
+      "Reference Loader guide media cannot contain null values."
+    )
   plan = build_reference_output_plan(state)
+  try:
+    manifest = json.loads(references.manifest_json)
+  except (TypeError, ValueError) as exc:
+    raise ReferenceContractError(
+      "Reference Loader manifest must be valid JSON."
+    ) from exc
+  expected_outputs = {
+    "images": list(plan.image_ids),
+    "audios": list(plan.audio_ids),
+    "videos": list(plan.video_ids),
+  }
+  expected_captions = {
+    "images": list(plan.image_captions),
+    "audios": list(plan.audio_captions),
+    "videos": list(plan.video_captions),
+  }
+  if (
+    not isinstance(manifest, Mapping)
+    or manifest.get("outputs") != expected_outputs
+    or manifest.get("output_captions") != expected_captions
+  ):
+    raise ReferenceContractError(
+      "Reference Loader manifest does not match its active output plan."
+    )
   alignments = (
     (
       "IMAGE",

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { flushSync } from "react-dom"
 
 import type { ComfyNode } from "../src/comfyui.ts"
 import { ReferenceLoaderApi } from "../src/reference-loader/api.ts"
@@ -43,7 +44,10 @@ function stateWithImage() {
 function addGuide(root: HTMLElement, frame: string): void {
   const input = root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')
   if (!input) throw new Error("Missing Guide frame input.")
-  input.value = frame
+  flushSync(() => {
+    input.value = frame
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+  })
   root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
 }
 
@@ -453,12 +457,7 @@ describe("Reference Loader Media Timeline integration", () => {
     expect(
       root.querySelectorAll('.rl-card[data-id="scene"] .rl-h3-editor__placement'),
     ).toHaveLength(0)
-    const add = (value: string) => {
-      const input = root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')
-      if (!input) throw new Error("Missing Guide frame input.")
-      input.value = value
-      root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
-    }
+    const add = (value: string) => addGuide(root, value)
     add("1.5")
     expect(root.querySelector("[data-h3-add-error]")?.textContent).toContain("non-negative integer")
     add("-1")
@@ -563,6 +562,7 @@ describe("Reference Loader Media Timeline integration", () => {
     const position = root.querySelector<HTMLSelectElement>('[data-h3-add-field="position"]')
     if (!position) throw new Error("Missing Guide position input.")
     position.value = "start"
+    flushSync(() => position.dispatchEvent(new Event("change", { bubbles: true })))
     root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
     expect(root.querySelector("[data-h3-add-error]")?.textContent).toContain("Image · scene.png")
     root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')?.click()

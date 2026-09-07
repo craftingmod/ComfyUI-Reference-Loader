@@ -42,6 +42,13 @@ import {
 import { VideoPreviewPlayer } from "../video-preview-player.ts"
 import { isSilentWaveform } from "../waveform.ts"
 import { H3Timeline, type TimelineView } from "./h3-timeline.ts"
+import { createH3GuideEditor, type H3GuidePosition } from "./h3-guide-editor.tsx"
+
+function isH3ReactEvent(event: Event): boolean {
+  return event.composedPath().some(
+    (target) => target instanceof HTMLElement && target.hasAttribute("data-h3-react-surface"),
+  )
+}
 
 interface PendingUpload {
   id: string
@@ -371,6 +378,9 @@ export class ReferenceLoaderController {
   #h3SummaryExpanded = false
   #h3BodyId = `rl-h3-media-guides-body-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`
   #h3Editor: H3EditorState | undefined
+  #h3ReactEditor:
+    | { session: H3EditorState; view: ReturnType<typeof createH3GuideEditor> }
+    | undefined
   #h3Axis: H3Timeline | undefined
   #h3View: TimelineView = { zoom: 1, scrollLeft: 0 }
   #promptShots: readonly Pick<PromptShot, "tag" | "frameIndex">[] = []
@@ -673,6 +683,8 @@ export class ReferenceLoaderController {
   destroy(): void {
     if (this.#destroyed) return
     this.#destroyed = true
+    this.#h3ReactEditor?.view.destroy()
+    this.#h3ReactEditor = undefined
     this.#h3Axis?.destroy()
     this.#cancelScheduledRender()
     this.#modalController?.abort()
@@ -739,6 +751,14 @@ export class ReferenceLoaderController {
       this.#renderSingleImage(state)
       return
     }
+    const reactEditor = this.#h3ReactEditor
+    const activeReactField = active instanceof HTMLElement &&
+      (reactEditor?.view.media.contains(active) || reactEditor?.view.body.contains(active))
+      ? active : undefined
+    if (reactEditor && reactEditor.session !== this.#h3Editor) {
+      reactEditor.view.destroy()
+      this.#h3ReactEditor = undefined
+    }
     this.#h3Axis?.destroy()
     this.root.innerHTML = `
       <div class="rl-media-topbar">
@@ -765,6 +785,9 @@ export class ReferenceLoaderController {
         ${this.#channelMarkup("video", "Videos", state.videoOrder)}
         ${this.#channelMarkup("audio", "Audio", state.audioOrder)}
       </div>`
+    this.#mountH3GuideEditor()
+    if (activeReactField?.isConnected && document.activeElement !== activeReactField)
+      activeReactField.focus({ preventScroll: true })
     this.#mountH3Timeline()
     this.#drawWaveforms()
     this.#syncPlaybackUi()
@@ -1213,7 +1236,6 @@ export class ReferenceLoaderController {
       item.kind === "image" ? undefined : (runtime?.metadata?.duration ?? item.crop?.end)
     const audioPlaybackDisabled = silentVideo || runtime?.loading || playbackDuration === undefined
     const videoPlaybackDisabled = runtime?.loading || playbackDuration === undefined
-    const editorMarkup = guideEditorActive ? this.#h3EditorMarkup() : undefined
     const normalMediaMarkup = `<div class="rl-media-badges"><span class="rl-kind rl-kind--${item.kind}">${item.kind}</span>${outputIndex === undefined ? "" : `<span class="rl-output-index" title="${labelForCaption(channel)} output #${outputIndex}">#${outputIndex}</span>`}${guideIndex === undefined ? "" : `<span class="rl-guide-index" title="Guide #${guideIndex}">G#${guideIndex}</span>`}${megapixels ? `<span class="rl-megapixels" title="Current source resolution: ${megapixels}">${megapixels}</span>` : ""}${duration ? `<span class="rl-duration">${duration}</span>` : ""}</div><span class="rl-media-filename" title="${escapeHtml(mediaFilename)}">${escapeHtml(mediaFilename)}</span><button type="button" class="rl-remove" data-action="remove" aria-label="Remove reference" title="Delete reference">×</button>`
     const normalBodyMarkup = `${this.#guideBadgeMarkup(item, guideChannel, guideMediaId, outputIndex, guideIndex)}
         ${showCaptions ? `<textarea data-field="caption" rows="2" maxlength="16384" placeholder="Caption" aria-label="${labelForCaption(channel)} caption">${escapeHtml(caption)}</textarea>` : ""}
@@ -1229,8 +1251,8 @@ export class ReferenceLoaderController {
         <span class="rl-edit-actions">${this.#guideEditButtonMarkup(item, channel)}<button type="button" class="rl-edit-button" data-action="edit" aria-label="${singleImage ? "Edit image" : "Edit reference"}" title="${singleImage ? "Edit image" : "Edit reference"}"${runtime?.applyingEdit ? " disabled" : ""}><span aria-hidden="true">R</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16v4Z"></path><path d="m13.5 6.5 4 4"></path></svg></button></span>
         </div>
         ${error}`
-    const cardContent = editorMarkup
-      ? `<div class="rl-h3-editor__background" aria-hidden="true"><div class="rl-card__media${channel === "image" && item.kind === "image" ? " is-transparent-preview" : ""}">${media}${loading}</div></div>${editorMarkup.media}${editorMarkup.body}`
+    const cardContent = guideEditorActive
+      ? `<div class="rl-h3-editor__background" aria-hidden="true"><div class="rl-card__media${channel === "image" && item.kind === "image" ? " is-transparent-preview" : ""}">${media}${loading}</div></div><div data-h3-react-media></div><div data-h3-react-body></div>`
       : `<div class="rl-card__media${channel === "image" && item.kind === "image" ? " is-transparent-preview" : ""}" title="Double-click to edit">${media}${normalMediaMarkup}${loading}</div><div class="rl-card__body">${normalBodyMarkup}</div>`
     return `<article class="rl-card${showCaptions && !guideEditorActive ? " rl-card--has-caption" : ""}${guideEditorActive ? " rl-card--h3-editor" : ""}${singleImage ? " rl-single-image-card" : ""}${selected ? " is-selected" : ""}${runtime?.error ? " has-error" : ""}${outputEnabled || guideEnabled ? "" : " is-output-disabled"}" data-id="${escapeHtml(id)}" data-channel="${channel}" data-media-kind="${item.kind}" data-replace-index="${replaceIndex}" data-output-enabled="${String(outputEnabled)}" data-guide-enabled="${String(guideEnabled || guideEditorActive)}" tabindex="0" draggable="${String(!singleImage && !guideEditorActive)}" aria-selected="${String(selected)}">${cardContent}</article>`
   }
@@ -1291,60 +1313,67 @@ export class ReferenceLoaderController {
     return `<button type="button" class="rl-edit-button rl-edit-button--guide${active ? " is-on" : ""}" data-action="edit-h3-guide" data-id="${escapeHtml(item.id)}" data-h3-channel="${guideChannel}" aria-label="Edit Guide placements" title="Edit Guide placements"><span aria-hidden="true">G</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16v4Z"></path><path d="m13.5 6.5 4 4"></path></svg></button>`
   }
 
-  #h3EditorMarkup(): { media: string; body: string } {
+  #mountH3GuideEditor(): void {
     const editor = this.#h3Editor
-    if (!editor?.mediaId) return { media: "", body: "" }
-    const itemId = editor.mediaId?.endsWith(":audio") ? editor.mediaId.slice(0, -6) : editor.mediaId
-    const item = itemId ? this.state.items[itemId] : undefined
-    const issue = this.#h3DraftIssue(editor)
-    if (!item) return { media: "", body: "" }
+    const media = this.root.querySelector<HTMLElement>("[data-h3-react-media]")
+    const body = this.root.querySelector<HTMLElement>("[data-h3-react-body]")
+    if (!editor?.mediaId || !media || !body) {
+      this.#h3ReactEditor?.view.destroy()
+      this.#h3ReactEditor = undefined
+      return
+    }
+    this.#h3ReactEditor ??= { session: editor, view: createH3GuideEditor() }
+    // Move the same containers back into the rebuilt board. React retains the
+    // keyed fields and the add form; the native renderer never edits their DOM.
+    media.replaceWith(this.#h3ReactEditor.view.media)
+    body.replaceWith(this.#h3ReactEditor.view.body)
+    this.#updateH3GuideEditor()
+  }
 
-    const sourceLabel = itemFilename(item)
-    const startRole =
-      item?.kind === "image" &&
-      editor.channel === "visual" &&
-      editor.timeline.startImageId === editor.mediaId
-        ? this.#h3RoleMarkup("start")
-        : ""
-    const endRole =
-      item?.kind === "image" &&
-      editor.channel === "visual" &&
-      editor.timeline.endImageId === editor.mediaId
-        ? this.#h3RoleMarkup("end")
-        : ""
-    const guides = this.#h3EditorGuides(editor)
-      .map((guide) => this.#h3DraftGuideMarkup(guide))
-      .join("")
-    const guideOption = `<option value="guide" selected${editor.timeline.guides.length >= 32 ? " disabled" : ""}>Specific frame${editor.timeline.guides.length >= 32 ? " (limit reached)" : ""}</option>`
-    const positionOptions =
-      item?.kind === "image" && editor.channel === "visual"
-        ? `<option value="start">Start</option>${guideOption}<option value="end">End</option>`
-        : guideOption
-    const placements = `${startRole}${guides}${endRole}`
-    const addError = editor.draftError
-      ? `<p class="rl-h3-editor__error" role="alert" data-h3-add-error>${escapeHtml(editor.draftError)}</p>`
-      : ""
-    const editorError = issue
-      ? `<p class="rl-h3-editor__error" role="alert" data-h3-editor-error>${escapeHtml(issue)}</p>`
-      : ""
-    const media = `<div class="rl-h3-editor rl-h3-editor--stack" data-h3-editor data-h3-card-editor aria-label="Timeline Guide editor"><div class="rl-h3-editor__stack" data-h3-placement-list><div class="rl-h3-editor__placements">${placements || '<p class="rl-h3-editor__empty">No guides yet.</p>'}</div></div></div>`
-    const body = `<div class="rl-card__body"><div class="rl-h3-editor__footer" data-h3-editor><span class="rl-h3-editor__title" title="${escapeHtml(sourceLabel)}">${escapeHtml(sourceLabel)}</span><div class="rl-h3-editor__add-form" data-h3-add-form><label class="rl-h3-editor__position-field"><span>Position</span><select data-h3-add-field="position">${positionOptions}</select></label><label class="rl-h3-editor__frame-label" data-h3-add-frame><span>Frame</span><span class="rl-h3-editor__frame-field"><input type="number" min="0" step="1" data-h3-add-field="frame" placeholder="0" inputmode="numeric"><small data-h3-add-seconds></small></span></label><button type="button" data-h3-action="add-draft-placement" class="rl-h3-editor__add" aria-label="Add Guide" title="Add Guide"${editor.timeline.guides.length >= 32 ? " disabled" : ""}>+</button></div>${addError}${editorError}<div class="rl-h3-editor__actions"><button type="button" data-h3-action="cancel-editor">Cancel</button><button type="button" data-h3-action="apply-editor"${issue ? " disabled" : ""}>Apply</button></div></div></div>`
-    return { media, body }
+  #updateH3GuideEditor(): void {
+    const editor = this.#h3Editor
+    const mounted = this.#h3ReactEditor
+    if (!editor?.mediaId || mounted?.session !== editor) return
+    const item = this.state.items[editor.mediaId]
+    if (!item) return
+    mounted.view.update({
+      sourceLabel: itemFilename(item),
+      channel: editor.channel,
+      start: editor.channel === "visual" && editor.timeline.startImageId === editor.mediaId,
+      end: editor.channel === "visual" && editor.timeline.endImageId === editor.mediaId,
+      guides: this.#h3EditorGuides(editor).map((guide) => {
+        const pairedId = editor.channel === "visual" ? guide.audioId : guide.visualId
+        return {
+          id: guide.id,
+          frameIndex: guide.frameIndex,
+          pairedLabel: pairedId
+            ? this.#h3MediaLabel(pairedId, editor.channel === "visual" ? "audio" : "visual")
+            : undefined,
+        }
+      }),
+      atGuideLimit: editor.timeline.guides.length >= 32,
+      issue: this.#h3DraftIssue(editor),
+      addError: editor.draftError,
+      onAdd: (position, frame) => this.#addH3DraftPlacement(position, frame),
+      onRemoveRole: (role) => this.#removeH3DraftRole(role),
+      onRemoveGuide: (id) => this.#deleteH3DraftPlacement(id),
+      onInputFrame: (id, value) => {
+        this.#inputH3DraftFrame(id, value)
+        this.#updateH3GuideEditor()
+      },
+      onCommitFrame: (id, value) => this.#commitH3DraftFrame(id, value),
+      onApply: () => this.#applyH3Editor(),
+      onCancel: () => this.#closeH3Editor(),
+    })
   }
 
   #h3RecoveryEditorMarkup(editor: H3EditorState, issue?: string): string {
     const guides = [...editor.ownedGuideIds]
       .map((id) => editor.timeline.guides.find((guide) => guide.id === id))
       .filter((guide): guide is NonNullable<typeof guide> => guide !== undefined)
-      .map((guide) => this.#h3DraftGuideMarkup(guide, true))
+      .map((guide) => this.#h3RecoveryGuideMarkup(guide))
       .join("")
     return `<section class="rl-h3-editor rl-h3-editor--recovery" data-h3-editor aria-label="Recover incomplete Timeline Guide"><div class="rl-h3-editor__header"><span class="rl-h3-editor__title">Recover incomplete Guide</span><button type="button" data-h3-action="cancel-editor" aria-label="Cancel Guide edit" title="Cancel Guide edit">×</button></div><p class="rl-h3-editor__hint">Choose the missing Image or standalone Audio source, or delete this incomplete Guide.</p><div class="rl-h3-editor__stack"><div class="rl-h3-editor__placements">${guides || '<p class="rl-h3-editor__empty">No incomplete Guide selected.</p>'}</div></div>${issue ? `<p class="rl-h3-editor__error" role="alert" data-h3-editor-error>${escapeHtml(issue)}</p>` : ""}<div class="rl-h3-editor__actions"><button type="button" data-h3-action="cancel-editor">Cancel</button><button type="button" data-h3-action="apply-editor"${issue ? " disabled" : ""}>Apply</button></div></section>`
-  }
-
-  #h3RoleMarkup(role: "start" | "end"): string {
-    const label = role === "start" ? "Start" : "End"
-    const detail = role === "start" ? "frame 0" : "final output frame"
-    return `<article class="rl-h3-editor__placement rl-h3-editor__stack-row rl-h3-editor__role" data-h3-role="${role}"><div><strong>${label}</strong><small>${detail}</small></div><button type="button" data-h3-action="remove-draft-role" data-h3-role="${role}" aria-label="Delete ${label} image connection" title="Delete ${label} image connection">×</button></article>`
   }
 
   #h3EditorGuides(editor: H3EditorState) {
@@ -1358,30 +1387,17 @@ export class ReferenceLoaderController {
       })
   }
 
-  #h3DraftGuideMarkup(
+  #h3RecoveryGuideMarkup(
     guide: {
       id: string
       frameIndex: number
       visualId: string | null
       audioId: string | null
     },
-    recovery = false,
   ): string {
-    const editor = this.#h3Editor
-    if (recovery) {
-      const visualOptions = this.#h3VisualOptions(guide.visualId)
-      const audioOptions = this.#h3AudioOptions(guide.audioId)
-      return `<article class="rl-h3-editor__placement rl-h3-editor__stack-row" data-h3-guide-id="${escapeHtml(guide.id)}"><div class="rl-h3-editor__placement-heading"><label><span>Frame</span><input type="number" min="0" step="1" value="${Number.isInteger(guide.frameIndex) ? String(guide.frameIndex) : ""}" data-h3-draft-field="frame" data-h3-guide-id="${escapeHtml(guide.id)}" aria-describedby="h3-frame-${escapeHtml(guide.id)}"></label><span id="h3-frame-${escapeHtml(guide.id)}" class="rl-h3-editor__seconds">${Number.isInteger(guide.frameIndex) ? `${(guide.frameIndex / 24).toFixed(2)}s` : ""}</span><button type="button" data-h3-action="delete-draft-placement" data-h3-delete-mode="entry" data-h3-guide-id="${escapeHtml(guide.id)}" aria-label="Delete incomplete Guide" title="Delete incomplete Guide">×</button></div><label><span>Visual source</span><select data-h3-draft-field="visual" data-h3-guide-id="${escapeHtml(guide.id)}">${visualOptions}</select></label><label><span>Audio source</span><select data-h3-draft-field="audio" data-h3-guide-id="${escapeHtml(guide.id)}">${audioOptions}</select></label></article>`
-    }
-    if (!editor?.mediaId || !guideUsesMedia(guide, editor.mediaId, editor.channel)) return ""
-    const pairedId = editor.channel === "visual" ? guide.audioId : guide.visualId
-    const paired = pairedId
-      ? `<small class="rl-h3-editor__paired">Also connected: ${escapeHtml(this.#h3MediaLabel(pairedId, editor.channel === "visual" ? "audio" : "visual"))}</small>`
-      : ""
-    const frameLabel = Number.isInteger(guide.frameIndex)
-      ? `${guide.frameIndex} frame`
-      : "this frame"
-    return `<article class="rl-h3-editor__placement rl-h3-editor__stack-row" data-h3-guide-id="${escapeHtml(guide.id)}"><div class="rl-h3-editor__placement-heading"><label><span>Guide</span><input type="number" min="0" step="1" value="${Number.isInteger(guide.frameIndex) ? String(guide.frameIndex) : ""}" data-h3-draft-field="frame" data-h3-guide-id="${escapeHtml(guide.id)}" aria-describedby="h3-frame-${escapeHtml(guide.id)}"></label><span id="h3-frame-${escapeHtml(guide.id)}" class="rl-h3-editor__seconds">${Number.isInteger(guide.frameIndex) ? `${(guide.frameIndex / 24).toFixed(2)}s` : ""}</span><button type="button" data-h3-action="delete-draft-placement" data-h3-guide-id="${escapeHtml(guide.id)}" aria-label="Delete ${escapeHtml(frameLabel)} ${editor.channel === "visual" ? "image" : "audio"} connection" title="Delete this connection">×</button></div>${paired}</article>`
+    const visualOptions = this.#h3VisualOptions(guide.visualId)
+    const audioOptions = this.#h3AudioOptions(guide.audioId)
+    return `<article class="rl-h3-editor__placement rl-h3-editor__stack-row" data-h3-guide-id="${escapeHtml(guide.id)}"><div class="rl-h3-editor__placement-heading"><label><span>Frame</span><input type="number" min="0" step="1" value="${Number.isInteger(guide.frameIndex) ? String(guide.frameIndex) : ""}" data-h3-draft-field="frame" data-h3-guide-id="${escapeHtml(guide.id)}" aria-describedby="h3-frame-${escapeHtml(guide.id)}"></label><span id="h3-frame-${escapeHtml(guide.id)}" class="rl-h3-editor__seconds">${Number.isInteger(guide.frameIndex) ? `${(guide.frameIndex / 24).toFixed(2)}s` : ""}</span><button type="button" data-h3-action="delete-draft-placement" data-h3-delete-mode="entry" data-h3-guide-id="${escapeHtml(guide.id)}" aria-label="Delete incomplete Guide" title="Delete incomplete Guide">×</button></div><label><span>Visual source</span><select data-h3-draft-field="visual" data-h3-guide-id="${escapeHtml(guide.id)}">${visualOptions}</select></label><label><span>Audio source</span><select data-h3-draft-field="audio" data-h3-guide-id="${escapeHtml(guide.id)}">${audioOptions}</select></label></article>`
   }
 
   #h3VisualOptions(selected: string | null): string {
@@ -1633,6 +1649,7 @@ export class ReferenceLoaderController {
   }
 
   #onClick(event: MouseEvent): void {
+    if (isH3ReactEvent(event)) return
     const h3Button = (event.target as Element).closest<HTMLElement>("[data-h3-action]")
     if (h3Button && this.root.contains(h3Button)) {
       this.#onH3Click(h3Button)
@@ -1752,17 +1769,8 @@ export class ReferenceLoaderController {
       this.#applyH3Editor()
       return
     }
-    if (action === "add-draft-placement") {
-      this.#addH3DraftPlacement()
-      return
-    }
     if (action === "delete-draft-placement" && target.dataset.h3GuideId) {
       this.#deleteH3DraftPlacement(target.dataset.h3GuideId)
-      return
-    }
-    if (action === "remove-draft-role" && target.dataset.h3Role) {
-      const role = target.dataset.h3Role
-      if (role === "start" || role === "end") this.#removeH3DraftRole(role)
       return
     }
     if (action === "select-placement") {
@@ -1931,13 +1939,9 @@ export class ReferenceLoaderController {
     return `guide-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`}`
   }
 
-  #addH3DraftPlacement(): void {
+  #addH3DraftPlacement(position: H3GuidePosition, frame: string): void {
     const editor = this.#h3Editor
     if (!editor?.mediaId) return
-    const position = this.root.querySelector<HTMLSelectElement>(
-      '[data-h3-add-field="position"]',
-    )?.value
-    const frameInput = this.root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')
     editor.draftError = undefined
     if (position === "start" || position === "end") {
       if (editor.channel !== "visual") {
@@ -1962,7 +1966,7 @@ export class ReferenceLoaderController {
       this.render(true)
       return
     }
-    const rawFrame = frameInput?.value.trim() ?? ""
+    const rawFrame = frame.trim()
     const frameIndex = rawFrame === "" ? Number.NaN : Number(rawFrame)
     if (rawFrame === "") editor.draftError = "Enter a non-negative integer output frame."
     else if (!Number.isInteger(frameIndex) || frameIndex < 0)
@@ -2124,13 +2128,26 @@ export class ReferenceLoaderController {
       return
     }
     if (field === "frame" && guideId && target instanceof HTMLInputElement)
-      this.#commitH3DraftFrame(guideId, target)
+      this.#commitH3DraftFrame(guideId, target.value)
   }
 
-  #commitH3DraftFrame(guideId: string, target: HTMLInputElement): void {
+  #inputH3DraftFrame(guideId: string, value: string): void {
     const editor = this.#h3Editor
     if (!editor) return
-    const rawFrame = target.value.trim()
+    const frameIndex = value === "" ? Number.NaN : Number(value)
+    editor.timeline = {
+      ...editor.timeline,
+      guides: editor.timeline.guides.map((guide) =>
+        guide.id === guideId ? { ...guide, frameIndex } : guide,
+      ),
+    }
+    this.#mountH3Timeline()
+  }
+
+  #commitH3DraftFrame(guideId: string, value: string): void {
+    const editor = this.#h3Editor
+    if (!editor) return
+    const rawFrame = value.trim()
     const frameIndex = rawFrame === "" ? Number.NaN : Number(rawFrame)
     if (!Number.isInteger(frameIndex) || frameIndex < 0) {
       editor.draftError = "Output frame must be a non-negative integer."
@@ -2407,35 +2424,20 @@ export class ReferenceLoaderController {
   }
 
   #onInput(event: Event): void {
+    if (isH3ReactEvent(event)) return
     const h3Input = event.target
-    if (h3Input instanceof HTMLInputElement && h3Input.dataset.h3AddField === "frame") {
-      const frameIndex = h3Input.value === "" ? Number.NaN : Number(h3Input.value)
-      const seconds = this.root.querySelector<HTMLElement>("[data-h3-add-seconds]")
-      if (seconds)
-        seconds.textContent =
-          Number.isInteger(frameIndex) && frameIndex >= 0
-            ? `(${(frameIndex / 24).toFixed(2)}s)`
-            : ""
-      return
-    }
     if (h3Input instanceof HTMLInputElement && h3Input.dataset.h3DraftField === "frame") {
       const editor = this.#h3Editor
       const guideId = h3Input.dataset.h3GuideId
       if (!editor || !guideId) return
       const frameIndex = h3Input.value === "" ? Number.NaN : Number(h3Input.value)
-      editor.timeline = {
-        ...editor.timeline,
-        guides: editor.timeline.guides.map((guide) =>
-          guide.id === guideId ? { ...guide, frameIndex } : guide,
-        ),
-      }
+      this.#inputH3DraftFrame(guideId, h3Input.value)
       const seconds = h3Input
         .closest<HTMLElement>("[data-h3-guide-id]")
         ?.querySelector<HTMLElement>(".rl-h3-editor__seconds")
       if (seconds)
         seconds.textContent =
           Number.isInteger(frameIndex) && frameIndex >= 0 ? `${(frameIndex / 24).toFixed(2)}s` : ""
-      this.#mountH3Timeline()
       return
     }
     const textarea = event.target
@@ -2478,11 +2480,8 @@ export class ReferenceLoaderController {
   }
 
   #onChange(event: Event): void {
+    if (isH3ReactEvent(event)) return
     const input = event.target
-    if (input instanceof HTMLSelectElement && input.dataset.h3AddField === "position") {
-      this.#syncH3AddForm()
-      return
-    }
     if (
       (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) &&
       input.dataset.h3DraftField
@@ -2507,22 +2506,6 @@ export class ReferenceLoaderController {
     )
     input.value = ""
     void this.#uploadFiles(files)
-  }
-
-  #syncH3AddForm(): void {
-    const position = this.root.querySelector<HTMLSelectElement>(
-      '[data-h3-add-field="position"]',
-    )?.value
-    const label = this.root.querySelector<HTMLElement>("[data-h3-add-frame]")
-    const input = this.root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')
-    const add = this.root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')
-    const visible = position === "guide"
-    if (label) label.hidden = !visible
-    if (input) input.disabled = !visible
-    if (add) add.disabled = visible && (this.#h3Editor?.timeline.guides.length ?? 0) >= 32
-    const seconds = this.root.querySelector<HTMLElement>("[data-h3-add-seconds]")
-    if (seconds && (!visible || !input || !Number.isInteger(Number(input.value))))
-      seconds.textContent = ""
   }
 
   async #loadSnapshot(file: File): Promise<void> {

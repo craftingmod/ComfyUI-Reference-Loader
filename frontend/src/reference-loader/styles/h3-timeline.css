@@ -197,16 +197,33 @@
   cursor: default;
 }
 
+.rl-h3-editor__background {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.rl-h3-editor__background .rl-card__media {
+  width: 100%;
+  height: auto;
+  aspect-ratio: var(--rl-card-aspect, 4 / 3);
+}
+
 .rl-h3-editor--stack {
+  position: relative;
+  z-index: 1;
   display: flex;
-  flex: 0 0 auto;
+  flex: 1 0 auto;
   flex-direction: column;
   gap: 6px;
   width: 100%;
   padding: 6px;
   overflow: visible;
-  background: color-mix(in srgb, var(--rl-bg) 72%, transparent);
-  backdrop-filter: blur(3px) brightness(0.72);
+  background: #05070bab;
+  backdrop-filter: blur(3px) brightness(0.6);
 }
 
 .rl-h3-editor__header {
@@ -466,6 +483,10 @@
 .rl-card--h3-editor > .rl-card__body {
   flex: 0 0 auto;
   margin-top: auto;
+  position: relative;
+  z-index: 1;
+  background: var(--rl-bg);
+  backdrop-filter: none;
 }
 
 .rl-h3-editor__actions {

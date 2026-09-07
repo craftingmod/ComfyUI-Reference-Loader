@@ -1011,7 +1011,7 @@ export class ReferenceLoaderController {
         </div>
         ${error}`
     const cardContent = editorMarkup
-      ? `${editorMarkup.media}${loading}${editorMarkup.body}`
+      ? `<div class="rl-h3-editor__background" aria-hidden="true"><div class="rl-card__media${channel === "image" && item.kind === "image" ? " is-transparent-preview" : ""}">${media}${loading}</div></div>${editorMarkup.media}${editorMarkup.body}`
       : `<div class="rl-card__media${channel === "image" && item.kind === "image" ? " is-transparent-preview" : ""}" title="Double-click to edit">${media}${normalMediaMarkup}${loading}</div><div class="rl-card__body">${normalBodyMarkup}</div>`
     return `<article class="rl-card${showCaptions && !guideEditorActive ? " rl-card--has-caption" : ""}${guideEditorActive ? " rl-card--h3-editor" : ""}${singleImage ? " rl-single-image-card" : ""}${selected ? " is-selected" : ""}${runtime?.error ? " has-error" : ""}${outputEnabled || guideEnabled ? "" : " is-output-disabled"}" data-id="${escapeHtml(id)}" data-channel="${channel}" data-media-kind="${item.kind}" data-replace-index="${replaceIndex}" data-output-enabled="${String(outputEnabled)}" data-guide-enabled="${String(guideEnabled || guideEditorActive)}" tabindex="0" draggable="${String(!singleImage && !guideEditorActive)}" aria-selected="${String(selected)}">${cardContent}</article>`
   }

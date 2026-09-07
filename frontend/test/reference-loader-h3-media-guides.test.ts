@@ -130,6 +130,12 @@ describe("Reference Loader Media Timeline integration", () => {
     expect(
       root.querySelector('.rl-card[data-id="scene"] .rl-card__body [data-h3-editor]'),
     ).not.toBeNull()
+    expect(
+      root.querySelector('.rl-card[data-id="scene"] > .rl-h3-editor__background'),
+    ).not.toBeNull()
+    expect(
+      root.querySelector('.rl-card[data-id="scene"] > .rl-h3-editor__background .rl-card__media'),
+    ).not.toBeNull()
     expect(root.querySelector('.rl-card[data-id="scene"] .rl-h3-editor__stack-header')).toBeNull()
     expect(root.querySelector('.rl-card[data-id="scene"] .rl-h3-editor__title')?.textContent).toBe(
       "scene.png",
@@ -156,7 +162,11 @@ describe("Reference Loader Media Timeline integration", () => {
         '.rl-card[data-id="scene"] .rl-h3-editor__stack-header [data-h3-action="add-draft-placement"]',
       ),
     ).toBeNull()
-    expect(root.querySelector('.rl-card[data-id="scene"] > .rl-h3-editor--stack')).not.toBeNull()
+    const guideEditor = root.querySelector<HTMLElement>(
+      '.rl-card[data-id="scene"] > .rl-h3-editor--stack',
+    )
+    expect(guideEditor).not.toBeNull()
+    expect(guideEditor?.getAttribute("aria-label")).toBe("Timeline Guide editor")
     expect(
       root.querySelector('.rl-card[data-id="scene"] [data-h3-draft-field="visual"]'),
     ).toBeNull()

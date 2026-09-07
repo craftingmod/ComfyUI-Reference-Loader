@@ -132,6 +132,9 @@ describe("Reference Loader stylesheet", () => {
     ).text()
     const cardRule = css.match(/\.rl-card--h3-editor\s*\{([^}]*)\}/)?.[1]
     const stackRule = css.match(/\.rl-h3-editor--stack\s*\{([^}]*)\}/)?.[1]
+    const editorAutogrowRule = css.match(
+      /\.rl-h3-editor--stack\[aria-label="Timeline Guide editor"\]\s*\{([^}]*)\}/,
+    )?.[1]
     const placementsRule = css.match(/\.rl-h3-editor__placements\s*\{([^}]*)\}/)?.[1]
     const bodyRule = css.match(/\.rl-card--h3-editor > \.rl-card__body\s*\{([^}]*)\}/)?.[1]
 
@@ -140,9 +143,18 @@ describe("Reference Loader stylesheet", () => {
     expect(cardRule).toContain("overflow: visible;")
     expect(stackRule).toContain("flex: 0 0 auto;")
     expect(stackRule).toContain("overflow: visible;")
+    expect(stackRule).toContain("background: #05070bcc;")
+    expect(stackRule).toContain("backdrop-filter: blur(3px) brightness(0.72);")
+    expect(editorAutogrowRule).toContain("height: max-content;")
+    expect(editorAutogrowRule).toContain("min-height: max-content;")
     expect(placementsRule).toContain("overflow: visible;")
     expect(placementsRule).not.toContain("overflow-y: auto;")
     expect(bodyRule).toContain("margin-top: auto;")
+    expect(css).toContain(".rl-h3-editor__background")
+    expect(css).toContain("aspect-ratio: var(--rl-card-aspect, 4 / 3);")
+    expect(css).toContain("pointer-events: none;")
+    expect(bodyRule).toContain("background: var(--rl-bg);")
+    expect(bodyRule).toContain("backdrop-filter: none;")
     expect(css).not.toContain(".rl-h3-editor__stack-header")
   })
 
@@ -164,7 +176,7 @@ describe("Reference Loader stylesheet", () => {
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
     expect(first.href).toBe(
-      "https://example.test/extensions/comfyui-reference-loader/index.css?v=11",
+      "https://example.test/extensions/comfyui-reference-loader/index.css?v=16",
     )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })

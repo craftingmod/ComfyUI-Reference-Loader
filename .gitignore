@@ -3,6 +3,7 @@
 .claude/
 .codex/
 .vscode/settings.json
+.tmp
 
 # Build
 dist/

@@ -185,6 +185,18 @@ class ReferenceLoaderNode(io.ComfyNode):
           tooltip=("Internal Reference Loader state for the custom editor."),
         ),
         io.String.Input(
+          "prompt_definitions",
+          display_name="prompt definitions",
+          default="",
+          multiline=False,
+          dynamic_prompts=False,
+          socketless=True,
+          extra_dict={"widgetType": "REFERENCE_PROMPT_DEFINITIONS"},
+          tooltip=(
+            "UI-only Subjects and Shots editor. The canonical serialized state remains in prompt."
+          ),
+        ),
+        io.String.Input(
           "prompt",
           display_name="prompt",
           default=EMPTY_PROMPT_STATE_JSON,
@@ -306,6 +318,7 @@ class ReferenceLoaderNode(io.ComfyNode):
   def fingerprint_inputs(
     cls,
     loader_state: str,
+    prompt_definitions: str = "",
     limit_image_pixels: bool = False,
     max_image_pixels: float = 2.0,
     composite_alpha: bool = False,
@@ -322,6 +335,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     prompt_schema_preset: str = DEFAULT_PROMPT_SCHEMA_PRESET,
   ) -> str:
     _ = (
+      prompt_definitions,
       grid_columns,
       preview_pixels,
       show_captions,
@@ -360,6 +374,7 @@ class ReferenceLoaderNode(io.ComfyNode):
   def execute(
     cls,
     loader_state: str,
+    prompt_definitions: str = "",
     limit_image_pixels: bool = False,
     max_image_pixels: float = 2.0,
     composite_alpha: bool = False,
@@ -376,6 +391,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     prompt_schema_preset: str = DEFAULT_PROMPT_SCHEMA_PRESET,
   ) -> io.NodeOutput:
     _ = (
+      prompt_definitions,
       grid_columns,
       preview_pixels,
       show_captions,

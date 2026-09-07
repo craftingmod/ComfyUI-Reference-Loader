@@ -20,10 +20,12 @@ import {
 
 export const REFERENCE_LOADER_WIDGET_TYPE = "REFERENCE_LOADER"
 export const REFERENCE_IMAGE_LOADER_WIDGET_TYPE = "REFERENCE_IMAGE_LOADER"
+export const REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE = "REFERENCE_PROMPT_DEFINITIONS"
 export const REFERENCE_PROMPT_WIDGET_TYPE = "REFERENCE_PROMPT"
 const controllers = new WeakMap<ComfyNode, ReferenceLoaderController>()
 const promptControllers = new WeakMap<ComfyNode, ReferencePromptController>()
 const promptRoots = new WeakMap<ComfyNode, HTMLElement>()
+const promptDefinitionRoots = new WeakMap<ComfyNode, HTMLElement>()
 const promptSubscriptions = new WeakMap<ComfyNode, () => void>()
 const promptPresetBindings = new WeakMap<ComfyNode, PromptPresetBinding>()
 const removalHooks = new WeakSet<ComfyNode>()
@@ -168,6 +170,46 @@ export function registerReferenceLoader(
           createLoaderWidget(node, inputName, inputData, false),
         [REFERENCE_IMAGE_LOADER_WIDGET_TYPE]: (node, inputName, inputData) =>
           createLoaderWidget(node, inputName, inputData, true),
+        [REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE]: (node, inputName) => {
+          const root = document.createElement("div")
+          root.className = "reference-prompt-definitions"
+          root.dataset.input = inputName
+          root.addEventListener("pointerdown", (event) => event.stopPropagation())
+          root.addEventListener("wheel", (event) => event.stopPropagation())
+          const widget = node.addDOMWidget(
+            inputName,
+            REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE,
+            root,
+            {
+              serialize: false,
+              hideOnZoom: false,
+              getValue: () => "",
+              setValue: () => undefined,
+              getMinHeight: () => Math.max(120, Math.min(900, root.scrollHeight + 9)),
+              getMaxHeight: () => Math.max(120, Math.min(900, root.scrollHeight + 9)),
+            },
+          )
+          const releaseRenderedRoot = bindRenderedWidgetRoot(
+            node,
+            root,
+            ".reference-prompt-definitions",
+          )
+          widget.serialize = false
+          promptDefinitionRoots.set(node, root)
+          promptControllers.get(node)?.mountDefinitions(root)
+          let removed = false
+          const originalWidgetRemove = widget.onRemove
+          widget.onRemove = () => {
+            if (removed) return
+            removed = true
+            releaseRenderedRoot()
+            if (promptDefinitionRoots.get(node) === root) promptDefinitionRoots.delete(node)
+            promptControllers.get(node)?.mountDefinitions(undefined)
+            originalWidgetRemove?.call(widget)
+          }
+          installNodeRemovalHook(node)
+          return { widget }
+        },
         [REFERENCE_PROMPT_WIDGET_TYPE]: (node, inputName, inputData) => {
           promptSubscriptions.get(node)?.()
           promptSubscriptions.delete(node)
@@ -191,6 +233,8 @@ export function registerReferenceLoader(
               presetCatalog: promptPresetCatalog(inputData),
             },
           )
+          const definitionsRoot = promptDefinitionRoots.get(node)
+          if (definitionsRoot) controller.mountDefinitions(definitionsRoot)
           let removed = false
           const widget = node.addDOMWidget(inputName, REFERENCE_PROMPT_WIDGET_TYPE, root, {
             serialize: true,
@@ -307,7 +351,7 @@ function bindPromptReferences(node: ComfyNode): void {
   const releaseShots = prompt.subscribeShots(() => {
     loader.setPromptShots(
       prompt.shots,
-      (tag, frame) => prompt.setShotFrame(tag, frame),
+      (tag, frame) => prompt.setShotFrameDraft(tag, frame),
       (tag) => prompt.focusShot(tag),
       (tag) => prompt.removeShot(tag),
     )
@@ -327,7 +371,7 @@ function bindPromptReferences(node: ComfyNode): void {
 function bindRenderedWidgetRoot(
   node: ComfyNode,
   root: HTMLElement,
-  selector: ".reference-loader" | ".reference-prompt",
+  selector: ".reference-loader" | ".reference-prompt" | ".reference-prompt-definitions",
 ): () => void {
   let retryFrame: number | undefined
   let disposed = false
@@ -393,6 +437,7 @@ function installNodeRemovalHook(node: ComfyNode): void {
     promptControllers.get(this)?.destroy()
     promptControllers.delete(this)
     promptRoots.delete(this)
+    promptDefinitionRoots.delete(this)
     nodeFileDropBindings.get(this)?.()
     nodeFileDropBindings.delete(this)
     controllers.get(this)?.destroy()

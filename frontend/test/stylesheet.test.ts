@@ -219,6 +219,50 @@ describe("Reference Loader stylesheet", () => {
     expect(css).toContain("cursor: grab;")
   })
 
+  it("keeps Subject and Shot controls styled above a full-width text row", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
+    ).text()
+    const definitionRule = css.match(/\.rl-prompt-definition\s*\{([^}]*)\}/)?.[1]
+    const identityRule = css.match(/\.rl-prompt-definition__identity\s*\{([^}]*)\}/)?.[1]
+    const tagRule = css.match(/\.rl-prompt-definition__tag\s*\{([^}]*)\}/)?.[1]
+    const frameRule = css.match(/\.rl-prompt-definition__frame\s*\{([^}]*)\}/)?.[1]
+    const bodyRule = css.match(/\.rl-prompt-definition__body\s*\{([^}]*)\}/)?.[1]
+
+    expect(definitionRule).toContain("display: flex;")
+    expect(definitionRule).toContain("align-items: flex-start;")
+    expect(definitionRule).toContain("flex-wrap: wrap;")
+    expect(identityRule).toContain("flex: 0 0 auto;")
+    expect(identityRule).toContain("flex-direction: row;")
+    expect(tagRule).toContain("field-sizing: content;")
+    expect(tagRule).toContain("width: auto;")
+    expect(tagRule).toContain("border-radius: 999px;")
+    expect(tagRule).toContain("font-weight: 700;")
+    expect(frameRule).toContain("width: 58px;")
+    expect(frameRule).toContain("border-radius: 999px;")
+    expect(frameRule).toContain("background: color-mix(in srgb, #48bf83 18%, var(--rl-bg));")
+    expect(bodyRule).toContain("flex: 1 0 100%;")
+    expect(bodyRule).toContain("white-space: pre-wrap;")
+    expect(css).toContain(".rl-prompt-definition__ordinal")
+    expect(css).toContain(".rl-prompt-tag::before")
+    expect(css).toContain("margin: 1px 3px;")
+    expect(css).toContain("content: attr(data-prompt-tag-header);")
+    expect(css).toContain("--rl-prompt-tag-color: #48bf83;")
+    expect(css).toContain("order: 1;")
+    expect(css).toContain("order: 2;")
+    expect(css).toContain("order: 3;")
+  })
+
+  it("uses the green Shot accent in the Timeline lane", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/h3-timeline.css", import.meta.url),
+    ).text()
+    const shotRule = css.match(/\.rl-time-axis \.rl-time-axis__mark\.is-shot\s*\{([^}]*)\}/)?.[1]
+
+    expect(shotRule).toContain("border-color: #48bf83;")
+    expect(shotRule).toContain("color: #b9f3d1;")
+  })
+
   it("groups Prompt actions and styles its scoped Clear action as destructive", async () => {
     const css = await Bun.file(
       new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
@@ -228,12 +272,14 @@ describe("Reference Loader stylesheet", () => {
     expect(css).toContain(".reference-prompt button.rl-clear")
   })
 
-  it("keeps the Vue Nodes Media row intrinsic and gives spare height to Prompt", async () => {
+  it("keeps Media and Subjects rows intrinsic and gives spare height to Prompt", async () => {
     const css = await Bun.file(
       new URL("../src/reference-loader/styles/tokens.css", import.meta.url),
     ).text()
     const gridRule = css.match(/\.rl-reference-loader-widgets\s*\{([^}]*)\}/)?.[1]
 
-    expect(gridRule).toContain("grid-template-rows: max-content minmax(180px, 1fr) !important;")
+    expect(gridRule).toContain(
+      "grid-template-rows: max-content max-content minmax(180px, 1fr) !important;",
+    )
   })
 })

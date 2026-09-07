@@ -90,7 +90,7 @@ describe("Reference Prompt v5 authoring", () => {
     expect(renamed.sections[0]?.parts[0]).toEqual({ type: "text", text: "#lead #heroine" })
   })
 
-  test("keeps Shot timing in a Prompt draft until Apply or Cancel", () => {
+  test("keeps Timeline Shot timing in a Prompt draft until Apply or Cancel", () => {
     const transactions: string[] = []
     const root = document.createElement("div")
     document.body.append(root)
@@ -106,7 +106,7 @@ describe("Reference Prompt v5 authoring", () => {
       serializePromptDocument(initial),
     )
 
-    expect(controller.setShotFrame("opening", 24)).toBe(true)
+    expect(controller.setShotFrameDraft("opening", 24)).toBe(true)
     expect(controller.shots[0]?.frameIndex).toBe(24)
     expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(0)
     expect(root.querySelector('[data-prompt-action="apply-shot-draft"]')).not.toBeNull()
@@ -116,9 +116,41 @@ describe("Reference Prompt v5 authoring", () => {
     expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(24)
     expect(transactions).toEqual(["before", "after"])
 
-    controller.setShotFrame("opening", 48)
+    controller.setShotFrameDraft("opening", 48)
     expect(controller.cancelShotDraft()).toBe(true)
     expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(24)
+    controller.destroy()
+  })
+
+  test("updates Shot timing from the frame change event", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const initial = {
+      ...createEmptyPromptDocument(),
+      shots: [{ tag: "opening", frameIndex: 0, parts: [] }],
+    }
+    const controller = new ReferencePromptController(
+      root,
+      node([]),
+      () => [],
+      serializePromptDocument(initial),
+    )
+    const frame = root.querySelector<HTMLInputElement>("[data-prompt-shot-frame]")!
+
+    frame.value = "49"
+    frame.dispatchEvent(new Event("input", { bubbles: true }))
+    expect(root.querySelector<HTMLElement>("[data-prompt-shot-seconds]")?.textContent).toBe(
+      "0f · 0.000s",
+    )
+    expect(root.querySelector('[data-prompt-action="apply-shot-draft"]')).toBeNull()
+    frame.dispatchEvent(new Event("change", { bubbles: true }))
+
+    expect(controller.shots[0]?.frameIndex).toBe(49)
+    expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(49)
+    expect(root.querySelector<HTMLElement>("[data-prompt-shot-seconds]")?.textContent).toBe(
+      "49f · 2.042s",
+    )
+    expect(root.querySelector('[data-prompt-action="apply-shot-draft"]')).toBeNull()
     controller.destroy()
   })
 

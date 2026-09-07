@@ -12,6 +12,7 @@ Reference Loader is a ComfyUI V3 custom node for uploading, arranging, and editi
 - Optional per-image MPixel limiting and alpha compositing at execution
 - Load Image-style single-image picker with RGB IMAGE, inverse-alpha MASK, and inline Edit
 - Structured prompt editor with thumbnail `@` media mentions, independent `#` Subject/Shot definitions, and a literal-tag raw view
+- Separate Subjects & Shots Stack between Media and Prompt; definitions remain backed by the single Prompt state
 - Subject and Shot source data stays tag-based; compiled output assigns `<Subject N>` and `[Shot N]` indexes only at queue/export time
 - Browser JSON snapshots for saving and restoring Loader, Prompt, and related node settings
 - Stable media mentions compiled to `<Picture N>`, `<Video N>`, and `<Audio N>` tags
@@ -55,7 +56,7 @@ Connect `references` to **[Reference Loader] Start/End Frames** and choose `I2V`
 
 Enable the Loader's advanced `two_image_mode` widget to prevent a third IMAGE output from being enabled. Additional uploaded images remain available but start disabled. The socketless widget is a write-only frontend proxy and does not alter execution or cache fingerprints; Start/End Frames still validates the bundle at execution.
 
-The Media board uses its full content height without accepting extra flex height, so it does not gain a nested scrollbar and the Prompt editor stays immediately adjacent instead of being separated by blank Media space.
+The Media board uses its full content height without accepting extra flex height, so it does not gain a nested scrollbar. The compact Subjects & Shots Stack stays between Media and the Prompt editor, while Prompt receives the remaining node height.
 
 | Output                      | Contract                                                                |
 | --------------------------- | ----------------------------------------------------------------------- |

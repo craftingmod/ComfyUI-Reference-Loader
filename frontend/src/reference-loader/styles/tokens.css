@@ -1,5 +1,6 @@
 .reference-loader,
 .reference-prompt,
+.reference-prompt-definitions,
 .rl-modal {
   --rl-bg: color-mix(in srgb, var(--comfy-menu-bg, #17191f) 94%, #000);
   --rl-panel: color-mix(in srgb, var(--comfy-input-bg, #242833) 88%, #000);
@@ -24,7 +25,8 @@
 }
 
 .reference-loader,
-.reference-prompt {
+.reference-prompt,
+.reference-prompt-definitions {
   box-sizing: border-box;
   min-width: 360px;
   height: 100%;
@@ -36,6 +38,14 @@
   border-radius: 8px;
   padding: 8px;
   user-select: none;
+}
+
+.reference-prompt-definitions {
+  position: relative;
+  min-height: 120px;
+  height: auto;
+  overflow: visible;
+  padding: 7px;
 }
 
 .reference-loader {
@@ -52,11 +62,12 @@
 
 /* Vue Nodes stretches `auto auto` widget-grid rows across the remaining node height. */
 .rl-reference-loader-widgets {
-  grid-template-rows: max-content minmax(180px, 1fr) !important;
+  grid-template-rows: max-content max-content minmax(180px, 1fr) !important;
 }
 
 .reference-loader *,
 .reference-prompt *,
+.reference-prompt-definitions *,
 .rl-modal * {
   box-sizing: border-box;
 }
@@ -68,6 +79,10 @@
 .reference-prompt input,
 .reference-prompt textarea,
 .reference-prompt select,
+.reference-prompt-definitions button,
+.reference-prompt-definitions input,
+.reference-prompt-definitions textarea,
+.reference-prompt-definitions select,
 .rl-modal button,
 .rl-modal input,
 .rl-modal textarea,
@@ -76,6 +91,7 @@
 }
 .reference-loader button,
 .reference-prompt button,
+.reference-prompt-definitions button,
 .rl-file-button,
 .rl-modal button {
   min-height: 26px;
@@ -87,12 +103,14 @@
 }
 .reference-loader button:hover:not(:disabled),
 .reference-prompt button:hover:not(:disabled),
+.reference-prompt-definitions button:hover:not(:disabled),
 .rl-file-button:hover,
 .rl-modal button:hover:not(:disabled) {
   border-color: var(--rl-accent);
 }
 .reference-loader button:disabled,
 .reference-prompt button:disabled,
+.reference-prompt-definitions button:disabled,
 .rl-modal button:disabled {
   cursor: default;
   opacity: 0.42;
@@ -104,6 +122,10 @@
 .reference-prompt textarea:focus-visible,
 .reference-prompt input:focus-visible,
 .reference-prompt [contenteditable="true"]:focus-visible,
+.reference-prompt-definitions button:focus-visible,
+.reference-prompt-definitions textarea:focus-visible,
+.reference-prompt-definitions input:focus-visible,
+.reference-prompt-definitions [contenteditable="true"]:focus-visible,
 .rl-modal button:focus-visible,
 .rl-modal input:focus-visible,
 .rl-modal select:focus-visible {

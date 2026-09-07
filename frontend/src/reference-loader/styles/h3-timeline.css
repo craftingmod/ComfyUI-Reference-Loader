@@ -734,9 +734,9 @@
 }
 
 .rl-time-axis .rl-time-axis__mark.is-shot {
-  border-color: #d68e3f;
-  background: color-mix(in srgb, #d68e3f 30%, var(--rl-panel));
-  color: #ffd39b;
+  border-color: #48bf83;
+  background: color-mix(in srgb, #48bf83 30%, var(--rl-panel));
+  color: #b9f3d1;
 }
 
 .rl-time-axis .rl-time-axis__mark.is-paused {

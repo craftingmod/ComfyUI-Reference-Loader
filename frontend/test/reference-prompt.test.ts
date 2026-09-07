@@ -77,7 +77,8 @@ function placeCaretAtEnd(element: HTMLElement): void {
 function inputText(element: HTMLElement, value: string): void {
   element.textContent = value
   placeCaretAtEnd(element)
-  element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+  const data = value.includes("#") ? "#" : value.includes("@") ? "@" : null
+  element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data }))
 }
 
 function press(element: HTMLElement, key: string, options: KeyboardEventInit = {}): boolean {
@@ -281,6 +282,45 @@ describe("Reference Prompt state", () => {
 })
 
 describe("Reference Prompt section stack", () => {
+  test("mounts Subjects and Shots in a separate Stack area between Media and Prompt", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      subjects: [{ tag: "hero", parts: [] }],
+      shots: [{ tag: "opening", frameIndex: 24, parts: [] }],
+      sections: [{ title: "scene", parts: [{ type: "text", text: "Use #hero." }] }],
+    })
+    const { root, controller } = makeController([], serialized)
+    const definitions = document.createElement("div")
+    definitions.className = "reference-prompt-definitions"
+    document.body.append(definitions)
+
+    controller.mountDefinitions(definitions)
+
+    expect(root.querySelector(".rl-prompt-definitions")).toBeNull()
+    expect(definitions.querySelector(".rl-prompt-definitions")).toBeTruthy()
+    expect(definitions.querySelector('[data-prompt-definition="subject"]')).toBeTruthy()
+    expect(definitions.querySelector('[data-prompt-definition="shot"]')).toBeTruthy()
+    expect(root.querySelector('[data-prompt-section="scene"]')).toBeTruthy()
+
+    const subjectBody = definitions.querySelector<HTMLElement>(
+      '[data-prompt-definition="subject"] [data-prompt-definition-body]',
+    )!
+    inputText(subjectBody, "Use #")
+    const picker = definitions.querySelector<HTMLElement>("[data-prompt-picker]")!
+    expect(picker.parentElement).toBe(
+      definitions.querySelector('[data-prompt-definition="subject"]'),
+    )
+    expect(picker.nextElementSibling).toBe(subjectBody)
+    press(subjectBody, "Escape")
+    inputText(subjectBody, "A persistent hero.")
+    expect(JSON.parse(controller.serialize()).subjects[0].parts).toEqual([
+      { type: "text", text: "A persistent hero." },
+    ])
+
+    controller.destroy()
+    expect(definitions.childElementCount).toBe(0)
+  })
+
   test("opens a legacy Prompt in Raw and allows conversion to the current Structured state", () => {
     const legacy = JSON.stringify({
       version: 3,
@@ -528,6 +568,100 @@ describe("Reference Prompt section stack", () => {
     controller.destroy()
   })
 
+  test("does not reopen Subject autocomplete when Backspace reaches a # prefix", () => {
+    const { root, controller } = makeController()
+    const scene = sectionBody(root, "scene")
+    const picker = root.querySelector<HTMLElement>("[data-prompt-picker]")!
+
+    inputText(scene, "Meet #woman")
+    expect(picker.hidden).toBe(false)
+    press(scene, "Escape")
+    expect(picker.hidden).toBe(true)
+
+    scene.textContent = "Meet #"
+    placeCaretAtEnd(scene)
+    scene.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "deleteContentBackward",
+        data: null,
+      }),
+    )
+
+    expect(picker.hidden).toBe(true)
+    expect(document.activeElement).toBe(scene)
+
+    scene.dispatchEvent(
+      new InputEvent("input", { bubbles: true, inputType: "insertText", data: "#" }),
+    )
+    expect(picker.hidden).toBe(false)
+    controller.destroy()
+  })
+
+  test("keeps the caret after a styled tag when trailing whitespace is deleted", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      subjects: [{ tag: "hero", parts: [] }],
+      sections: [{ title: "scene", parts: [{ type: "text", text: "Meet #hero " }] }],
+    })
+    const { root, controller } = makeController([], serialized)
+    const scene = sectionBody(root, "scene")
+    const tag = scene.querySelector<HTMLElement>("[data-prompt-tag]")!
+    scene.lastChild?.remove()
+    const selection = getSelection()!
+    const range = document.createRange()
+    range.setStartAfter(tag)
+    range.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    scene.focus()
+
+    scene.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "deleteContentBackward",
+        data: null,
+      }),
+    )
+
+    expect(document.activeElement).toBe(scene)
+    expect(selection.isCollapsed).toBe(true)
+    expect(selection.getRangeAt(0).startContainer).toBe(scene)
+    expect(selection.getRangeAt(0).startOffset).toBe(scene.childNodes.length)
+    controller.destroy()
+  })
+
+  test("deletes a styled tag when Backspace is pressed at its right edge", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      subjects: [{ tag: "hero", parts: [] }],
+      sections: [{ title: "scene", parts: [{ type: "text", text: "Meet #hero" }] }],
+    })
+    const { root, controller } = makeController([], serialized)
+    const scene = sectionBody(root, "scene")
+    const tag = scene.querySelector<HTMLElement>("[data-prompt-tag]")!
+    const selection = getSelection()!
+    const range = document.createRange()
+    range.setStartAfter(tag)
+    range.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    scene.focus()
+
+    const event = new KeyboardEvent("keydown", {
+      key: "Backspace",
+      bubbles: true,
+      cancelable: true,
+    })
+    scene.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(scene.querySelector("[data-prompt-tag]")).toBeNull()
+    expect(scene.textContent).toBe("Meet ")
+    expect(document.activeElement).toBe(scene)
+    controller.destroy()
+  })
+
   test("removes a Subject from the picker after its final chip is deleted", () => {
     const { root, controller } = makeController()
     const scene = sectionBody(root, "scene")
@@ -679,6 +813,78 @@ describe("Reference Prompt section stack", () => {
     expect(
       subjects.map((subject) => subject.style.getPropertyValue("--rl-prompt-subject-color")),
     ).toEqual(["#6ea8fe", "#8f9cf4"])
+    controller.destroy()
+  })
+
+  test("highlights defined Subject and Shot tags without capturing unresolved tags", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      subjects: [{ tag: "hero", parts: [] }],
+      shots: [{ tag: "entrance", frameIndex: 24, parts: [] }],
+      sections: [
+        {
+          title: "scene",
+          parts: [{ type: "text", text: "Use #hero, then #entrance, and keep #typing editable." }],
+        },
+      ],
+    })
+    const { root, controller } = makeController([], serialized)
+    const scene = sectionBody(root, "scene")
+    const tags = [...scene.querySelectorAll<HTMLElement>("[data-prompt-tag]")]
+
+    expect(tags.map((tag) => tag.textContent)).toEqual(["#hero", "#entrance"])
+    expect(tags.map((tag) => tag.className)).toEqual([
+      "rl-prompt-tag is-subject",
+      "rl-prompt-tag is-shot",
+    ])
+    expect(tags.map((tag) => tag.dataset.promptTagHeader)).toEqual(["S1", "SH1"])
+    expect(tags.map((tag) => tag.contentEditable)).toEqual(["false", "false"])
+    expect(scene.textContent).toContain("#typing")
+    controller.destroy()
+  })
+
+  test("renders styled definition identity above the full-width text row", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      subjects: [{ tag: "hero", parts: [{ type: "text", text: "A calm traveler." }] }],
+      shots: [
+        {
+          tag: "entrance",
+          frameIndex: 24,
+          parts: [{ type: "text", text: "Camera tracks inward." }],
+        },
+      ],
+    })
+    const { root, controller } = makeController([], serialized)
+
+    for (const kind of ["subject", "shot"] as const) {
+      const card = root.querySelector<HTMLElement>(`[data-prompt-definition="${kind}"]`)
+      expect(card?.querySelector(".rl-prompt-definition__toolbar")).not.toBeNull()
+      expect(card?.querySelector(".rl-prompt-definition__identity")).not.toBeNull()
+      expect(card?.querySelector(".rl-prompt-definition__ordinal")?.textContent).toBe(
+        kind === "subject" ? "S1" : "SH1",
+      )
+      expect(card?.querySelector(".rl-prompt-definition__actions")).not.toBeNull()
+      expect(card?.querySelector(".rl-prompt-definition__body")).not.toBeNull()
+    }
+    const subjectTag = root.querySelector<HTMLInputElement>(
+      '[data-prompt-definition="subject"] [data-prompt-definition-tag-input]',
+    )!
+    expect(subjectTag.size).toBeGreaterThanOrEqual(subjectTag.value.length)
+    subjectTag.value = "#a_longer_subject_tag"
+    subjectTag.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+    expect(subjectTag.size).toBe(subjectTag.value.length + 1)
+    subjectTag.value = "renamed"
+    subjectTag.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+    expect(subjectTag.value).toBe("#renamed")
+    subjectTag.value = ""
+    subjectTag.dispatchEvent(
+      new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }),
+    )
+    expect(subjectTag.value).toBe("#")
+    expect(
+      root.querySelector('[data-prompt-definition="shot"] .rl-prompt-definition__frame'),
+    ).not.toBeNull()
     controller.destroy()
   })
 

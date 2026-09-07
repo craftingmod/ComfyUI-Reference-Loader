@@ -11,6 +11,7 @@ import type {
 import {
   registerReferenceLoader,
   REFERENCE_LOADER_WIDGET_TYPE,
+  REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE,
   REFERENCE_PROMPT_WIDGET_TYPE,
 } from "../src/reference-loader/extension.ts"
 import {
@@ -26,6 +27,45 @@ import {
 import { createMediaItem, createEmptyLoaderState } from "../src/reference-loader/types.ts"
 
 describe("Reference Loader custom widget", () => {
+  test("renders Subjects and Shots as a separate widget before Prompt", () => {
+    let extension: ComfyExtension | undefined
+    const app: ComfyAppLike = {
+      registerExtension(candidate) {
+        extension = candidate
+      },
+    }
+    registerReferenceLoader(app, { fetchApi: async () => new Response("{}") })
+    const factories = extension?.getCustomWidgets?.()
+    const definitionsFactory = factories?.[REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE]
+    const promptFactory = factories?.[REFERENCE_PROMPT_WIDGET_TYPE]
+    const roots = new Map<string, HTMLElement>()
+    const widgets = new Map<string, ComfyWidget>()
+    const node: ComfyNode = {
+      addDOMWidget(name, _type, element) {
+        roots.set(name, element)
+        const widget = { name, value: "" } as ComfyWidget
+        widgets.set(name, widget)
+        return widget
+      },
+      setDirtyCanvas: () => undefined,
+    }
+
+    definitionsFactory?.(node, "prompt_definitions", ["STRING", { default: "" }], app)
+    promptFactory?.(
+      node,
+      "prompt",
+      ["STRING", { default: serializePromptDocument(createEmptyPromptDocument()) }],
+      app,
+    )
+
+    expect(roots.get("prompt_definitions")?.querySelector(".rl-prompt-definitions")).toBeTruthy()
+    expect(roots.get("prompt")?.querySelector(".rl-prompt-definitions")).toBeNull()
+    expect(widgets.get("prompt_definitions")?.serialize).toBe(false)
+
+    widgets.get("prompt_definitions")?.onRemove?.()
+    widgets.get("prompt")?.onRemove?.()
+  })
+
   test("exposes getValue/setValue so workflow restoration replaces controller state", () => {
     let extension: ComfyExtension | undefined
     const app: ComfyAppLike = {

@@ -580,3 +580,197 @@
   border-color: var(--rl-accent);
   background: color-mix(in srgb, var(--rl-accent) 30%, var(--rl-panel));
 }
+
+.rl-time-axis,
+.rl-time-axis__scroll {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.rl-time-axis__tools,
+.rl-time-axis__selection,
+.rl-time-axis__draft {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0;
+  font-size: 10px;
+  color: var(--rl-muted);
+}
+
+.rl-time-axis__tools > span,
+.rl-time-axis__draft > span {
+  margin-right: auto;
+}
+
+.rl-time-axis label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rl-time-axis input,
+.rl-time-axis select {
+  max-width: 110px;
+  padding: 3px 5px;
+  border: 1px solid var(--rl-border);
+  border-radius: 4px;
+  background: var(--rl-panel);
+  color: var(--rl-text);
+}
+
+.rl-time-axis__scroll {
+  overflow: auto;
+  max-height: 320px;
+  border: 1px solid var(--rl-border);
+  border-radius: 5px;
+  background: var(--rl-bg);
+  overscroll-behavior: contain;
+}
+
+.rl-time-axis__surface {
+  position: relative;
+}
+
+.rl-time-axis__ruler {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 24px;
+  background: var(--rl-panel);
+  border-bottom: 1px solid var(--rl-border);
+  font-size: 9px;
+  color: var(--rl-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rl-time-axis__ruler span {
+  position: absolute;
+  height: 100%;
+  padding: 4px;
+  border-left: 1px solid var(--rl-border);
+  white-space: nowrap;
+}
+
+.rl-time-axis__lane-label {
+  position: sticky;
+  left: 0;
+  width: max-content;
+  padding: 3px 5px;
+  font-size: 10px;
+  color: var(--rl-muted);
+}
+
+.rl-time-axis__lane {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--rl-border);
+  background-image: linear-gradient(to right, var(--rl-border) 1px, transparent 1px);
+}
+
+.rl-time-axis .rl-time-axis__mark {
+  position: absolute;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 1fr 1fr;
+  column-gap: 3px;
+  align-items: center;
+  width: 84px;
+  min-width: 0;
+  height: 36px;
+  padding: 2px 4px;
+  overflow: hidden;
+  border: 1px solid var(--rl-guide-edit);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--rl-guide-edit) 16%, var(--rl-panel));
+  color: var(--rl-text);
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+}
+
+.rl-time-axis__mark[data-timeline-guide] {
+  cursor: ew-resize;
+}
+
+.rl-time-axis__mark img {
+  grid-row: 1 / 3;
+  width: 22px;
+  height: 28px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.rl-time-axis__mark span,
+.rl-time-axis__mark small {
+  grid-column: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  pointer-events: none;
+}
+
+.rl-time-axis .rl-time-axis__mark.is-audio {
+  min-width: 8px;
+  border-color: var(--rl-accent);
+  background: color-mix(in srgb, var(--rl-accent) 18%, var(--rl-panel));
+}
+
+.rl-time-axis .rl-time-axis__mark.is-paused {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.rl-time-axis .rl-time-axis__mark.is-unknown {
+  border-style: dashed;
+}
+
+.rl-time-axis .rl-time-axis__mark.is-warning,
+.rl-time-axis .rl-time-axis__mark.is-incomplete {
+  border-color: var(--rl-danger);
+}
+
+.rl-time-axis .rl-time-axis__mark.is-selected,
+.rl-time-axis .rl-time-axis__mark.is-dragging,
+.rl-time-axis .rl-time-axis__mark:focus-visible {
+  outline: 2px solid var(--rl-accent);
+  outline-offset: 1px;
+  z-index: 1;
+}
+
+.rl-time-axis__end:not(:empty) {
+  display: flex;
+  margin: 6px 0;
+  padding-top: 5px;
+  border-top: 1px dashed var(--rl-border);
+}
+
+.rl-time-axis__end .rl-time-axis__mark {
+  position: static;
+  width: min(100%, 300px);
+}
+
+.rl-time-axis__hint,
+.rl-time-axis__warnings,
+.rl-time-axis__list {
+  margin: 4px 0;
+  color: var(--rl-muted);
+  font-size: 10px;
+}
+
+.rl-time-axis__warnings {
+  color: var(--rl-danger);
+}
+
+.rl-time-axis__warnings:empty {
+  display: none;
+}
+
+.rl-time-axis__list > summary {
+  cursor: pointer;
+  margin-bottom: 5px;
+}

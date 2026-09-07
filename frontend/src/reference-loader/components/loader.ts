@@ -41,6 +41,7 @@ import {
 } from "../types.ts"
 import { VideoPreviewPlayer } from "../video-preview-player.ts"
 import { isSilentWaveform } from "../waveform.ts"
+import { H3Timeline, type TimelineView } from "./h3-timeline.ts"
 
 interface PendingUpload {
   id: string
@@ -64,6 +65,7 @@ interface H3EditorState {
   selectedGuideId?: string
   removedGuideIds: Set<string>
   allowTimelineOnly?: boolean
+  timelineEdit?: boolean
   requireGuide?: boolean
   returnFocus?: {
     mediaId?: string
@@ -369,6 +371,8 @@ export class ReferenceLoaderController {
   #h3SummaryExpanded = false
   #h3BodyId = `rl-h3-media-guides-body-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`
   #h3Editor: H3EditorState | undefined
+  #h3Axis: H3Timeline | undefined
+  #h3View: TimelineView = { zoom: 1, scrollLeft: 0 }
 
   constructor(
     root: HTMLElement,
@@ -590,6 +594,8 @@ export class ReferenceLoaderController {
 
   restore(serialized: unknown): void {
     if (this.#destroyed) return
+    this.#h3Axis?.destroy()
+    this.#h3View = { zoom: 1, scrollLeft: 0 }
     this.#audioPreview.stop()
     this.#videoPreview.stop()
     this.#modalController?.abort()
@@ -649,6 +655,7 @@ export class ReferenceLoaderController {
   destroy(): void {
     if (this.#destroyed) return
     this.#destroyed = true
+    this.#h3Axis?.destroy()
     this.#cancelScheduledRender()
     this.#modalController?.abort()
     this.#stateController.abort()
@@ -672,12 +679,16 @@ export class ReferenceLoaderController {
 
   render(force = false): void {
     if (this.#destroyed) return
+    if (this.#h3Axis?.dragging) {
+      this.#renderPending = true
+      return
+    }
     this.#cancelScheduledRender()
     const active = document.activeElement
     const activeH3EditorField =
       (active instanceof HTMLInputElement || active instanceof HTMLSelectElement) &&
       this.root.contains(active) &&
-      Boolean(active.closest("[data-h3-editor]"))
+      Boolean(active.closest("[data-h3-editor], [data-h3-axis]"))
     if (
       !force &&
       (this.#composing ||
@@ -706,6 +717,7 @@ export class ReferenceLoaderController {
       this.#renderSingleImage(state)
       return
     }
+    this.#h3Axis?.destroy()
     this.root.innerHTML = `
       <div class="rl-media-topbar">
         <header class="rl-media-header">
@@ -731,6 +743,7 @@ export class ReferenceLoaderController {
         ${this.#channelMarkup("video", "Videos", state.videoOrder)}
         ${this.#channelMarkup("audio", "Audio", state.audioOrder)}
       </div>`
+    this.#mountH3Timeline()
     this.#drawWaveforms()
     this.#syncPlaybackUi()
     for (const listener of this.#referenceListeners) listener()
@@ -814,7 +827,9 @@ export class ReferenceLoaderController {
   }
 
   #h3Markup(state: LoaderState): string {
+    if (this.#h3Editor) state = { ...state, h3Timeline: this.#h3EditorTimeline(this.#h3Editor) }
     const timeline = state.h3Timeline
+    const issue = this.#h3Editor ? this.#h3DraftIssue(this.#h3Editor) : undefined
     const counts = h3TimelineCounts(state)
     const summary = [
       `${counts.mediaCount} media`,
@@ -838,10 +853,79 @@ export class ReferenceLoaderController {
       <div id="${this.#h3BodyId}" class="rl-h3-timeline__body"${this.#h3Collapsed ? " hidden" : ""}>
         <p class="rl-h3-timeline__hint">24 fps · Use G on an Image or standalone Audio card to enable a Guide, and the G pencil to edit its frame placements. Start is frame 0; End resolves to the native H3 output's final frame.</p>
         <div class="rl-h3-media-counts" aria-label="Timeline counts"><span>Media ${counts.mediaCount}</span><span title="Enabled visual and audio channels count separately">References ${counts.referenceCount}</span><span>Placements ${counts.placementCount}</span>${counts.incompleteCount > 0 ? `<span class="is-error">Incomplete ${counts.incompleteCount}</span>` : ""}</div>
-        <div class="rl-h3-summary-list" aria-label="Timeline placements">${expandedSummary || '<span class="rl-h3-summary__empty">No placements yet. Open a Media card to add one.</span>'}</div>
-        ${!this.#h3Editor?.mediaId && this.#h3Editor ? this.#h3RecoveryEditorMarkup(this.#h3Editor) : ""}
+        <div data-h3-axis></div>
+        ${this.#h3Editor ? `<div class="rl-time-axis__draft"><span>Unsaved Guide editor · Apply or Cancel</span><button type="button" data-h3-action="cancel-editor">Cancel</button><button type="button" data-h3-action="apply-editor"${issue ? " disabled" : ""}>Apply</button></div>${issue ? `<p class="rl-h3-editor__error" role="alert">${escapeHtml(issue)}</p>` : ""}` : ""}
+        <details class="rl-time-axis__list"><summary>Placement details</summary><div class="rl-h3-summary-list" aria-label="Timeline placements">${expandedSummary || '<span class="rl-h3-summary__empty">No placements yet. Open a Media card to add one.</span>'}</div></details>
+        ${!this.#h3Editor?.mediaId && this.#h3Editor && !this.#h3Editor.timelineEdit ? this.#h3RecoveryEditorMarkup(this.#h3Editor, issue) : ""}
       </div>
     </section>`
+  }
+
+  #mountH3Timeline(): void {
+    const host = this.root.querySelector<HTMLElement>("[data-h3-axis]")
+    if (!host) return
+    this.#h3Axis?.destroy()
+    const state = this.#h3Editor
+      ? { ...this.state, h3Timeline: this.#h3EditorTimeline(this.#h3Editor) }
+      : this.state
+    this.#h3Axis = new H3Timeline(host, state, this.#runtime, this.#h3View, {
+      select: (placement, channel) => {
+        if (this.#h3Editor?.timelineEdit && placement.guideId) {
+          this.#h3Editor.selectedGuideId = placement.guideId
+          this.#mountH3Timeline()
+          return
+        }
+        const id = channel === "visual" ? placement.visualId : placement.audioId
+        if (id) this.#openH3EditorForMedia(id, channel, placement.guideId, "edit", false, false)
+        else if (placement.guideId) this.#openH3EditorForGuide(placement.guideId)
+      },
+      change: (id, frame) => this.#moveH3TimelineGuide(id, frame),
+      settled: () => {
+        if (this.#renderPending) this.render(true)
+      },
+    })
+  }
+
+  #moveH3TimelineGuide(id: string, frameIndex: number): void {
+    if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) return
+    let editor = this.#h3Editor
+    if (!editor?.ownedGuideIds.has(id)) {
+      if (editor && this.#h3EditorDirty()) {
+        this.#status = "Apply or cancel the current Guide edit before moving another Guide."
+        this.render(true)
+        return
+      }
+      const timeline = cloneH3Timeline(this.state.h3Timeline)
+      if (!timeline.guides.some((guide) => guide.id === id)) return
+      editor = {
+        mediaId: undefined,
+        channel: "visual",
+        timeline,
+        initialTimeline: cloneH3Timeline(timeline),
+        ownedGuideIds: new Set(timeline.guides.map((guide) => guide.id)),
+        originalGuideFrames: new Map(timeline.guides.map((guide) => [guide.id, guide.frameIndex])),
+        removedGuideIds: new Set(),
+        allowTimelineOnly: true,
+        timelineEdit: true,
+        returnFocus: { guideId: id },
+      }
+      this.#h3Editor = editor
+    }
+    editor.timeline = {
+      ...editor.timeline,
+      guides: editor.timeline.guides.map((guide) =>
+        guide.id === id ? { ...guide, frameIndex } : guide,
+      ),
+    }
+    // A timeline move carries both channels. Later card edits may detach from this new frame.
+    editor.originalGuideFrames.set(id, frameIndex)
+    editor.selectedGuideId = id
+    editor.draftError = undefined
+    this.render(true)
+    const mark = [...this.root.querySelectorAll<HTMLButtonElement>("[data-timeline-guide]")].find(
+      (button) => button.dataset.timelineGuide === id,
+    )
+    mark?.focus({ preventScroll: true })
   }
 
   #h3PlacementMarkup(state: LoaderState, limit?: number): string {
@@ -1577,13 +1661,15 @@ export class ReferenceLoaderController {
     guideId?: string,
     control: "toggle" | "edit" = "edit",
     requireGuide = false,
+    focusGuide = true,
   ): void {
     if (!this.#canSwitchH3Editor(mediaId, channel)) return
     if (this.#h3Editor?.mediaId === mediaId && this.#h3Editor.channel === channel) {
       if (guideId) {
         this.#h3Editor.selectedGuideId = guideId
-        this.#focusH3EditorGuide(guideId)
+        if (focusGuide) this.#focusH3EditorGuide(guideId)
       }
+      this.#mountH3Timeline()
       return
     }
     const itemId = mediaId.endsWith(":audio") ? mediaId.slice(0, -6) : mediaId
@@ -1599,6 +1685,7 @@ export class ReferenceLoaderController {
         .filter((guide) => guideUsesMedia(guide, mediaId, channel))
         .map((guide) => guide.id),
     )
+    this.#h3View.selectedId = guideId ?? [...ownedGuideIds][0]
     if (guideId) ownedGuideIds.add(guideId)
     this.#h3Editor = {
       mediaId,
@@ -1617,7 +1704,7 @@ export class ReferenceLoaderController {
     this.#selectedId = item.id
     this.#h3Collapsed = false
     this.render(true)
-    if (guideId) this.#focusH3EditorGuide(guideId)
+    if (guideId && focusGuide) this.#focusH3EditorGuide(guideId)
   }
 
   #openH3EditorForGuide(guideId: string): void {
@@ -1858,6 +1945,13 @@ export class ReferenceLoaderController {
         }
       }
     } else if (focus?.guideId) {
+      const marker = [
+        ...this.root.querySelectorAll<HTMLButtonElement>("[data-timeline-guide]"),
+      ].find((button) => button.dataset.timelineGuide === focus.guideId)
+      if (marker) {
+        marker.focus({ preventScroll: true })
+        return
+      }
       for (const button of this.root.querySelectorAll<HTMLButtonElement>(
         '[data-h3-action="select-placement"]',
       )) {
@@ -2206,6 +2300,7 @@ export class ReferenceLoaderController {
       if (seconds)
         seconds.textContent =
           Number.isInteger(frameIndex) && frameIndex >= 0 ? `${(frameIndex / 24).toFixed(2)}s` : ""
+      this.#mountH3Timeline()
       return
     }
     const textarea = event.target

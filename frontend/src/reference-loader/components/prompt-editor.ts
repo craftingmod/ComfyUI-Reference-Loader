@@ -17,15 +17,33 @@ import {
   renderAuthoringPrompt,
   rebindPromptMentionsByOrder,
   renamePromptTag,
-  scanPromptTags,
   serializePromptDocument,
   type PromptDocument,
-  type PromptMentionPart,
   type PromptReference,
   type PromptSectionPart,
   type PromptSubject,
-  type PromptSubjectPart,
 } from "../prompt-state.ts"
+import {
+  makePromptDefinitions,
+  makePromptSectionCard,
+  type PromptCardContext,
+} from "./prompt-cards.ts"
+import {
+  appendPromptText,
+  closestPromptBody,
+  createPromptTagVisuals,
+  highlightPromptTags,
+  makeMentionChip,
+  makeReferenceVisual,
+  placeCaretAfterRemovedNode,
+  placeCaretAtEnd,
+  previousPromptTagAtCaret,
+  referenceKey,
+  sectionColor,
+  sectionPartsFromContainer,
+  subjectColor,
+  textContentWithBreaks,
+} from "./prompt-dom.ts"
 
 type ReferenceProvider = () => readonly PromptReference[]
 
@@ -35,269 +53,7 @@ export interface ReferencePromptControllerOptions {
   locale?: PromptLocale
 }
 
-const SECTION_COLOR_PALETTE = [
-  "#6ea8fe",
-  "#8f9cf4",
-  "#aa8ee8",
-  "#c787d5",
-  "#d482b2",
-  "#dc927d",
-  "#d8aa66",
-  "#c5b96b",
-  "#6ebfd3",
-  "#64b4bc",
-  "#7ba7d7",
-  "#9b94c9",
-] as const
-
-const NATIVE_LINE_BLOCKS = new Set(["DIV", "P"])
 const PROMPT_SECTION_DRAG_MIME = "application/x-reference-loader-prompt-section"
-const SHOT_COLOR = "#48bf83"
-
-function sectionColor(title: string): { color: string; index: number } {
-  let hash = 0x811c9dc5
-  for (let index = 0; index < title.length; index += 1) {
-    hash ^= title.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  const index = (hash >>> 0) % SECTION_COLOR_PALETTE.length
-  return { color: SECTION_COLOR_PALETTE[index], index }
-}
-
-function subjectColor(ordinal: number | undefined): string | undefined {
-  return ordinal === undefined
-    ? undefined
-    : SECTION_COLOR_PALETTE[(ordinal - 1) % SECTION_COLOR_PALETTE.length]
-}
-
-type PromptTagVisual = {
-  kind: "subject" | "shot"
-  color: string
-  header: string
-}
-
-type PromptSelectionOffsets = {
-  start: number
-  end: number
-}
-
-function capturePromptSelection(container: HTMLElement): PromptSelectionOffsets | undefined {
-  const selection = globalThis.getSelection?.()
-  if (!selection?.rangeCount) return undefined
-  const range = selection.getRangeAt(0)
-  if (!container.contains(range.startContainer) || !container.contains(range.endContainer))
-    return undefined
-  const offset = (node: Node, position: number): number => {
-    const before = document.createRange()
-    before.selectNodeContents(container)
-    before.setEnd(node, position)
-    return before.toString().length
-  }
-  return {
-    start: offset(range.startContainer, range.startOffset),
-    end: offset(range.endContainer, range.endOffset),
-  }
-}
-
-function isPromptAtomicNode(node: Node): node is HTMLElement {
-  return (
-    node instanceof HTMLElement &&
-    node.matches("[data-prompt-tag], [data-prompt-part='mention'], [data-prompt-part='subject']")
-  )
-}
-
-function restorePromptSelection(container: HTMLElement, offsets: PromptSelectionOffsets): void {
-  const locate = (target: number): { node: Node; offset: number } => {
-    let remaining = target
-    const visit = (parent: Node): { node: Node; offset: number } | undefined => {
-      const children = Array.from(parent.childNodes)
-      for (const [index, child] of children.entries()) {
-        if (isPromptAtomicNode(child)) {
-          const length = child.textContent?.length ?? 0
-          if (remaining < length) return { node: parent, offset: index }
-          remaining -= length
-          if (remaining === 0) return { node: parent, offset: index + 1 }
-          continue
-        }
-        if (child.nodeType === Node.TEXT_NODE) {
-          const length = child.textContent?.length ?? 0
-          if (remaining <= length) return { node: child, offset: remaining }
-          remaining -= length
-          continue
-        }
-        const point = visit(child)
-        if (point) return point
-      }
-      return remaining === 0 ? { node: parent, offset: children.length } : undefined
-    }
-    return visit(container) ?? { node: container, offset: container.childNodes.length }
-  }
-  const start = locate(offsets.start)
-  const end = locate(offsets.end)
-  const selection = globalThis.getSelection?.()
-  const range = document.createRange()
-  range.setStart(start.node, start.offset)
-  range.setEnd(end.node, end.offset)
-  selection?.removeAllRanges()
-  selection?.addRange(range)
-}
-
-function lastPromptNode(node: Node): Node {
-  if (isPromptAtomicNode(node)) return node
-  let current = node
-  while (current.lastChild) {
-    if (isPromptAtomicNode(current.lastChild)) return current.lastChild
-    current = current.lastChild
-  }
-  return current
-}
-
-function previousPromptTagAtCaret(
-  root: HTMLElement,
-  container: Node,
-  offset: number,
-): HTMLElement | undefined {
-  let current: Node | undefined
-  if (container.nodeType === Node.TEXT_NODE) {
-    if (offset !== 0) return undefined
-    current = container
-  } else {
-    current = container.childNodes[offset - 1]
-    if (current) {
-      const candidate = lastPromptNode(current)
-      return isPromptAtomicNode(candidate) && candidate.dataset.promptTag ? candidate : undefined
-    }
-    current = container
-  }
-  while (current && current !== root) {
-    const previous = current.previousSibling
-    if (previous) {
-      const candidate = lastPromptNode(previous)
-      return isPromptAtomicNode(candidate) && candidate.dataset.promptTag ? candidate : undefined
-    }
-    current = current.parentNode ?? undefined
-  }
-  return undefined
-}
-
-function placeCaretAfterRemovedNode(parent: Node, index: number): void {
-  const next = parent.childNodes[index]
-  const previous = parent.childNodes[index - 1]
-  const point =
-    next?.nodeType === Node.TEXT_NODE
-      ? { node: next, offset: 0 }
-      : previous?.nodeType === Node.TEXT_NODE
-        ? { node: previous, offset: previous.textContent?.length ?? 0 }
-        : (() => {
-            const text = document.createTextNode("")
-            parent.insertBefore(text, next ?? null)
-            return { node: text, offset: 0 }
-          })()
-  const selection = globalThis.getSelection?.()
-  const range = document.createRange()
-  range.setStart(point.node, point.offset)
-  range.collapse(true)
-  selection?.removeAllRanges()
-  selection?.addRange(range)
-}
-
-function appendPromptText(
-  container: HTMLElement | DocumentFragment,
-  value: string,
-  visuals: ReadonlyMap<string, PromptTagVisual>,
-): void {
-  const tokens = scanPromptTags(value)
-  if (tokens.length === 0) {
-    container.append(document.createTextNode(value))
-    return
-  }
-  let cursor = 0
-  for (const token of tokens) {
-    if (token.start > cursor)
-      container.append(document.createTextNode(value.slice(cursor, token.start)))
-    const visual = token.escaped ? undefined : visuals.get(token.tag)
-    if (!visual) {
-      container.append(document.createTextNode(value.slice(token.start, token.end)))
-      cursor = token.end
-      continue
-    }
-    const tag = document.createElement("span")
-    tag.className = `rl-prompt-tag is-${visual.kind}`
-    tag.dataset.promptTag = token.tag
-    tag.dataset.promptTagHeader = visual.header
-    tag.contentEditable = "false"
-    tag.style.setProperty("--rl-prompt-tag-color", visual.color)
-    tag.setAttribute(
-      "aria-label",
-      `${visual.header} #${token.tag}`,
-    )
-    tag.title = `${visual.kind === "subject" ? "Subject" : "Shot"} ${visual.header} #${token.tag}`
-    tag.textContent = value.slice(token.start, token.end)
-    container.append(tag)
-    cursor = token.end
-  }
-  if (cursor < value.length) container.append(document.createTextNode(value.slice(cursor)))
-}
-
-function highlightPromptTags(
-  container: HTMLElement,
-  visuals: ReadonlyMap<string, PromptTagVisual>,
-): void {
-  const offsets = capturePromptSelection(container)
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
-  const nodes: Text[] = []
-  let node: Node | null
-  while ((node = walker.nextNode())) {
-    const parent = node.parentElement
-    if (
-      parent?.closest(
-        "[data-prompt-tag], [data-prompt-part='mention'], [data-prompt-part='subject']",
-      )
-    )
-      continue
-    if (scanPromptTags(node.textContent ?? "").length > 0) nodes.push(node as Text)
-  }
-  for (const text of nodes) {
-    const replacement = document.createDocumentFragment()
-    appendPromptText(replacement, text.textContent ?? "", visuals)
-    text.replaceWith(replacement)
-  }
-  if (offsets) restorePromptSelection(container, offsets)
-}
-
-function textContentWithBreaks(container: Node): string {
-  let value = ""
-  const appendStructuralBreak = (): void => {
-    if (value && !value.endsWith("\n")) value += "\n"
-  }
-  const visit = (node: Node): void => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      value += node.textContent ?? ""
-      return
-    }
-    if (!(node instanceof HTMLElement)) return
-    if (node.tagName === "BR") {
-      value += "\n"
-      return
-    }
-    visitChildren(node)
-  }
-  const visitChildren = (parent: Node): void => {
-    const children = Array.from(parent.childNodes)
-    children.forEach((child, index) => {
-      const block = child instanceof HTMLElement && NATIVE_LINE_BLOCKS.has(child.tagName)
-      if (block) appendStructuralBreak()
-      visit(child)
-      if (block && index < children.length - 1) appendStructuralBreak()
-    })
-  }
-  visitChildren(container)
-  return value
-}
-
-function referenceKey(mediaKind: string, referenceId: string): string {
-  return `${mediaKind}:${referenceId}`
-}
 
 function findOrderedReference(
   mediaKind: string,
@@ -312,153 +68,11 @@ function findOrderedReference(
   )
 }
 
-function makeReferenceVisual(reference?: PromptReference): HTMLElement {
-  if (reference?.previewUrl && reference.mediaKind !== "audio") {
-    const image = document.createElement("img")
-    image.src = reference.previewUrl
-    image.alt = ""
-    image.draggable = false
-    return image
-  }
-  const icon = document.createElement("span")
-  icon.className = `rl-prompt-reference-icon is-${reference?.mediaKind ?? "missing"}`
-  icon.textContent =
-    reference?.mediaKind === "image" ? "I" : reference?.mediaKind === "video" ? "V" : "A"
-  icon.setAttribute("aria-hidden", "true")
-  return icon
-}
-
-function makeMentionChip(part: PromptMentionPart, reference?: PromptReference): HTMLSpanElement {
-  const chip = document.createElement("span")
-  chip.className = `rl-prompt-mention${reference ? "" : " is-stale"}`
-  chip.contentEditable = "false"
-  chip.dataset.promptPart = "mention"
-  chip.dataset.referenceId = part.referenceId
-  chip.dataset.mediaKind = part.mediaKind
-  chip.dataset.label = reference?.label ?? part.label
-  chip.title = reference
-    ? `${reference.tag} · ${reference.filename}`
-    : `Unavailable ${part.mediaKind} reference: ${part.label || part.referenceId}`
-  chip.append(makeReferenceVisual(reference))
-  const label = document.createElement("span")
-  label.className = "rl-prompt-mention__label"
-  label.textContent = `@${reference?.label ?? (part.label || part.referenceId)}`
-  chip.append(label)
-  return chip
-}
-
-function makeSubjectChip(
-  part: PromptSubjectPart,
-  subject: PromptSubject | undefined,
-  ordinal: number | undefined,
-): HTMLSpanElement {
-  const label = (subject?.tag ?? part.label) || part.subjectId
-  const chip = document.createElement("span")
-  chip.className = `rl-prompt-mention rl-prompt-subject${subject ? "" : " is-stale"}`
-  chip.contentEditable = "false"
-  chip.dataset.promptPart = "subject"
-  chip.dataset.subjectId = part.subjectId
-  chip.dataset.label = label
-  chip.title = subject ? `<Subject ${ordinal}> · #${label}` : `Unavailable subject: ${label}`
-  const color = subjectColor(ordinal)
-  if (color) chip.style.setProperty("--rl-prompt-subject-color", color)
-  const icon = document.createElement("span")
-  icon.className = "rl-prompt-subject-icon"
-  icon.textContent = ordinal === undefined ? "S?" : `S${ordinal}`
-  icon.setAttribute("aria-hidden", "true")
-  const copy = document.createElement("span")
-  copy.className = "rl-prompt-mention__label"
-  copy.textContent = `#${label}`
-  chip.append(icon, copy)
-  return chip
-}
-
 function normalizeSubjectLabel(value: string): string | undefined {
   const label = value.trim()
   return label.length > 0 && label.length <= 64 && /^[\p{L}\p{N}][\p{L}\p{N}_-]*$/u.test(label)
     ? label
     : undefined
-}
-
-function sectionPartsFromContainer(container: Node): PromptSectionPart[] {
-  const parts: PromptSectionPart[] = []
-  const pushText = (value: string): void => {
-    if (!value) return
-    const previous = parts.at(-1)
-    if (previous?.type === "text") previous.text += value
-    else parts.push({ type: "text", text: value })
-  }
-  const pushStructuralBreak = (): void => {
-    if (parts.length === 0) return
-    const previous = parts.at(-1)
-    if (previous?.type !== "text" || !previous.text.endsWith("\n")) pushText("\n")
-  }
-  const visit = (node: Node): void => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      pushText(node.textContent ?? "")
-      return
-    }
-    if (!(node instanceof HTMLElement)) return
-    if (node.dataset.promptTag) {
-      pushText(node.textContent ?? "")
-      return
-    }
-    if (node.dataset.promptPart === "mention") {
-      const mediaKind = node.dataset.mediaKind
-      parts.push({
-        type: "mention",
-        referenceId: node.dataset.referenceId ?? "missing",
-        mediaKind: mediaKind === "video" || mediaKind === "audio" ? mediaKind : "image",
-        label: node.dataset.label ?? "reference",
-      })
-      return
-    }
-    if (node.dataset.promptPart === "subject") {
-      parts.push({
-        type: "subject",
-        subjectId: node.dataset.subjectId ?? "missing",
-        label: node.dataset.label ?? "subject",
-      })
-      return
-    }
-    if (node.tagName === "BR") {
-      pushText("\n")
-      return
-    }
-    visitChildren(node)
-  }
-  const visitChildren = (parent: Node): void => {
-    const children = Array.from(parent.childNodes)
-    children.forEach((child, index) => {
-      const block = child instanceof HTMLElement && NATIVE_LINE_BLOCKS.has(child.tagName)
-      if (block) pushStructuralBreak()
-      visit(child)
-      if (block && index < children.length - 1) pushStructuralBreak()
-    })
-  }
-  visitChildren(container)
-  return parts
-}
-
-function closestPromptBody(
-  roots: readonly HTMLElement[],
-  node: Node | null,
-): HTMLElement | undefined {
-  const element = node instanceof HTMLElement ? node : node?.parentElement
-  const body = element?.closest<HTMLElement>(
-    "[data-prompt-section-body], [data-prompt-definition-body], [data-prompt-editor]",
-  )
-  return body && roots.some((root) => root.contains(body)) ? body : undefined
-}
-
-function placeCaretAtEnd(element: HTMLElement): void {
-  element.focus()
-  const selection = globalThis.getSelection?.()
-  const range = document.createRange()
-  range.selectNodeContents(element)
-  range.collapse(false)
-  selection?.removeAllRanges()
-  selection?.addRange(range)
 }
 
 export class ReferencePromptController {
@@ -837,29 +451,12 @@ export class ReferencePromptController {
     hint.hidden = !hint.textContent
   }
 
-  #tagVisuals(): ReadonlyMap<string, PromptTagVisual> {
-    const visuals = new Map<string, PromptTagVisual>()
-    this.#document.subjects.forEach((subject, index) => {
-      const tag = subject.tag ?? subject.label ?? subject.subjectId
-      if (tag)
-        visuals.set(tag, {
-          kind: "subject",
-          color: subjectColor(index + 1) ?? "#c18cff",
-          header: `S${index + 1}`,
-        })
-    })
-    this.#document.shots.forEach((shot, index) => {
-      visuals.set(shot.tag, { kind: "shot", color: SHOT_COLOR, header: `SH${index + 1}` })
-    })
-    return visuals
-  }
-
   #appendPromptText(container: HTMLElement, value: string): void {
-    appendPromptText(container, value, this.#tagVisuals())
+    appendPromptText(container, value, createPromptTagVisuals(this.#document))
   }
 
   #highlightTags(container: HTMLElement): void {
-    highlightPromptTags(container, this.#tagVisuals())
+    highlightPromptTags(container, createPromptTagVisuals(this.#document))
   }
 
   #renderEditor(): void {
@@ -884,7 +481,13 @@ export class ReferencePromptController {
     const workspace = this.root.querySelector<HTMLElement>("[data-prompt-workspace]")
     if (!workspace) return
     workspace.replaceChildren()
-    const definitions = this.#makeDefinitions()
+    const cardContext: PromptCardContext = {
+      prompt: this.#document,
+      references: this.#references(),
+      preset: this.#preset,
+      locale: this.#locale,
+    }
+    const definitions = makePromptDefinitions(cardContext, this.#shotDraft?.document)
     if (this.#definitionsRoot) this.#definitionsRoot.replaceChildren(definitions)
     if (this.#document.view === "raw") {
       if (!this.#definitionsRoot) workspace.append(definitions)
@@ -920,7 +523,7 @@ export class ReferencePromptController {
         ]),
       )
       for (const section of sections)
-        stack.append(this.#makeSectionCard(section, references, subjects))
+        stack.append(makePromptSectionCard(cardContext, section, references, subjects))
       const entry = document.createElement("div")
       entry.className = "rl-prompt-section-entry"
       entry.dataset.promptSectionEntry = ""
@@ -977,242 +580,6 @@ export class ReferencePromptController {
       compiled.title = "Copy compiled model prompt"
       compiled.disabled = compiledText.length === 0
     }
-  }
-
-  #makeDefinitions(): HTMLElement {
-    const section = document.createElement("section")
-    section.className = "rl-prompt-definitions"
-    section.dataset.promptDefinitions = ""
-    const header = document.createElement("header")
-    header.className = "rl-prompt-definitions__header"
-    const title = document.createElement("strong")
-    title.textContent = "Subjects & Shots"
-    const detail = document.createElement("small")
-    detail.textContent = "Definitions keep #tags; indexes are generated only in compiled output."
-    header.append(title, detail)
-    section.append(header)
-    if (this.#shotDraft) {
-      const draft = document.createElement("div")
-      draft.className = "rl-prompt-definitions__draft"
-      draft.setAttribute("role", "status")
-      draft.textContent = "Shot timing is unsaved. Apply or Cancel."
-      const cancel = document.createElement("button")
-      cancel.type = "button"
-      cancel.dataset.promptAction = "cancel-shot-draft"
-      cancel.textContent = "Cancel"
-      const apply = document.createElement("button")
-      apply.type = "button"
-      apply.dataset.promptAction = "apply-shot-draft"
-      apply.textContent = "Apply"
-      draft.append(cancel, apply)
-      section.append(draft)
-    }
-    const documentForView = this.#shotDraft?.document ?? this.#document
-    const subjectHeading = document.createElement("div")
-    subjectHeading.className = "rl-prompt-definitions__subheader"
-    subjectHeading.innerHTML = "<strong>Subjects</strong>"
-    const addSubject = document.createElement("button")
-    addSubject.type = "button"
-    addSubject.dataset.promptAction = "add-subject"
-    addSubject.disabled = Boolean(this.#shotDraft)
-    addSubject.textContent = "+ Subject"
-    subjectHeading.append(addSubject)
-    section.append(subjectHeading)
-    const subjectStack = document.createElement("div")
-    subjectStack.className = "rl-prompt-definition-stack"
-    documentForView.subjects.forEach((subject) =>
-      subjectStack.append(this.#makeDefinitionCard("subject", subject)),
-    )
-    section.append(subjectStack)
-    const shotHeading = document.createElement("div")
-    shotHeading.className = "rl-prompt-definitions__subheader"
-    shotHeading.innerHTML = `<strong>Shots <small>${documentForView.shots.length}</small></strong>`
-    const addShot = document.createElement("button")
-    addShot.type = "button"
-    addShot.dataset.promptAction = "add-shot"
-    addShot.disabled = Boolean(this.#shotDraft)
-    addShot.textContent = "+ Shot"
-    shotHeading.append(addShot)
-    section.append(shotHeading)
-    const shotStack = document.createElement("div")
-    shotStack.className = "rl-prompt-definition-stack"
-    documentForView.shots.forEach((shot) =>
-      shotStack.append(this.#makeDefinitionCard("shot", shot)),
-    )
-    section.append(shotStack)
-    return section
-  }
-
-  #makeDefinitionCard(
-    kind: "subject" | "shot",
-    definition: PromptDocument["subjects"][number] | PromptDocument["shots"][number],
-  ): HTMLElement {
-    const definitionTag =
-      definition.tag ??
-      ("label" in definition ? definition.label : undefined) ??
-      ("subjectId" in definition ? definition.subjectId : undefined) ??
-      `${kind}_unknown`
-    const card = document.createElement("article")
-    card.className = `rl-prompt-definition rl-prompt-definition--${kind}`
-    card.dataset.promptDefinition = kind
-    card.dataset.promptDefinitionTag = definitionTag
-    if (kind === "subject") {
-      const ordinal = this.#document.subjects.findIndex(
-        (subject) => (subject.tag ?? subject.label ?? subject.subjectId) === definitionTag,
-      )
-      const color = subjectColor(ordinal + 1)
-      if (color) card.style.setProperty("--rl-prompt-subject-color", color)
-    }
-    const toolbar = document.createElement("div")
-    toolbar.className = "rl-prompt-definition__toolbar"
-    const identity = document.createElement("div")
-    identity.className = "rl-prompt-definition__identity"
-    const ordinal =
-      (kind === "subject" ? this.#document.subjects : this.#document.shots).findIndex(
-        (candidate) => candidate.tag === definitionTag,
-      ) + 1
-    const ordinalBadge = document.createElement("span")
-    ordinalBadge.className = "rl-prompt-definition__ordinal"
-    ordinalBadge.textContent = `${kind === "subject" ? "S" : "SH"}${Math.max(1, ordinal)}`
-    ordinalBadge.setAttribute("aria-hidden", "true")
-    identity.append(ordinalBadge)
-    const tag = document.createElement("input")
-    tag.type = "text"
-    tag.className = "rl-prompt-definition__tag"
-    tag.value = `#${definitionTag}`
-    tag.size = Math.max(8, tag.value.length + 1)
-    tag.dataset.promptDefinitionTagInput = ""
-    tag.setAttribute("aria-label", `${kind} tag`)
-    if (this.#shotDraft) tag.disabled = true
-    identity.append(tag)
-    if (kind === "shot") {
-      const shot = definition as PromptDocument["shots"][number]
-      const frame = document.createElement("input")
-      frame.type = "number"
-      frame.className = "rl-prompt-definition__frame"
-      frame.min = "0"
-      frame.step = "1"
-      frame.value = String(shot.frameIndex)
-      frame.dataset.promptShotFrame = ""
-      frame.setAttribute("aria-label", "Shot frame")
-      identity.append(frame)
-      const seconds = document.createElement("small")
-      seconds.textContent = `${shot.frameIndex}f · ${(shot.frameIndex / 24).toFixed(3)}s`
-      seconds.dataset.promptShotSeconds = ""
-      identity.append(seconds)
-    }
-    if (this.#shotDraft && kind === "shot") {
-      const frame = toolbar.querySelector<HTMLInputElement>("[data-prompt-shot-frame]")
-      if (frame) frame.disabled = true
-    }
-    const actions = document.createElement("div")
-    actions.className = "rl-prompt-definition__actions"
-    for (const [action, label] of [
-      ["definition-up", "↑"],
-      ["definition-down", "↓"],
-      ["remove-definition", "×"],
-    ] as const) {
-      const button = document.createElement("button")
-      button.type = "button"
-      button.dataset.promptAction = action
-      button.dataset.promptDefinitionTag = definitionTag
-      button.dataset.promptDefinitionKind = kind
-      button.disabled = Boolean(this.#shotDraft)
-      button.textContent = label
-      button.title = action === "remove-definition" ? `Delete ${kind}` : "Reorder"
-      actions.append(button)
-    }
-    toolbar.append(identity, actions)
-    const body = document.createElement("div")
-    body.className = "rl-prompt-definition__body"
-    body.contentEditable = this.#shotDraft ? "false" : "true"
-    body.role = "textbox"
-    body.ariaMultiLine = "true"
-    body.dataset.promptDefinitionBody = ""
-    body.dataset.promptDefinitionTag = definitionTag
-    const references = new Map(
-      this.#references().map((reference) => [
-        referenceKey(reference.mediaKind, reference.referenceId),
-        reference,
-      ]),
-    )
-    for (const part of definition.parts ?? []) {
-      if (part.type === "text") this.#appendPromptText(body, part.text)
-      else if (part.type === "mention")
-        body.append(
-          makeMentionChip(part, references.get(referenceKey(part.mediaKind, part.referenceId))),
-        )
-      else body.append(makeSubjectChip(part, undefined, undefined))
-    }
-    card.append(toolbar, body)
-    return card
-  }
-
-  #makeSectionCard(
-    section: { title: string; parts: readonly PromptSectionPart[] },
-    references: ReadonlyMap<string, PromptReference>,
-    subjects: ReadonlyMap<string, { subject: PromptSubject; ordinal: number }>,
-  ): HTMLElement {
-    const card = document.createElement("section")
-    card.className = "rl-prompt-section"
-    card.dataset.promptSection = section.title
-    const accent = sectionColor(section.title)
-    card.dataset.promptSectionColorIndex = String(accent.index)
-    card.style.setProperty("--rl-prompt-section-color", accent.color)
-    const header = document.createElement("header")
-    header.className = "rl-prompt-section__header"
-    const title = document.createElement("code")
-    title.textContent = `${section.title}:`
-    const drag = document.createElement("button")
-    drag.type = "button"
-    drag.className = "rl-prompt-section__drag"
-    drag.dataset.promptSectionDragHandle = section.title
-    drag.draggable = true
-    drag.title =
-      this.#locale === "ko" ? `${section.title} 섹션 순서 이동` : `Reorder ${section.title} section`
-    drag.setAttribute(
-      "aria-label",
-      this.#locale === "ko"
-        ? `${section.title} 섹션 순서 이동. Alt와 위아래 화살표도 사용할 수 있습니다.`
-        : `Reorder ${section.title} section. You can also use Alt plus Up or Down.`,
-    )
-    drag.textContent = "⠿"
-    const remove = document.createElement("button")
-    remove.type = "button"
-    remove.dataset.promptAction = "remove-section"
-    remove.dataset.promptSectionTitle = section.title
-    remove.title = this.#locale === "ko" ? `${section.title} 제거` : `Remove ${section.title}`
-    remove.setAttribute(
-      "aria-label",
-      this.#locale === "ko" ? `${section.title} 섹션 제거` : `Remove ${section.title} section`,
-    )
-    remove.textContent = "×"
-    header.append(drag, title, remove)
-    const body = document.createElement("div")
-    body.className = "rl-prompt-section__body"
-    body.dataset.promptSectionBody = section.title
-    body.contentEditable = "true"
-    body.role = "textbox"
-    body.ariaMultiLine = "true"
-    body.spellcheck = true
-    body.dataset.placeholder = localize(
-      this.#preset.subjectMode === "disabled"
-        ? PROMPT_MESSAGES.bodyPlaceholder
-        : PROMPT_MESSAGES.bodyPlaceholderWithSubjects,
-      this.#locale,
-    )
-    for (const part of section.parts) {
-      if (part.type === "text") this.#appendPromptText(body, part.text)
-      else if (part.type === "subject") {
-        const resolved = subjects.get(part.subjectId)
-        body.append(makeSubjectChip(part, resolved?.subject, resolved?.ordinal))
-      } else
-        body.append(
-          makeMentionChip(part, references.get(referenceKey(part.mediaKind, part.referenceId))),
-        )
-    }
-    card.append(header, body)
-    return card
   }
 
   #syncDocumentFromEditor(syncShotFrames = true): void {

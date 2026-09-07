@@ -880,6 +880,10 @@ export class ReferenceLoaderController {
         else if (placement.guideId) this.#openH3EditorForGuide(placement.guideId)
       },
       change: (id, frame) => this.#moveH3TimelineGuide(id, frame),
+      remove: (id) => this.#removeH3TimelineGuide(id),
+      canDrop: (channel, dataTransfer) => Boolean(this.#h3GuideDragSource(channel, dataTransfer)),
+      drop: (channel, frame, dataTransfer) =>
+        this.#addH3GuideFromDrop(channel, frame, dataTransfer),
       settled: () => {
         if (this.#renderPending) this.render(true)
       },
@@ -926,6 +930,110 @@ export class ReferenceLoaderController {
       (button) => button.dataset.timelineGuide === id,
     )
     mark?.focus({ preventScroll: true })
+  }
+
+  #h3GuideDragSource(
+    channel: H3GuideChannel,
+    dataTransfer: DataTransfer | null,
+  ): { id: string; item: MediaItem } | undefined {
+    const source =
+      this.#drag ??
+      (() => {
+        const raw = dataTransfer?.getData(DRAG_MIME)
+        if (!raw) return undefined
+        try {
+          const parsed = JSON.parse(raw) as { id?: unknown; channel?: unknown }
+          return typeof parsed.id === "string" && typeof parsed.channel === "string"
+            ? { id: parsed.id, channel: parsed.channel as LoaderChannel }
+            : undefined
+        } catch {
+          return undefined
+        }
+      })()
+    if (!source) return undefined
+    const item = this.state.items[source.id]
+    const expectedChannel =
+      source.channel === "image" ? "visual" : source.channel === "audio" ? "audio" : undefined
+    if (!item || expectedChannel !== channel || !canUseAsH3Guide(item, channel)) return undefined
+    return { id: source.id, item }
+  }
+
+  #ensureH3TimelineEditor(): H3EditorState | undefined {
+    if (this.#h3Editor) {
+      if (this.#h3Editor.timelineEdit) return this.#h3Editor
+      if (this.#h3EditorDirty()) {
+        this.#status = "Apply or cancel the current Guide edit before changing Timeline Guides."
+        this.render(true)
+        return undefined
+      }
+    }
+    const timeline = cloneH3Timeline(this.state.h3Timeline)
+    this.#h3Editor = {
+      mediaId: undefined,
+      channel: "visual",
+      timeline,
+      initialTimeline: cloneH3Timeline(timeline),
+      ownedGuideIds: new Set(timeline.guides.map((guide) => guide.id)),
+      originalGuideFrames: new Map(timeline.guides.map((guide) => [guide.id, guide.frameIndex])),
+      removedGuideIds: new Set(),
+      allowTimelineOnly: true,
+      timelineEdit: true,
+    }
+    this.#h3Collapsed = false
+    return this.#h3Editor
+  }
+
+  #addH3GuideFromDrop(
+    channel: H3GuideChannel,
+    frameIndex: number,
+    dataTransfer: DataTransfer | null,
+  ): void {
+    const source = this.#h3GuideDragSource(channel, dataTransfer)
+    if (!source || !Number.isSafeInteger(frameIndex) || frameIndex < 0) return
+    const editor = this.#ensureH3TimelineEditor()
+    if (!editor) return
+    if (editor.timeline.guides.length >= 32) {
+      this.#status = "Timeline supports at most 32 specific frame guides."
+      this.render(true)
+      return
+    }
+    const id = this.#newH3GuideId()
+    const guide =
+      channel === "visual"
+        ? { id, frameIndex, visualId: source.id, audioId: null }
+        : { id, frameIndex, visualId: null, audioId: source.id }
+    const candidate = { ...editor.timeline, guides: [...editor.timeline.guides, guide] }
+    const issue = validateH3Timeline(this.state, candidate, { allowIncomplete: true })[0]
+    if (issue) {
+      this.#status = issue
+      this.render(true)
+      return
+    }
+    editor.timeline = candidate
+    editor.ownedGuideIds.add(id)
+    editor.originalGuideFrames.set(id, frameIndex)
+    editor.selectedGuideId = id
+    this.#status = `${itemFilename(source.item)} added as a ${channel === "visual" ? "visual" : "audio"} Guide at ${frameIndex}f. Apply to save.`
+    this.render(true)
+  }
+
+  #removeH3TimelineGuide(id: string): void {
+    const editor = this.#h3Editor
+    if (
+      !this.state.h3Timeline.guides.some((guide) => guide.id === id) &&
+      !editor?.timeline.guides.some((guide) => guide.id === id)
+    )
+      return
+    const timelineEditor = this.#ensureH3TimelineEditor()
+    if (!timelineEditor) return
+    timelineEditor.timeline = {
+      ...timelineEditor.timeline,
+      guides: timelineEditor.timeline.guides.filter((guide) => guide.id !== id),
+    }
+    timelineEditor.removedGuideIds.add(id)
+    if (timelineEditor.selectedGuideId === id) timelineEditor.selectedGuideId = undefined
+    this.#status = "Guide removed from the Timeline draft. Apply to save."
+    this.render(true)
   }
 
   #h3PlacementMarkup(state: LoaderState, limit?: number): string {
@@ -2473,7 +2581,7 @@ export class ReferenceLoaderController {
     }
     this.#drag = { id: card.dataset.id, channel: card.dataset.channel as LoaderChannel }
     event.dataTransfer?.setData(DRAG_MIME, JSON.stringify(this.#drag))
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "copyMove"
     this.root.classList.add("is-dragging")
   }
 

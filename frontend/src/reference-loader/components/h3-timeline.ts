@@ -8,6 +8,7 @@ export interface TimelineView {
   zoom: number
   scrollLeft: number
   selectedId?: string
+  focusSelected?: boolean
 }
 
 export interface TimelineMark {
@@ -125,6 +126,7 @@ export class H3Timeline {
   #surface: HTMLElement
   #readout: HTMLElement
   #input: HTMLInputElement
+  #remove: HTMLButtonElement
 
   constructor(
     readonly root: HTMLElement,
@@ -134,17 +136,21 @@ export class H3Timeline {
     readonly callbacks: {
       select(placement: H3TimelinePlacement, channel: "visual" | "audio"): void
       change(id: string, frame: number): void
+      remove(id: string): void
+      canDrop(channel: "visual" | "audio", dataTransfer: DataTransfer | null): boolean
+      drop(channel: "visual" | "audio", frame: number, dataTransfer: DataTransfer | null): void
       settled(): void
     },
   ) {
     this.#marks = timelineMarks(state, runtime)
     this.#extent = timelineExtent(this.#marks)
     root.className = "rl-time-axis"
-    root.innerHTML = `<div class="rl-time-axis__tools"><span>24 fps · View range only</span><label>Zoom <select aria-label="Timeline zoom"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label><button type="button" data-timeline-fit>Fit</button></div><div class="rl-time-axis__scroll" tabindex="0" aria-label="Guide timeline; scroll horizontally when zoomed"><div class="rl-time-axis__surface"></div></div><div class="rl-time-axis__end"></div><div class="rl-time-axis__selection"><label>Guide frame <input type="number" min="0" step="1" aria-label="Selected Guide frame"></label><span data-timeline-readout aria-live="polite"></span></div><p class="rl-time-axis__hint">Drag or use ← / → to move a whole Guide (Shift: 24 frames). Apply saves; Cancel discards. Audio bars show the source range, not output duration.</p><p class="rl-time-axis__warnings" role="status"></p>`
+    root.innerHTML = `<div class="rl-time-axis__tools"><span>24 fps · View range only</span><label>Zoom <select aria-label="Timeline zoom"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label><button type="button" data-timeline-fit>Fit</button></div><div class="rl-time-axis__scroll" tabindex="0" aria-label="Guide timeline; scroll horizontally when zoomed"><div class="rl-time-axis__surface"></div></div><div class="rl-time-axis__end"></div><div class="rl-time-axis__selection"><label>Guide frame <input type="number" min="0" step="1" aria-label="Selected Guide frame"></label><button type="button" data-timeline-remove disabled>Remove Guide</button><span data-timeline-readout aria-live="polite"></span></div><p class="rl-time-axis__hint">Drag or use ← / → to move a whole Guide (Shift: 24 frames). Apply saves; Cancel discards. Drag an Image or standalone Audio card onto a lane to add a Guide. Audio bars show the source range, not output duration.</p><p class="rl-time-axis__warnings" role="status"></p>`
     this.#scroller = root.querySelector<HTMLElement>(".rl-time-axis__scroll")!
     this.#surface = root.querySelector<HTMLElement>(".rl-time-axis__surface")!
     this.#readout = root.querySelector<HTMLElement>("[data-timeline-readout]")!
     this.#input = root.querySelector<HTMLInputElement>("input")!
+    this.#remove = root.querySelector<HTMLButtonElement>("[data-timeline-remove]")!
     const zoom = root.querySelector<HTMLSelectElement>("select")!
     zoom.value = String(view.zoom)
     const signal = this.#abort.signal
@@ -204,6 +210,12 @@ export class H3Timeline {
       },
       { signal, capture: true },
     )
+    root.addEventListener("dragover", (event) => this.#dragOver(event), {
+      signal,
+      capture: true,
+    })
+    root.addEventListener("dragleave", (event) => this.#dragLeave(event), { signal })
+    root.addEventListener("drop", (event) => this.#drop(event), { signal, capture: true })
     document.addEventListener(
       "keydown",
       (event) => {
@@ -230,11 +242,27 @@ export class H3Timeline {
           this.#suppressClick = false
           return
         }
+        const remove = (event.target as Element).closest<HTMLButtonElement>(
+          "[data-timeline-remove]",
+        )
+        if (remove) {
+          if (this.view.selectedId) this.callbacks.remove(this.view.selectedId)
+          return
+        }
         const button = (event.target as Element).closest<HTMLButtonElement>("[data-timeline-mark]")
         const mark = button ? this.#marks[Number(button.dataset.timelineMark)] : undefined
         if (!mark) return
         view.selectedId = mark.placement.guideId
+        view.focusSelected = true
         this.callbacks.select(mark.placement, mark.channel)
+        if (mark.placement.guideId) {
+          this.root
+            .querySelector<HTMLButtonElement>(
+              `[data-timeline-guide="${CSS.escape(mark.placement.guideId)}"]`,
+            )
+            ?.focus({ preventScroll: true })
+          view.focusSelected = false
+        }
       },
       { signal },
     )
@@ -244,6 +272,11 @@ export class H3Timeline {
         event.stopPropagation()
         const button = (event.target as Element).closest<HTMLButtonElement>("[data-timeline-mark]")
         const mark = button ? this.#marks[Number(button.dataset.timelineMark)] : undefined
+        if (mark?.placement.guideId && ["Backspace", "Delete"].includes(event.key)) {
+          event.preventDefault()
+          this.callbacks.remove(mark.placement.guideId)
+          return
+        }
         if (!mark?.placement.guideId || !["ArrowLeft", "ArrowRight"].includes(event.key)) return
         event.preventDefault()
         const frame = Math.max(
@@ -270,6 +303,14 @@ export class H3Timeline {
     )
     this.#input.addEventListener("input", () => this.#input.setCustomValidity(""), { signal })
     this.#draw()
+    if (view.focusSelected) {
+      this.root
+        .querySelector<HTMLButtonElement>(
+          `[data-timeline-guide="${CSS.escape(view.selectedId ?? "")}"]`,
+        )
+        ?.focus({ preventScroll: true })
+      view.focusSelected = false
+    }
     let width = this.#scroller.clientWidth
     this.#resize = new ResizeObserver(() => {
       if (this.#scroller.clientWidth === width || this.dragging) return
@@ -314,6 +355,7 @@ export class H3Timeline {
       label.textContent = channel === "visual" ? "Image" : "Audio"
       const lane = document.createElement("div")
       lane.className = "rl-time-axis__lane"
+      lane.dataset.timelineChannel = channel
       lane.style.backgroundSize = `${(tickFrames / this.#extent) * 100}% 100%`
       lane.setAttribute("aria-label", `${label.textContent} guides`)
       const occupied: number[] = []
@@ -374,6 +416,7 @@ export class H3Timeline {
       (mark) => mark.placement.guideId === this.view.selectedId && this.view.selectedId,
     )
     this.#input.disabled = !selected
+    this.#remove.disabled = !selected?.placement.guideId
     this.#input.value = selected && Number.isFinite(selected.frame) ? String(selected.frame) : ""
     this.#readout.textContent = selected
       ? timing(selected.frame)
@@ -384,6 +427,59 @@ export class H3Timeline {
     if (this.#marks.some((mark) => mark.incomplete))
       warnings.add("Some Guides need a source or a valid frame.")
     this.root.querySelector(".rl-time-axis__warnings")!.textContent = [...warnings].join(" ")
+  }
+
+  #dropInfo(event: DragEvent): { channel: "visual" | "audio"; frame: number } | undefined {
+    const target = event.target
+    if (!(target instanceof Element)) return undefined
+    const lane = target.closest<HTMLElement>("[data-timeline-channel]")
+    if (!lane || !this.#surface.contains(lane)) return undefined
+    const rect = this.#surface.getBoundingClientRect()
+    if (!(rect.width > 0)) return undefined
+    const channel = lane.dataset.timelineChannel
+    if (channel !== "visual" && channel !== "audio") return undefined
+    return {
+      channel,
+      frame: Math.max(
+        0,
+        Math.min(
+          this.#extent - 1,
+          Math.round(((event.clientX - rect.left) / rect.width) * this.#extent),
+        ),
+      ),
+    }
+  }
+
+  #clearDropTarget(): void {
+    this.root.classList.remove("is-guide-drop-target")
+    this.root.style.removeProperty("--rl-timeline-drop-left")
+  }
+
+  #dragOver(event: DragEvent): void {
+    const info = this.#dropInfo(event)
+    if (!info || !this.callbacks.canDrop(info.channel, event.dataTransfer)) {
+      this.#clearDropTarget()
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy"
+    this.root.classList.add("is-guide-drop-target")
+    this.root.style.setProperty("--rl-timeline-drop-left", `${(info.frame / this.#extent) * 100}%`)
+  }
+
+  #dragLeave(event: DragEvent): void {
+    const related = event.relatedTarget
+    if (!(related instanceof Node) || !this.root.contains(related)) this.#clearDropTarget()
+  }
+
+  #drop(event: DragEvent): void {
+    const info = this.#dropInfo(event)
+    this.#clearDropTarget()
+    if (!info || !this.callbacks.canDrop(info.channel, event.dataTransfer)) return
+    event.preventDefault()
+    event.stopPropagation()
+    this.callbacks.drop(info.channel, info.frame, event.dataTransfer)
   }
 
   #pointerDown(event: PointerEvent): void {

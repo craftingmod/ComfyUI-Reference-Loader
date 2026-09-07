@@ -87,6 +87,14 @@ function pointer(target: EventTarget, type: string, clientX: number) {
   )
 }
 
+function mediaDrag(target: EventTarget, type: string, transfer: DataTransfer, clientX = 0) {
+  const event = new DragEvent(type, { bubbles: true, cancelable: true })
+  Object.defineProperty(event, "dataTransfer", { value: transfer })
+  Object.defineProperty(event, "clientX", { value: clientX })
+  target.dispatchEvent(event)
+  return event
+}
+
 function sizeSurface(root: HTMLElement, width = 640) {
   root.querySelector<HTMLElement>(".rl-time-axis__surface")!.getBoundingClientRect = () =>
     new DOMRect(0, 0, width, 200)
@@ -155,6 +163,9 @@ describe("Guide timeline", () => {
       {
         select: () => undefined,
         change: (_id, frame) => changes.push(frame),
+        remove: () => undefined,
+        canDrop: () => false,
+        drop: () => undefined,
         settled: () => undefined,
       },
     )
@@ -198,6 +209,9 @@ describe("Guide timeline", () => {
       {
         select: () => undefined,
         change: (_id, frame) => changes.push(frame),
+        remove: () => undefined,
+        canDrop: () => false,
+        drop: () => undefined,
         settled: () => undefined,
       },
     )
@@ -213,6 +227,67 @@ describe("Guide timeline", () => {
     pointer(mark, "pointermove", 192)
     pointer(mark, "pointerup", 192)
     expect(changes).toEqual([72])
+  })
+
+  test("adds a dragged Image to the Timeline draft at the drop frame", () => {
+    const { root, controller } = mount()
+    sizeSurface(root)
+    const transfer = new DataTransfer()
+    const card = root.querySelector<HTMLElement>('.rl-card[data-id="scene"]')!
+    card
+      .querySelector<HTMLElement>(".rl-card__media")!
+      .dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))
+    mediaDrag(card, "dragstart", transfer)
+    const lane = root.querySelector<HTMLElement>('[data-timeline-channel="visual"]')!
+    mediaDrag(lane, "dragover", transfer, 192)
+    expect(root.querySelector(".rl-time-axis.is-guide-drop-target")).not.toBeNull()
+    mediaDrag(lane, "drop", transfer, 192)
+
+    expect(controller.state.h3Timeline.guides).toHaveLength(1)
+    expect(root.querySelector(".rl-time-axis__draft")).not.toBeNull()
+    expect(
+      [...root.querySelectorAll<HTMLElement>("[data-timeline-guide] [data-timeline-time]")].some(
+        (element) => element.textContent === "72f · 3.00s",
+      ),
+    ).toBe(true)
+    root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
+    expect(controller.state.h3Timeline.guides).toHaveLength(2)
+    expect(controller.state.h3Timeline.guides).toContainEqual({
+      id: expect.any(String),
+      frameIndex: 72,
+      visualId: "scene",
+      audioId: null,
+    })
+  })
+
+  test("removes the selected Guide from the Timeline draft", () => {
+    const { root, controller } = mount()
+    const marker = root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!
+    marker.click()
+    root.querySelector<HTMLButtonElement>("[data-timeline-remove]")!.click()
+
+    expect(controller.state.h3Timeline.guides).toHaveLength(1)
+    root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
+    expect(controller.state.h3Timeline.guides).toEqual([])
+  })
+
+  test("removes the selected Guide with Backspace or Delete", () => {
+    for (const keyName of ["Backspace", "Delete"]) {
+      const { root, controller } = mount()
+      root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
+      const marker = root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!
+      expect(document.activeElement).toBe(marker)
+      const event = new KeyboardEvent("keydown", {
+        key: keyName,
+        bubbles: true,
+        cancelable: true,
+      })
+      marker.dispatchEvent(event)
+
+      expect(event.defaultPrevented).toBe(true)
+      expect(controller.state.h3Timeline.guides).toHaveLength(1)
+      expect(root.querySelector(".rl-time-axis__draft")).not.toBeNull()
+    }
   })
 
   test("defers full renders during dragging and discards the edited frame on Cancel", () => {

@@ -633,6 +633,19 @@
   position: relative;
 }
 
+.rl-time-axis.is-guide-drop-target .rl-time-axis__surface::after {
+  position: absolute;
+  z-index: 3;
+  top: 24px;
+  bottom: 0;
+  left: var(--rl-timeline-drop-left);
+  width: 2px;
+  background: var(--rl-accent);
+  box-shadow: 0 0 6px var(--rl-accent);
+  content: "";
+  pointer-events: none;
+}
+
 .rl-time-axis__ruler {
   position: sticky;
   top: 0;

@@ -11,7 +11,8 @@ Reference Loader is a ComfyUI V3 custom node for uploading, arranging, and editi
 - Audio/video trim and playback; VIDEO values retain embedded audio by default and can be muted at execution with **VA**
 - Optional per-image MPixel limiting and alpha compositing at execution
 - Load Image-style single-image picker with RGB IMAGE, inverse-alpha MASK, and inline Edit
-- Structured prompt editor with thumbnail `@` media mentions, stable `#` Subject mentions, and literal raw view
+- Structured prompt editor with thumbnail `@` media mentions, independent `#` Subject/Shot definitions, and a literal-tag raw view
+- Subject and Shot source data stays tag-based; compiled output assigns `<Subject N>` and `[Shot N]` indexes only at queue/export time
 - Browser JSON snapshots for saving and restoring Loader, Prompt, and related node settings
 - Stable media mentions compiled to `<Picture N>`, `<Video N>`, and `<Audio N>` tags
 - Strict YAML export of active captions and structured prompt sections for LLM inputs
@@ -19,7 +20,7 @@ Reference Loader is a ComfyUI V3 custom node for uploading, arranging, and editi
 - Explicit IMAGE/AUDIO/VIDEO lists with index-aligned caption lists after unpacking
 - Nullable start/end IMAGE projection for I2V and first-last-frame video workflows
 - Optional frontend-only two-image mode that guards the enabled IMAGE output count
-- Optional H3 Timeline Guides editor inside Media for Start, End, and up to 32 visual/audio guide rows at 24 fps; guide-only media stays out of ordinary reference outputs
+- Optional H3 Timeline Guides editor inside Media for Start, End, up to 32 visual/audio guide rows, and an independent Shot lane at 24 fps; guide-only media stays out of ordinary reference outputs
 - Managed, content-validated storage under `ComfyUI/input/reference_loader`
 
 ## Installation
@@ -42,7 +43,7 @@ Image uploads use the image formats registered by the installed ComfyUI/Pillow r
 
 Connect it to **[Reference Loader] MiniMax H3 Wrapper** for native MiniMax H3 reference conditioning. The Wrapper retains the native `clip`, `vae`, `audio_vae`, `prompt`, `width`, `height`, `length`, and `ref_image_size` controls and replaces the native `ref_*` Autogrow sockets with `references`. Reference videos are decoded and sampled to the 24 fps IMAGE batch expected by MiniMax H3; no separate sampling node is required.
 
-Expand **H3 Timeline Guides** inside Media to enable the optional timeline. Image and standalone Audio cards expose independent **G** Guide toggles plus **G-pencil** editors beside the normal **I/A** output controls; Video cards intentionally expose no Guide controls. Start and End accept existing Images, while each guide row accepts an Image, a standalone Audio, or both, plus a non-negative output frame index. The editor opens as an overlay inside the selected Media grid. Disabled ordinary references remain selectable, and Guide-only media is loaded into the bundle's separate `guide_media` mapping without changing reference ordinals, captions, or Prompt tags. The native Wrapper passes Start at frame 0, ordinary rows at their saved positions, and End as `-1` so ComfyUI resolves it against the actual output length. Rows are ordered by frame and stable guide ID; overlapping visual or audio ranges are rejected instead of being overwritten. Timeline state is saved inside `loader_state`, while panel collapse state is UI-only. The product limit is 32 intermediate guides; it is not a MiniMax H3 model limit.
+Expand **H3 Timeline Guides** inside Media to enable the optional timeline. Image and standalone Audio cards expose independent **G** Guide toggles plus **G-pencil** editors beside the normal **I/A** output controls; Video cards intentionally expose no Guide controls. Start and End accept existing Images, while each guide row accepts an Image, a standalone Audio, or both, plus a non-negative output frame index. Prompt Shots appear in a separate **Shot** lane and keep their own tag/frame draft; they never enter H3 conditioning. The editor opens as an overlay inside the selected Media grid. Disabled ordinary references remain selectable, and Guide-only media is loaded into the bundle's separate `guide_media` mapping without changing reference ordinals, captions, or Prompt tags. The native Wrapper passes Start at frame 0, ordinary rows at their saved positions, and End as `-1` so ComfyUI resolves it against the actual output length. Rows are ordered by frame and stable guide ID; overlapping visual or audio ranges are rejected instead of being overwritten. Timeline state is saved inside `loader_state`, while panel collapse state is UI-only. The product limit is 32 intermediate guides; it is not a MiniMax H3 model limit.
 
 Timeline execution requires a ComfyUI build exposing native `MiniMaxH3AddGuide`. Timeline OFF, or an enabled timeline with no selected positions, keeps the ordinary native R2V delegation path. This repository has contract, routing, and fake-native tests for the feature; model-quality and full conditioning compatibility still require a real H3 checkpoint/runtime smoke test.
 

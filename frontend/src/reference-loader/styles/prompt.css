@@ -124,6 +124,119 @@
   padding: 1px;
 }
 
+.rl-prompt-definitions {
+  display: grid;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid color-mix(in srgb, var(--rl-accent) 35%, var(--rl-border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--rl-panel) 88%, var(--rl-bg));
+}
+
+.rl-prompt-definitions__header,
+.rl-prompt-definitions__subheader,
+.rl-prompt-definition__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rl-prompt-definitions__header {
+  justify-content: space-between;
+}
+
+.rl-prompt-definitions__header small,
+.rl-prompt-definitions__subheader small,
+.rl-prompt-definition__toolbar small {
+  color: var(--rl-muted);
+  font-size: 10px;
+}
+
+.rl-prompt-definitions__subheader {
+  justify-content: space-between;
+  padding-top: 3px;
+  border-top: 1px solid var(--rl-border);
+}
+
+.rl-prompt-definitions__draft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 7px;
+  border: 1px solid color-mix(in srgb, #e0a35e 55%, var(--rl-border));
+  border-radius: 5px;
+  color: var(--rl-muted);
+  font-size: 11px;
+}
+
+.rl-prompt-definitions__draft::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: #e0a35e;
+}
+
+.rl-prompt-definitions__draft button:first-of-type {
+  margin-left: auto;
+}
+
+.rl-prompt-definition-stack {
+  display: grid;
+  gap: 5px;
+}
+
+.rl-prompt-definition {
+  display: grid;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--rl-border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--rl-bg) 45%, transparent);
+}
+
+.rl-prompt-definition--shot {
+  border-left: 3px solid #e0a35e;
+}
+
+.rl-prompt-definition--subject {
+  border-left: 3px solid #b783e8;
+}
+
+.rl-prompt-definition__toolbar input[type="text"] {
+  min-width: 110px;
+  flex: 1;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+}
+
+.rl-prompt-definition__toolbar input[type="number"] {
+  width: 74px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rl-prompt-definition__toolbar button {
+  width: 23px;
+  height: 23px;
+  padding: 0;
+}
+
+.rl-prompt-definition__body {
+  min-height: 34px;
+  padding: 5px 7px;
+  outline: none;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: text;
+  white-space: pre-wrap;
+}
+
+.rl-prompt-definition__body:focus {
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--rl-accent);
+}
+
 .rl-prompt-section {
   --rl-prompt-section-color: var(--rl-accent);
 

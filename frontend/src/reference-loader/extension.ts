@@ -301,10 +301,21 @@ function bindPromptReferences(node: ComfyNode): void {
   const loader = controllers.get(node)
   const prompt = promptControllers.get(node)
   if (!loader || !prompt) return
-  promptSubscriptions.set(
-    node,
-    loader.subscribePromptReferences(() => prompt.refreshReferences(promptByOrderProperty(node))),
+  const releaseReferences = loader.subscribePromptReferences(() =>
+    prompt.refreshReferences(promptByOrderProperty(node)),
   )
+  const releaseShots = prompt.subscribeShots(() => {
+    loader.setPromptShots(
+      prompt.shots,
+      (tag, frame) => prompt.setShotFrame(tag, frame),
+      (tag) => prompt.focusShot(tag),
+      (tag) => prompt.removeShot(tag),
+    )
+  })
+  promptSubscriptions.set(node, () => {
+    releaseReferences()
+    releaseShots()
+  })
 }
 
 /**

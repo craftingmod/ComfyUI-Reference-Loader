@@ -733,6 +733,12 @@
   background: color-mix(in srgb, var(--rl-accent) 18%, var(--rl-panel));
 }
 
+.rl-time-axis .rl-time-axis__mark.is-shot {
+  border-color: #d68e3f;
+  background: color-mix(in srgb, #d68e3f 30%, var(--rl-panel));
+  color: #ffd39b;
+}
+
 .rl-time-axis .rl-time-axis__mark.is-paused {
   opacity: 0.55;
   border-style: dashed;

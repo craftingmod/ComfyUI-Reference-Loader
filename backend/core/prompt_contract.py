@@ -9,14 +9,17 @@ from typing import Any, Literal
 from .reference_contract import ReferenceState
 from .reference_manifest import build_reference_output_plan
 
-PROMPT_STATE_VERSION = 4
+PROMPT_STATE_VERSION = 5
 MAX_PROMPT_STATE_CHARACTERS = 250_000
 MAX_PROMPT_TEXT_CHARACTERS = 100_000
 MAX_PROMPT_SECTION_TITLE_CHARACTERS = 64
-
+MAX_PROMPT_TAG_CHARACTERS = 64
+MAX_PROMPT_FRAME_INDEX = 2**53 - 1
 PromptMediaKind = Literal["image", "video", "audio"]
-PromptPartKind = Literal["text", "mention", "subject"]
+PromptPartKind = Literal["text", "mention"]
 SECTION_TITLE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+TAG_PATTERN = re.compile(r"^[^\W_][\w-]{0,63}$", re.UNICODE)
+TAG_CHAR_PATTERN = re.compile(r"[\w-]", re.UNICODE)
 
 
 class PromptContractError(ValueError):
@@ -30,13 +33,19 @@ class PromptPart:
   reference_id: str = ""
   media_kind: PromptMediaKind | None = None
   label: str = ""
-  subject_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class PromptSubject:
-  subject_id: str
-  label: str
+  tag: str
+  parts: tuple[PromptPart, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PromptShot:
+  tag: str
+  frame_index: int
+  parts: tuple[PromptPart, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +58,7 @@ class PromptSection:
 class PromptDocument:
   version: int
   subjects: tuple[PromptSubject, ...]
+  shots: tuple[PromptShot, ...]
   sections: tuple[PromptSection, ...]
 
 
@@ -57,15 +67,13 @@ def empty_prompt_state() -> dict[str, Any]:
     "version": PROMPT_STATE_VERSION,
     "view": "structured",
     "subjects": [],
+    "shots": [],
     "sections": [],
   }
 
 
 EMPTY_PROMPT_STATE_JSON = json.dumps(
-  empty_prompt_state(),
-  ensure_ascii=False,
-  sort_keys=True,
-  separators=(",", ":"),
+  empty_prompt_state(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
 )
 
 
@@ -96,32 +104,14 @@ def _mention_part(value: Mapping[str, Any], path: str) -> PromptPart:
   )
 
 
-def _subject_id(value: Any, path: str) -> str:
-  subject_id = _text(value, path, 160)
-  if not subject_id or any(character.isspace() for character in subject_id):
-    raise _error(path, "must be a non-empty stable subject ID")
-  return subject_id
-
-
-def _subject_label(value: Any, path: str) -> str:
-  label = _text(value, path, 64).strip()
-  if (
-    not label
-    or not label[0].isalnum()
-    or any(not character.isalnum() and character not in "_-" for character in label)
-  ):
-    raise _error(path, "must contain only letters, numbers, underscores, or hyphens")
-  return label
-
-
-def _subject(value: Any, index: int) -> PromptSubject:
-  path = f"prompt.subjects[{index}]"
-  if not isinstance(value, Mapping):
-    raise _error(path, "must be an object")
-  return PromptSubject(
-    subject_id=_subject_id(value.get("subjectId"), f"{path}.subjectId"),
-    label=_subject_label(value.get("label"), f"{path}.label"),
-  )
+def _tag(value: Any, path: str) -> str:
+  tag = _text(value, path, MAX_PROMPT_TAG_CHARACTERS).strip()
+  if TAG_PATTERN.fullmatch(tag) is None:
+    raise _error(
+      path,
+      "must start with a letter or number and contain only letters, numbers, underscores, or hyphens",
+    )
+  return tag
 
 
 def _part(value: Any, path: str) -> PromptPart:
@@ -135,13 +125,13 @@ def _part(value: Any, path: str) -> PromptPart:
     )
   if part_type == "mention":
     return _mention_part(value, path)
-  if part_type == "subject":
-    return PromptPart(
-      type="subject",
-      subject_id=_subject_id(value.get("subjectId"), f"{path}.subjectId"),
-      label=_subject_label(value.get("label"), f"{path}.label"),
-    )
-  raise _error(f"{path}.type", "must be text, mention, or subject")
+  raise _error(f"{path}.type", "must be text or mention")
+
+
+def _parts(value: Any, path: str) -> tuple[PromptPart, ...]:
+  if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+    raise _error(path, "must be an array")
+  return tuple(_part(part, f"{path}[{index}]") for index, part in enumerate(value))
 
 
 def _section(value: Any, index: int) -> PromptSection:
@@ -149,64 +139,248 @@ def _section(value: Any, index: int) -> PromptSection:
   if not isinstance(value, Mapping):
     raise _error(path, "must be an object")
   title = _text(
-    value.get("title"),
-    f"{path}.title",
-    MAX_PROMPT_SECTION_TITLE_CHARACTERS,
+    value.get("title"), f"{path}.title", MAX_PROMPT_SECTION_TITLE_CHARACTERS
   )
   if SECTION_TITLE_PATTERN.fullmatch(title) is None:
     raise _error(f"{path}.title", "must be a lowercase snake_case title tag")
-  raw_parts = value.get("parts")
-  if not isinstance(raw_parts, Sequence) or isinstance(raw_parts, (str, bytes)):
-    raise _error(f"{path}.parts", "must be an array")
-  return PromptSection(
-    title=title,
-    parts=tuple(
-      _part(raw_part, f"{path}.parts[{part_index}]")
-      for part_index, raw_part in enumerate(raw_parts)
-    ),
+  return PromptSection(title=title, parts=_parts(value.get("parts"), f"{path}.parts"))
+
+
+def _subject(value: Any, index: int) -> PromptSubject:
+  path = f"prompt.subjects[{index}]"
+  if not isinstance(value, Mapping):
+    raise _error(path, "must be an object")
+  return PromptSubject(
+    tag=_tag(value.get("tag"), f"{path}.tag"),
+    parts=_parts(value.get("parts"), f"{path}.parts"),
+  )
+
+
+def _shot(value: Any, index: int) -> PromptShot:
+  path = f"prompt.shots[{index}]"
+  if not isinstance(value, Mapping):
+    raise _error(path, "must be an object")
+  frame = value.get("frameIndex")
+  if (
+    isinstance(frame, bool)
+    or not isinstance(frame, int)
+    or frame < 0
+    or frame > MAX_PROMPT_FRAME_INDEX
+  ):
+    raise _error(f"{path}.frameIndex", "must be a non-negative safe integer")
+  return PromptShot(
+    tag=_tag(value.get("tag"), f"{path}.tag"),
+    frame_index=frame,
+    parts=_parts(value.get("parts"), f"{path}.parts"),
+  )
+
+
+def _legacy_part(
+  value: Any, subjects: tuple[tuple[str, str], ...], path: str
+) -> PromptPart:
+  if not isinstance(value, Mapping):
+    return PromptPart(type="text", text=json.dumps(value, ensure_ascii=False))
+  kind = value.get("type")
+  if kind == "text":
+    return PromptPart(type="text", text=str(value.get("text", "")))
+  if kind == "mention":
+    return _mention_part(value, path)
+  if kind == "subject":
+    subject_id = value.get("subjectId")
+    label = next(
+      (label for sid, label in subjects if sid == subject_id),
+      value.get("label", subject_id),
+    )
+    return PromptPart(type="text", text=f"#{label}")
+  if kind == "directive" and value.get("kind") in {"audio", "style"}:
+    nested = (
+      value.get("parts")
+      if isinstance(value.get("parts"), Sequence)
+      and not isinstance(value.get("parts"), (str, bytes))
+      else [{"type": "text", "text": value.get("text", "")}]
+    )
+    return PromptPart(
+      type="text",
+      text=f"<{value['kind']}>"
+      + "".join(_legacy_part_text(part, subjects, path) for part in nested)
+      + f"</{value['kind']}>",
+    )
+  raise _error(f"{path}.type", "must be text, mention, or subject")
+
+
+def _legacy_part_text(
+  value: Any, subjects: tuple[tuple[str, str], ...], path: str
+) -> str:
+  part = _legacy_part(value, subjects, path)
+  if part.type == "text":
+    return part.text
+  ordinal = re.fullmatch(r"(?:image|video|audio)([1-9]\d*)", part.label)
+  name = (
+    "Picture"
+    if part.media_kind == "image"
+    else (part.media_kind or "audio").capitalize()
+  )
+  return (
+    f"<{name} {ordinal.group(1)}>" if ordinal else f"@{part.label or part.reference_id}"
+  )
+
+
+def _replace_legacy_ordinals(text: str, tags: tuple[str, ...]) -> str:
+  def replace(match: re.Match[str]) -> str:
+    index = int(match.group(1)) - 1
+    return f"#{tags[index]}" if 0 <= index < len(tags) else match.group(0)
+
+  return re.sub(r"<\s*subject\s+(\d+)\s*>", replace, text, flags=re.IGNORECASE)
+
+
+def _migrate_v4(raw: Mapping[str, Any]) -> PromptDocument:
+  raw_subjects = (
+    raw.get("subjects")
+    if isinstance(raw.get("subjects"), Sequence)
+    and not isinstance(raw.get("subjects"), (str, bytes))
+    else []
+  )
+  legacy: list[tuple[str, str]] = []
+  for index, value in enumerate(raw_subjects):
+    if (
+      isinstance(value, Mapping)
+      and isinstance(value.get("subjectId"), str)
+      and isinstance(value.get("label"), str)
+    ):
+      label = value["label"].strip()
+      if TAG_PATTERN.fullmatch(label) is None:
+        raise _error(
+          f"prompt.subjects[{index}].label",
+          "must contain only letters, numbers, underscores, or hyphens",
+        )
+      if label in {tag for _, tag in legacy}:
+        raise _error(f"prompt.subjects[{index}].label", "must be unique")
+      legacy.append((value["subjectId"], label))
+    elif isinstance(value, Mapping):
+      raise _error(f"prompt.subjects[{index}]", "must contain subjectId and label")
+  tags = tuple(label for _, label in legacy)
+  subjects = tuple(PromptSubject(tag=tag, parts=()) for tag in tags)
+  sections: list[PromptSection] = []
+  raw_sections = raw.get("sections")
+  if raw_sections is not None and (
+    not isinstance(raw_sections, Sequence) or isinstance(raw_sections, (str, bytes))
+  ):
+    raise _error("prompt.sections", "must be an array")
+  titles: set[str] = set()
+  if isinstance(raw_sections, Sequence) and not isinstance(raw_sections, (str, bytes)):
+    for index, value in enumerate(raw_sections):
+      if (
+        isinstance(value, Mapping)
+        and isinstance(value.get("title"), str)
+        and SECTION_TITLE_PATTERN.fullmatch(value["title"])
+      ):
+        if value["title"] in titles:
+          raise _error("prompt.sections", "section titles must be unique")
+        titles.add(value["title"])
+        raw_parts = value.get("parts")
+        parts = (
+          tuple(_legacy_part(part, tuple(legacy), "legacy.part") for part in raw_parts)
+          if isinstance(raw_parts, Sequence) and not isinstance(raw_parts, (str, bytes))
+          else (
+            PromptPart(type="text", text=json.dumps(raw_parts, ensure_ascii=False)),
+          )
+        )
+        sections.append(
+          PromptSection(
+            title=value["title"],
+            parts=tuple(
+              PromptPart(type="text", text=_replace_legacy_ordinals(part.text, tags))
+              if part.type == "text"
+              else part
+              for part in parts
+            ),
+          )
+        )
+      elif isinstance(value, Mapping) and "title" in value:
+        raise _error(
+          f"prompt.sections[{index}].title",
+          "must be a lowercase snake_case title tag",
+        )
+      else:
+        sections.append(
+          PromptSection(
+            title="legacy_prompt",
+            parts=(
+              PromptPart(
+                type="text",
+                text=_replace_legacy_ordinals(
+                  json.dumps(value, ensure_ascii=False), tags
+                ),
+              ),
+            ),
+          )
+        )
+  elif isinstance(raw.get("parts"), Sequence) and not isinstance(
+    raw.get("parts"), (str, bytes)
+  ):
+    sections.append(
+      PromptSection(
+        title="scene",
+        parts=tuple(
+          _legacy_part(part, tuple(legacy), "legacy.part") for part in raw["parts"]
+        ),
+      )
+    )
+  else:
+    sections.append(
+      PromptSection(
+        title="legacy_prompt",
+        parts=(PromptPart(type="text", text=json.dumps(raw, ensure_ascii=False)),),
+      )
+    )
+  return PromptDocument(
+    version=PROMPT_STATE_VERSION, subjects=subjects, sections=tuple(sections), shots=()
   )
 
 
 def parse_prompt_state(value: str | Mapping[str, Any]) -> PromptDocument:
-  """Parse a title-based prompt document; a non-JSON string is a scene section."""
-
   if isinstance(value, str):
     if len(value) > MAX_PROMPT_STATE_CHARACTERS:
       raise _error("prompt", "serialized state exceeds the size limit")
     try:
       raw: Any = json.loads(value)
     except (TypeError, ValueError):
-      sections = (
-        (PromptSection(title="scene", parts=(PromptPart(type="text", text=value),)),)
-        if value
-        else ()
-      )
       return PromptDocument(
-        version=PROMPT_STATE_VERSION, subjects=(), sections=sections
+        PROMPT_STATE_VERSION,
+        (),
+        (),
+        (PromptSection("scene", (PromptPart(type="text", text=value),)),)
+        if value
+        else (),
       )
   else:
     raw = value
   if not isinstance(raw, Mapping):
     raise _error("prompt", "must be an object")
-  if raw.get("version") != PROMPT_STATE_VERSION:
+  version = raw.get("version")
+  if version == 4:
+    return _migrate_v4(raw)
+  if version != PROMPT_STATE_VERSION:
     raise _error("prompt.version", f"must equal {PROMPT_STATE_VERSION}")
   raw_subjects = raw.get("subjects")
+  raw_shots = raw.get("shots")
+  raw_sections = raw.get("sections")
   if not isinstance(raw_subjects, Sequence) or isinstance(raw_subjects, (str, bytes)):
     raise _error("prompt.subjects", "must be an array")
+  if not isinstance(raw_shots, Sequence) or isinstance(raw_shots, (str, bytes)):
+    raise _error("prompt.shots", "must be an array")
   subjects = tuple(
     _subject(subject, index) for index, subject in enumerate(raw_subjects)
   )
-  subject_ids: set[str] = set()
-  subject_labels: set[str] = set()
-  for index, subject in enumerate(subjects):
-    normalized_label = subject.label.lower()
-    if subject.subject_id in subject_ids:
-      raise _error(f"prompt.subjects[{index}].subjectId", "must be unique")
-    if normalized_label in subject_labels:
-      raise _error(f"prompt.subjects[{index}].label", "must be unique")
-    subject_ids.add(subject.subject_id)
-    subject_labels.add(normalized_label)
-  raw_sections = raw.get("sections")
+  shots = tuple(_shot(shot, index) for index, shot in enumerate(raw_shots))
+  tags: set[str] = set()
+  for index, definition in enumerate((*subjects, *shots)):
+    if definition.tag in tags:
+      raise _error(
+        f"prompt.{'subjects' if index < len(subjects) else 'shots'}[{index if index < len(subjects) else index - len(subjects)}].tag",
+        "must be unique",
+      )
+    tags.add(definition.tag)
   if not isinstance(raw_sections, Sequence) or isinstance(raw_sections, (str, bytes)):
     raise _error("prompt.sections", "must be an array")
   sections = tuple(
@@ -217,20 +391,133 @@ def parse_prompt_state(value: str | Mapping[str, Any]) -> PromptDocument:
     if section.title in titles:
       raise _error(f"prompt.sections[{index}].title", "must be unique")
     titles.add(section.title)
-  text_length = sum(len(part.text) for section in sections for part in section.parts)
+  text_length = sum(
+    len(part.text) for definition in (*subjects, *shots) for part in definition.parts
+  ) + sum(len(part.text) for section in sections for part in section.parts)
   if text_length > MAX_PROMPT_TEXT_CHARACTERS:
     raise _error(
-      "prompt.sections",
+      "prompt",
       f"combined text must contain at most {MAX_PROMPT_TEXT_CHARACTERS} characters",
     )
-  return PromptDocument(
-    version=PROMPT_STATE_VERSION, subjects=subjects, sections=sections
+  return PromptDocument(PROMPT_STATE_VERSION, subjects, shots, sections)
+
+
+def _tag_tokens(text: str) -> list[tuple[int, int, str, bool]]:
+  tokens: list[tuple[int, int, str, bool]] = []
+  index = 0
+  while index < len(text):
+    if text[index] != "#" or (
+      index > 0 and TAG_CHAR_PATTERN.fullmatch(text[index - 1])
+    ):
+      index += 1
+      continue
+    end = index + 1
+    while end < len(text) and TAG_CHAR_PATTERN.fullmatch(text[end]):
+      end += 1
+    tag = text[index + 1 : end]
+    if TAG_PATTERN.fullmatch(tag):
+      escaped = index > 0 and text[index - 1] == "\\"
+      tokens.append((index - 1 if escaped else index, end, tag, escaped))
+      index = end
+      continue
+    index += 1
+  return tokens
+
+
+def _compile_text(text: str, tokens: Mapping[str, str]) -> str:
+  result = ""
+  cursor = 0
+  for start, end, tag, escaped in _tag_tokens(text):
+    result += text[cursor:start] + (
+      f"#{tag}" if escaped else tokens.get(tag, f"#{tag}")
+    )
+    cursor = end
+  return result + text[cursor:]
+
+
+def _compile_part(
+  part: PromptPart,
+  references: ReferenceState,
+  ordinals: Mapping[str, Mapping[str, int]],
+  tokens: Mapping[str, str],
+) -> str:
+  if part.type == "text":
+    return _compile_text(part.text, tokens)
+  kind = part.media_kind or "image"
+  ordinal = ordinals[kind].get(part.reference_id)
+  return (
+    f"<{ {'image': 'Picture', 'video': 'Video', 'audio': 'Audio'}[kind] } {ordinal}>"
+    if ordinal is not None
+    else f"@{part.label or part.reference_id}"
   )
 
 
-def compile_prompt(document: PromptDocument, references: ReferenceState) -> str:
-  """Resolve stable mentions while preserving the user's title-tag section order."""
+def _token_map(document: PromptDocument) -> dict[str, str]:
+  tokens = {
+    subject.tag: f"<Subject {index}" + ">"
+    for index, subject in enumerate(document.subjects, 1)
+  }
+  ordered = sorted(
+    enumerate(document.shots), key=lambda pair: (pair[1].frame_index, pair[0])
+  )
+  tokens.update(
+    {shot.tag: f"[Shot {index}]" for index, (_, shot) in enumerate(ordered, 1)}
+  )
+  return tokens
 
+
+def _compiled_parts(
+  parts: Sequence[PromptPart],
+  references: ReferenceState,
+  ordinals: Mapping[str, Mapping[str, int]],
+  tokens: Mapping[str, str],
+) -> str:
+  return "".join(
+    _compile_part(part, references, ordinals, tokens) for part in parts
+  ).strip()
+
+
+def compile_prompt_sections(
+  document: PromptDocument, references: ReferenceState
+) -> tuple[tuple[str, str], ...]:
+  plan = build_reference_output_plan(references)
+  ids_by_kind = {
+    "image": plan.image_ids,
+    "video": plan.video_ids,
+    "audio": plan.audio_ids,
+  }
+  ordinals = {
+    kind: {reference_id: index for index, reference_id in enumerate(ids, 1)}
+    for kind, ids in ids_by_kind.items()
+  }
+  tokens = _token_map(document)
+  subjects = "\n\n".join(
+    f"<Subject {index}>: {_compiled_parts(subject.parts, references, ordinals, tokens)}".rstrip()
+    for index, subject in enumerate(document.subjects, 1)
+  )
+  ordered_shots = sorted(
+    enumerate(document.shots), key=lambda pair: (pair[1].frame_index, pair[0])
+  )
+  shots = "\n\n".join(
+    f"[Shot {index}]\nAt {(int(shot.frame_index * 1000 / 24 + 0.5) / 1000):.3f} seconds: {_compiled_parts(shot.parts, references, ordinals, tokens)}".rstrip()
+    for index, (_, shot) in enumerate(ordered_shots, 1)
+  )
+  result: list[tuple[str, str]] = []
+  for section in document.sections:
+    content = _compiled_parts(section.parts, references, ordinals, tokens)
+    if section.title == "subject_definitions" and subjects:
+      content = "\n\n".join(filter(None, (content, subjects)))
+    if section.title == "timeline_direction" and shots:
+      content = "\n\n".join(filter(None, (content, shots)))
+    result.append((section.title, content))
+  if subjects and not any(title == "subject_definitions" for title, _ in result):
+    result.insert(0, ("subject_definitions", subjects))
+  if shots and not any(title == "timeline_direction" for title, _ in result):
+    result.append(("timeline_direction", shots))
+  return tuple(result)
+
+
+def compile_prompt(document: PromptDocument, references: ReferenceState) -> str:
   return "\n\n".join(
     f"{title}:\n{content}" if content else f"{title}:"
     for title, content in compile_prompt_sections(document, references)
@@ -240,8 +527,6 @@ def compile_prompt(document: PromptDocument, references: ReferenceState) -> str:
 def rebind_prompt_mentions_by_order(
   document: PromptDocument, references: ReferenceState
 ) -> PromptDocument:
-  """Bind imageN/videoN/audioN labels to the current active output positions."""
-
   plan = build_reference_output_plan(references)
   ids_by_kind = {
     "image": plan.image_ids,
@@ -266,102 +551,58 @@ def rebind_prompt_mentions_by_order(
       label=f"{part.media_kind}{ordinal}",
     )
 
+  def parts(values: tuple[PromptPart, ...]) -> tuple[PromptPart, ...]:
+    return tuple(rebind(part) for part in values)
+
   return PromptDocument(
-    version=document.version,
-    subjects=document.subjects,
-    sections=tuple(
-      PromptSection(
-        title=section.title,
-        parts=tuple(rebind(part) for part in section.parts),
-      )
+    document.version,
+    tuple(
+      PromptSubject(subject.tag, parts(subject.parts)) for subject in document.subjects
+    ),
+    tuple(
+      PromptShot(shot.tag, shot.frame_index, parts(shot.parts))
+      for shot in document.shots
+    ),
+    tuple(
+      PromptSection(section.title, parts(section.parts))
       for section in document.sections
     ),
   )
 
 
-def compile_prompt_sections(
-  document: PromptDocument, references: ReferenceState
-) -> tuple[tuple[str, str], ...]:
-  """Resolve stable mentions into ordered title/content pairs."""
-
-  plan = build_reference_output_plan(references)
-  ids_by_kind = {
-    "image": plan.image_ids,
-    "video": plan.video_ids,
-    "audio": plan.audio_ids,
-  }
-  tag_names = {"image": "Picture", "video": "Video", "audio": "Audio"}
-  ordinals = {
-    kind: {reference_id: index for index, reference_id in enumerate(ids, start=1)}
-    for kind, ids in ids_by_kind.items()
-  }
-  subject_ordinals = {
-    subject.subject_id: index
-    for index, subject in enumerate(document.subjects, start=1)
-  }
-
-  def compile_part(part: PromptPart) -> str:
-    if part.type == "text":
-      return part.text
-    if part.type == "subject":
-      ordinal = subject_ordinals.get(part.subject_id)
-      return (
-        f"<Subject {ordinal}>"
-        if ordinal is not None
-        else f"#{part.label or part.subject_id}"
-      )
-    kind = part.media_kind or "image"
-    ordinal = ordinals[kind].get(part.reference_id)
-    if ordinal is None:
-      return f"@{part.label or part.reference_id}"
-    return f"<{tag_names[kind]} {ordinal}>"
-
-  compiled_sections: list[tuple[str, str]] = []
-  for section in document.sections:
-    content = "".join(compile_part(part) for part in section.parts).strip()
-    compiled_sections.append((section.title, content))
-  return tuple(compiled_sections)
-
-
 def serialize_prompt_document(document: PromptDocument) -> str:
-  """Serialize execution-relevant prompt state without frontend-only view state."""
-
-  def serialize_part(part: PromptPart) -> dict[str, Any]:
-    if part.type == "text":
-      return {"type": "text", "text": part.text}
-    if part.type == "subject":
-      return {
-        "type": "subject",
-        "subjectId": part.subject_id,
-        "label": part.label,
+  def part(value: PromptPart) -> dict[str, Any]:
+    return (
+      {"type": "text", "text": value.text}
+      if value.type == "text"
+      else {
+        "type": "mention",
+        "referenceId": value.reference_id,
+        "mediaKind": value.media_kind,
+        "label": value.label,
       }
-    return {
-      "type": "mention",
-      "referenceId": part.reference_id,
-      "mediaKind": part.media_kind,
-      "label": part.label,
-    }
+    )
 
   value = {
     "version": document.version,
     "subjects": [
-      {"subjectId": subject.subject_id, "label": subject.label}
+      {"tag": subject.tag, "parts": [part(item) for item in subject.parts]}
       for subject in document.subjects
     ],
-    "sections": [
+    "shots": [
       {
-        "title": section.title,
-        "parts": [serialize_part(part) for part in section.parts],
+        "tag": shot.tag,
+        "frameIndex": shot.frame_index,
+        "parts": [part(item) for item in shot.parts],
       }
+      for shot in document.shots
+    ],
+    "sections": [
+      {"title": section.title, "parts": [part(item) for item in section.parts]}
       for section in document.sections
     ],
   }
-  return json.dumps(
-    value,
-    ensure_ascii=False,
-    sort_keys=True,
-    separators=(",", ":"),
-  )
+  return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def compile_prompt_state(
@@ -379,6 +620,7 @@ __all__ = [
   "PromptDocument",
   "PromptPart",
   "PromptSection",
+  "PromptShot",
   "PromptSubject",
   "compile_prompt",
   "compile_prompt_sections",

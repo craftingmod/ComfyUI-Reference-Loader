@@ -1,5 +1,5 @@
 import type { ComfyNode } from "../comfyui.ts"
-import { deserializePromptDocument, validatePromptDocument } from "./prompt-state.ts"
+import { deserializePromptDocument } from "./prompt-state.ts"
 import { deserializeLoaderState, serializeLoaderState } from "./serialization.ts"
 
 export const REFERENCE_LOADER_SNAPSHOT_FORMAT = "reference-loader-snapshot" as const
@@ -98,7 +98,7 @@ export function serializeReferenceLoaderSnapshot(source: SnapshotSource): string
   if (loader.issues.length > 0)
     throw new Error(`Loader state is invalid: ${loader.issues.join(" ")}`)
   const promptInput = JSON.parse(source.promptState) as unknown
-  const prompt = validatePromptDocument(promptInput)
+  const prompt = deserializePromptDocument(promptInput)
   if (prompt.issues.length > 0)
     throw new Error(`Prompt state is invalid: ${prompt.issues.join(" ")}`)
   const loaderState = serializeLoaderState(loader.state)

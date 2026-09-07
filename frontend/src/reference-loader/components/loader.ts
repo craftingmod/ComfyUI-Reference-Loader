@@ -27,7 +27,7 @@ import {
   undoHistory,
   type HistoryState,
 } from "../history.ts"
-import type { PromptReference } from "../prompt-state.ts"
+import type { PromptReference, PromptShot } from "../prompt-state.ts"
 import { loaderReducer, type LoaderAction, type LoaderChannel } from "../reducer.ts"
 import { deserializeLoaderState, serializeLoaderState } from "../serialization.ts"
 import {
@@ -373,6 +373,10 @@ export class ReferenceLoaderController {
   #h3Editor: H3EditorState | undefined
   #h3Axis: H3Timeline | undefined
   #h3View: TimelineView = { zoom: 1, scrollLeft: 0 }
+  #promptShots: readonly Pick<PromptShot, "tag" | "frameIndex">[] = []
+  #promptShotChange: ((tag: string, frameIndex: number) => void) | undefined
+  #promptShotRemove: ((tag: string) => void) | undefined
+  #promptShotSelect: ((tag: string) => void) | undefined
 
   constructor(
     root: HTMLElement,
@@ -479,6 +483,20 @@ export class ReferenceLoaderController {
     this.#referenceListeners.add(listener)
     listener()
     return () => this.#referenceListeners.delete(listener)
+  }
+
+  setPromptShots(
+    shots: readonly Pick<PromptShot, "tag" | "frameIndex">[],
+    onChange?: (tag: string, frameIndex: number) => void,
+    onSelect?: (tag: string) => void,
+    onRemove?: (tag: string) => void,
+  ): void {
+    if (this.#destroyed) return
+    this.#promptShots = shots.map((shot) => ({ tag: shot.tag, frameIndex: shot.frameIndex }))
+    this.#promptShotChange = onChange
+    this.#promptShotSelect = onSelect
+    this.#promptShotRemove = onRemove
+    this.render(true)
   }
 
   acceptsFileDrop(dataTransfer: DataTransfer | null): boolean {
@@ -669,6 +687,10 @@ export class ReferenceLoaderController {
     this.#runtime.clear()
     this.#runtimeSequences.clear()
     this.#referenceListeners.clear()
+    this.#promptShots = []
+    this.#promptShotChange = undefined
+    this.#promptShotSelect = undefined
+    this.#promptShotRemove = undefined
     this.#h3Editor = undefined
     this.#dropTarget = undefined
     this.#setFileDropTarget(undefined)
@@ -836,6 +858,7 @@ export class ReferenceLoaderController {
       `${counts.referenceCount} references`,
       `${counts.placementCount} placements`,
       counts.incompleteCount > 0 ? `${counts.incompleteCount} incomplete` : "",
+      `${this.#promptShots.length} shots`,
       timeline.enabled ? "" : "Paused",
     ]
       .filter(Boolean)
@@ -848,10 +871,10 @@ export class ReferenceLoaderController {
         <button type="button" class="rl-h3-timeline__collapse" data-h3-action="collapse" aria-expanded="${String(!this.#h3Collapsed)}" aria-controls="${this.#h3BodyId}">${this.#h3Collapsed ? "▸" : "▾"} H3 Timeline Guides</button>
         <span class="rl-h3-timeline__status${timeline.enabled ? " is-on" : ""}">${timeline.enabled ? "ON" : "OFF"}</span>
         <span class="rl-h3-timeline__summary" title="${escapeHtml(summary)}">${escapeHtml(summary)}</span>
-        <button type="button" class="rl-h3-timeline__toggle${timeline.enabled ? " is-on" : ""}" data-h3-action="toggle" aria-pressed="${String(timeline.enabled)}">${timeline.enabled ? "Disable" : "Enable"}</button>
+        <button type="button" class="rl-h3-timeline__toggle${timeline.enabled ? " is-on" : ""}" data-h3-action="toggle" aria-pressed="${String(timeline.enabled)}">${timeline.enabled ? "Disable Media Guides" : "Enable Media Guides"}</button>
       </header>
       <div id="${this.#h3BodyId}" class="rl-h3-timeline__body"${this.#h3Collapsed ? " hidden" : ""}>
-        <p class="rl-h3-timeline__hint">24 fps · Use G on an Image or standalone Audio card to enable a Guide, and the G pencil to edit its frame placements. Start is frame 0; End resolves to the native H3 output's final frame.</p>
+        <p class="rl-h3-timeline__hint">24 fps · Media Guides are conditioning only. Shots are independent text markers and remain visible when Media Guides are OFF.</p>
         <div class="rl-h3-media-counts" aria-label="Timeline counts"><span>Media ${counts.mediaCount}</span><span title="Enabled visual and audio channels count separately">References ${counts.referenceCount}</span><span>Placements ${counts.placementCount}</span>${counts.incompleteCount > 0 ? `<span class="is-error">Incomplete ${counts.incompleteCount}</span>` : ""}</div>
         <div data-h3-axis></div>
         ${this.#h3Editor ? `<div class="rl-time-axis__draft"><span>Unsaved Guide editor · Apply or Cancel</span><button type="button" data-h3-action="cancel-editor">Cancel</button><button type="button" data-h3-action="apply-editor"${issue ? " disabled" : ""}>Apply</button></div>${issue ? `<p class="rl-h3-editor__error" role="alert">${escapeHtml(issue)}</p>` : ""}` : ""}
@@ -869,6 +892,7 @@ export class ReferenceLoaderController {
       ? { ...this.state, h3Timeline: this.#h3EditorTimeline(this.#h3Editor) }
       : this.state
     this.#h3Axis = new H3Timeline(host, state, this.#runtime, this.#h3View, {
+      shots: this.#promptShots,
       select: (placement, channel) => {
         if (this.#h3Editor?.timelineEdit && placement.guideId) {
           this.#h3Editor.selectedGuideId = placement.guideId
@@ -881,6 +905,9 @@ export class ReferenceLoaderController {
       },
       change: (id, frame) => this.#moveH3TimelineGuide(id, frame),
       remove: (id) => this.#removeH3TimelineGuide(id),
+      selectShot: (tag) => this.#promptShotSelect?.(tag),
+      changeShot: (tag, frame) => this.#promptShotChange?.(tag, frame),
+      removeShot: (tag) => this.#promptShotRemove?.(tag),
       canDrop: (channel, dataTransfer) => Boolean(this.#h3GuideDragSource(channel, dataTransfer)),
       drop: (channel, frame, dataTransfer) =>
         this.#addH3GuideFromDrop(channel, frame, dataTransfer),

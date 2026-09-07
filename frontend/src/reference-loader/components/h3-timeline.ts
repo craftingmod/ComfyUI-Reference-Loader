@@ -13,7 +13,8 @@ export interface TimelineView {
 
 export interface TimelineMark {
   placement: H3TimelinePlacement
-  channel: "visual" | "audio"
+  channel: "visual" | "audio" | "shot"
+  shotTag?: string
   label: string
   previewUrl?: string
   frame: number
@@ -26,6 +27,7 @@ export interface TimelineMark {
 export function timelineMarks(
   state: LoaderState,
   runtime: ReadonlyMap<string, ItemRuntime>,
+  shots: readonly { tag: string; frameIndex: number }[] = [],
 ): TimelineMark[] {
   const marks: TimelineMark[] = []
   for (const placement of h3Placements(state.h3Timeline)) {
@@ -65,11 +67,30 @@ export function timelineMarks(
       })
     }
   }
+  for (const shot of shots) {
+    marks.push({
+      placement: { kind: "guide", guideId: `shot:${shot.tag}`, frameIndex: shot.frameIndex },
+      channel: "shot",
+      shotTag: shot.tag,
+      label: `#${shot.tag}`,
+      frame: shot.frameIndex,
+      frames: 1,
+      disabled: false,
+      incomplete: !Number.isSafeInteger(shot.frameIndex) || shot.frameIndex < 0,
+    })
+  }
   // At most 34 placements; pairwise checks also keep both sides of a conflict visible.
   for (const [index, mark] of marks.entries()) {
-    if (mark.disabled || mark.placement.kind === "end" || mark.frames === undefined) continue
+    if (
+      mark.channel === "shot" ||
+      mark.disabled ||
+      mark.placement.kind === "end" ||
+      mark.frames === undefined
+    )
+      continue
     for (const other of marks.slice(index + 1)) {
       if (
+        other.channel === "shot" ||
         other.disabled ||
         other.placement.kind === "end" ||
         other.channel !== mark.channel ||
@@ -137,15 +158,19 @@ export class H3Timeline {
       select(placement: H3TimelinePlacement, channel: "visual" | "audio"): void
       change(id: string, frame: number): void
       remove(id: string): void
+      selectShot?(tag: string): void
+      changeShot?(tag: string, frame: number): void
+      removeShot?(tag: string): void
+      shots?: readonly { tag: string; frameIndex: number }[]
       canDrop(channel: "visual" | "audio", dataTransfer: DataTransfer | null): boolean
       drop(channel: "visual" | "audio", frame: number, dataTransfer: DataTransfer | null): void
       settled(): void
     },
   ) {
-    this.#marks = timelineMarks(state, runtime)
+    this.#marks = timelineMarks(state, runtime, callbacks.shots)
     this.#extent = timelineExtent(this.#marks)
     root.className = "rl-time-axis"
-    root.innerHTML = `<div class="rl-time-axis__tools"><span>24 fps · View range only</span><label>Zoom <select aria-label="Timeline zoom"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label><button type="button" data-timeline-fit>Fit</button></div><div class="rl-time-axis__scroll" tabindex="0" aria-label="Guide timeline; scroll horizontally when zoomed"><div class="rl-time-axis__surface"></div></div><div class="rl-time-axis__end"></div><div class="rl-time-axis__selection"><label>Guide frame <input type="number" min="0" step="1" aria-label="Selected Guide frame"></label><button type="button" data-timeline-remove disabled>Remove Guide</button><span data-timeline-readout aria-live="polite"></span></div><p class="rl-time-axis__hint">Drag or use ← / → to move a whole Guide (Shift: 24 frames). Apply saves; Cancel discards. Drag an Image or standalone Audio card onto a lane to add a Guide. Audio bars show the source range, not output duration.</p><p class="rl-time-axis__warnings" role="status"></p>`
+    root.innerHTML = `<div class="rl-time-axis__tools"><span>24 fps · View range only</span><label>Zoom <select aria-label="Timeline zoom"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label><button type="button" data-timeline-fit>Fit</button></div><div class="rl-time-axis__scroll" tabindex="0" aria-label="Guide and Shot timeline; scroll horizontally when zoomed"><div class="rl-time-axis__surface"></div></div><div class="rl-time-axis__end"></div><div class="rl-time-axis__selection"><label>Selected frame <input type="number" min="0" step="1" aria-label="Selected Guide frame"></label><button type="button" data-timeline-remove disabled>Remove Guide</button><span data-timeline-readout aria-live="polite"></span></div><p class="rl-time-axis__hint">Drag or use ← / → to move a whole Guide or Shot (Shift: 24 frames). Apply saves; Cancel discards. Drag an Image or standalone Audio card onto a lane to add a Guide. Audio bars show the source range, not output duration.</p><p class="rl-time-axis__warnings" role="status"></p>`
     this.#scroller = root.querySelector<HTMLElement>(".rl-time-axis__scroll")!
     this.#surface = root.querySelector<HTMLElement>(".rl-time-axis__surface")!
     this.#readout = root.querySelector<HTMLElement>("[data-timeline-readout]")!
@@ -246,7 +271,13 @@ export class H3Timeline {
           "[data-timeline-remove]",
         )
         if (remove) {
-          if (this.view.selectedId) this.callbacks.remove(this.view.selectedId)
+          if (this.view.selectedId) {
+            const selected = this.#marks.find(
+              (mark) => mark.placement.guideId === this.view.selectedId,
+            )
+            if (selected?.shotTag) this.callbacks.removeShot?.(selected.shotTag)
+            else this.callbacks.remove(this.view.selectedId)
+          }
           return
         }
         const button = (event.target as Element).closest<HTMLButtonElement>("[data-timeline-mark]")
@@ -254,7 +285,8 @@ export class H3Timeline {
         if (!mark) return
         view.selectedId = mark.placement.guideId
         view.focusSelected = true
-        this.callbacks.select(mark.placement, mark.channel)
+        if (mark.shotTag) this.callbacks.selectShot?.(mark.shotTag)
+        else if (mark.channel !== "shot") this.callbacks.select(mark.placement, mark.channel)
         if (mark.placement.guideId) {
           this.root
             .querySelector<HTMLButtonElement>(
@@ -272,6 +304,11 @@ export class H3Timeline {
         event.stopPropagation()
         const button = (event.target as Element).closest<HTMLButtonElement>("[data-timeline-mark]")
         const mark = button ? this.#marks[Number(button.dataset.timelineMark)] : undefined
+        if (mark?.shotTag && ["Backspace", "Delete"].includes(event.key)) {
+          event.preventDefault()
+          this.callbacks.removeShot?.(mark.shotTag)
+          return
+        }
         if (mark?.placement.guideId && ["Backspace", "Delete"].includes(event.key)) {
           event.preventDefault()
           this.callbacks.remove(mark.placement.guideId)
@@ -283,7 +320,8 @@ export class H3Timeline {
           0,
           mark.frame + (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? FPS : 1),
         )
-        this.#change(mark.placement.guideId, frame)
+        if (mark.shotTag) this.callbacks.changeShot?.(mark.shotTag, frame)
+        else this.#change(mark.placement.guideId, frame)
       },
       { signal },
     )
@@ -297,7 +335,11 @@ export class H3Timeline {
           return
         }
         this.#input.setCustomValidity("")
-        if (view.selectedId) this.#change(view.selectedId, frame)
+        if (view.selectedId) {
+          const selected = this.#marks.find((mark) => mark.placement.guideId === view.selectedId)
+          if (selected?.shotTag) this.callbacks.changeShot?.(selected.shotTag, frame)
+          else this.#change(view.selectedId, frame)
+        }
       },
       { signal },
     )
@@ -349,15 +391,18 @@ export class H3Timeline {
     }
     this.#surface.append(ruler)
     this.root.querySelector(".rl-time-axis__end")!.replaceChildren()
-    for (const channel of ["visual", "audio"] as const) {
+    for (const channel of ["visual", "audio", "shot"] as const) {
       const label = document.createElement("div")
       label.className = "rl-time-axis__lane-label"
-      label.textContent = channel === "visual" ? "Image" : "Audio"
+      label.textContent = channel === "visual" ? "Image" : channel === "audio" ? "Audio" : "Shot"
       const lane = document.createElement("div")
       lane.className = "rl-time-axis__lane"
       lane.dataset.timelineChannel = channel
       lane.style.backgroundSize = `${(tickFrames / this.#extent) * 100}% 100%`
-      lane.setAttribute("aria-label", `${label.textContent} guides`)
+      lane.setAttribute(
+        "aria-label",
+        channel === "shot" ? "Shot markers" : `${label.textContent} guides`,
+      )
       const occupied: number[] = []
       for (const [index, mark] of this.#marks.entries()) {
         if (mark.channel !== channel) continue
@@ -370,6 +415,7 @@ export class H3Timeline {
         )
         button.className = `rl-time-axis__mark${mark.disabled ? " is-paused" : ""}${mark.incomplete ? " is-incomplete" : ""}${mark.warning ? " is-warning" : ""}${selected ? " is-selected" : ""}`
         button.classList.toggle("is-audio", channel === "audio")
+        button.classList.toggle("is-shot", channel === "shot")
         button.classList.toggle("is-unknown", mark.frames === undefined)
         button.draggable = false
         const time =
@@ -415,12 +461,19 @@ export class H3Timeline {
     const selected = this.#marks.find(
       (mark) => mark.placement.guideId === this.view.selectedId && this.view.selectedId,
     )
+    const selectedShot = Boolean(selected?.shotTag)
     this.#input.disabled = !selected
+    this.#input.setAttribute(
+      "aria-label",
+      selectedShot ? "Selected Shot frame" : "Selected Guide frame",
+    )
+    this.#remove.textContent = selectedShot ? "Delete Shot" : "Remove Guide"
+    this.#remove.title = selectedShot ? "Delete Shot" : "Remove Guide"
     this.#remove.disabled = !selected?.placement.guideId
     this.#input.value = selected && Number.isFinite(selected.frame) ? String(selected.frame) : ""
     this.#readout.textContent = selected
-      ? timing(selected.frame)
-      : "Select a Guide; Start and End are fixed anchors."
+      ? `${selectedShot ? "Shot · " : ""}${timing(selected.frame)}`
+      : "Select a Guide or Shot; Start and End are fixed anchors."
     const warnings = new Set(this.#marks.flatMap((mark) => (mark.warning ? [mark.warning] : [])))
     if (this.#marks.some((mark) => mark.channel === "audio" && mark.frames === undefined))
       warnings.add("Some audio durations are unknown; range checks are incomplete.")
@@ -537,6 +590,8 @@ export class H3Timeline {
 
   #change(id: string, frame: number): void {
     this.view.selectedId = id
-    this.callbacks.change(id, frame)
+    const mark = this.#marks.find((candidate) => candidate.placement.guideId === id)
+    if (mark?.shotTag) this.callbacks.changeShot?.(mark.shotTag, frame)
+    else this.callbacks.change(id, frame)
   }
 }

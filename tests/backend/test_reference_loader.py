@@ -213,11 +213,24 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert bundle.videos == ()
   assert bundle.video_captions == ()
   assert json.loads(bundle.prompt_state_json) == {
-    "version": 4,
-    "subjects": prompt_state["subjects"],
-    "sections": prompt_state["sections"],
+    "version": 5,
+    "subjects": [{"tag": "fighter", "parts": []}],
+    "shots": [],
+    "sections": [
+      {
+        "title": "scene",
+        "parts": [
+          {"type": "text", "text": "Use "},
+          {"type": "text", "text": "#fighter"},
+          {"type": "text", "text": " from "},
+          prompt_state["sections"][0]["parts"][3],
+        ],
+      }
+    ],
   }
-  assert bundle.compiled_prompt == "scene:\nUse <Subject 1> from <Picture 1>"
+  assert bundle.compiled_prompt == (
+    "subject_definitions:\n<Subject 1>:\n\nscene:\nUse <Subject 1> from <Picture 1>"
+  )
   contract = importlib.import_module("backend.core.reference_contract")
   assert bundle.reference_fingerprint == contract.reference_loader_fingerprint(
     bundle.manifest_json,
@@ -298,7 +311,8 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     prompt_by_order=True,
   )
   assert (
-    order_bound_output[0].compiled_prompt == "scene:\nUse <Subject 1> from <Picture 1>"
+    order_bound_output[0].compiled_prompt == "subject_definitions:\n<Subject 1>:\n\n"
+    "scene:\nUse <Subject 1> from <Picture 1>"
   )
   assert (
     json.loads(order_bound_output[0].prompt_state_json)["sections"][0]["parts"][3][

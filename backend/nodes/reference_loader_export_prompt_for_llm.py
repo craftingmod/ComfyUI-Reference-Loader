@@ -266,9 +266,7 @@ def _response_items(value: Any) -> list[Any]:
 
 def _is_unavailable_input_list_value(value: Any) -> bool:
   return value is None or (
-    isinstance(value, (list, tuple))
-    and len(value) == 1
-    and value[0] is None
+    isinstance(value, (list, tuple)) and len(value) == 1 and value[0] is None
   )
 
 
@@ -423,6 +421,16 @@ def export_prompt_parts_for_llm(
   state = validate_reference_loader_bundle(references)
   plan = build_reference_output_plan(state)
   document = parse_prompt_state(references.prompt_state_json)
+  out_of_range = [
+    shot for shot in document.shots if shot.frame_index / 24 >= float(seconds)
+  ]
+  if out_of_range:
+    details = ", ".join(
+      f"#{shot.tag} at {shot.frame_index / 24:.3f}s" for shot in out_of_range
+    )
+    raise ValueError(
+      f"Shot frame must be before the export duration ({seconds:.3f}s): {details}."
+    )
   projection = execution_projection(state)
 
   active_videos = [entry for entry in projection["videos"] if entry["enabled"]]

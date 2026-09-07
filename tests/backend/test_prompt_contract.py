@@ -135,6 +135,8 @@ def test_compiles_stable_mentions_against_active_per_type_orders():
     ],
   }
   assert compile_prompt_state(json.dumps(document), reference_state()) == (
+    "subject_definitions:\n"
+    "<Subject 1>:\n\n<Subject 2>:\n\n"
     "integrated_multimodal_description:\n"
     "A <Subject 1> from <Picture 1> watches <Video 1> with <Audio 1> and <Audio 2>안녕하세요"
     "\n\nvisual_style:\nSoft 3D"
@@ -240,7 +242,7 @@ def test_accepts_literal_prompt_strings_and_rejects_invalid_structured_state():
 
 
 def test_rejects_version_3_prompt_state_without_migration():
-  with pytest.raises(PromptContractError, match="prompt.version: must equal 4"):
+  with pytest.raises(PromptContractError, match="prompt.version: must equal 5"):
     parse_prompt_state({"version": 3, "subjects": [], "sections": []})
 
 

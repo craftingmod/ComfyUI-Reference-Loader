@@ -191,7 +191,7 @@ describe("Reference Prompt state", () => {
     expect(compilePromptDocument(result.document, [imageReference()])).toBe(
       "scene:\nSay <d>Hello</d><Picture 1>",
     )
-    expect(JSON.parse(serializePromptDocument(result.document)).version).toBe(4)
+    expect(JSON.parse(serializePromptDocument(result.document)).version).toBe(5)
   })
 
   test("recovers the original flat Prompt state and its directives as Raw", () => {
@@ -260,30 +260,23 @@ describe("Reference Prompt state", () => {
     const prompt = {
       ...createEmptyPromptDocument(),
       subjects: [
-        { subjectId: "woman-id", label: "woman" },
-        { subjectId: "cafe-id", label: "cafe" },
+        { tag: "woman", parts: [] },
+        { tag: "cafe", parts: [] },
       ],
       sections: [
         {
           title: "scene",
-          parts: [
-            { type: "subject" as const, subjectId: "woman-id", label: "woman" },
-            { type: "text" as const, text: " enters " },
-            { type: "subject" as const, subjectId: "cafe-id", label: "cafe" },
-          ],
+          parts: [{ type: "text" as const, text: "#woman enters #cafe" }],
         },
       ],
     }
     expect(deserializePromptDocument(serializePromptDocument(prompt)).document).toEqual(prompt)
-    expect(compilePromptDocument(prompt, [])).toBe("scene:\n<Subject 1> enters <Subject 2>")
+    expect(compilePromptDocument(prompt, [])).toBe(
+      "subject_definitions:\n<Subject 1>:\n\n<Subject 2>:\n\nscene:\n<Subject 1> enters <Subject 2>",
+    )
     expect(
-      parseRawPrompt("scene:\n<Subject 2> greets <Subject 1>", [], "raw", prompt.subjects)
-        .sections[0]?.parts,
-    ).toEqual([
-      { type: "subject", subjectId: "cafe-id", label: "cafe" },
-      { type: "text", text: " greets " },
-      { type: "subject", subjectId: "woman-id", label: "woman" },
-    ])
+      parseRawPrompt("scene:\n#cafe greets #woman", [], "raw", prompt).sections[0]?.parts,
+    ).toEqual([{ type: "text", text: "#cafe greets #woman" }])
   })
 })
 
@@ -304,7 +297,7 @@ describe("Reference Prompt section stack", () => {
     root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!.click()
     expect(sectionBody(root, "scene").textContent).toBe("Recovered scene")
     expect(root.querySelector<HTMLElement>("[data-prompt-hint]")?.textContent).toBe("")
-    expect(JSON.parse(controller.serialize())).toMatchObject({ version: 4, view: "structured" })
+    expect(JSON.parse(controller.serialize())).toMatchObject({ version: 5, view: "structured" })
     controller.destroy()
   })
 
@@ -510,7 +503,7 @@ describe("Reference Prompt section stack", () => {
     inputText(scene, "Meet #woman")
     expect(root.querySelectorAll("[data-prompt-subject-create]")).toHaveLength(1)
     expect(press(scene, "Enter")).toBe(false)
-    expect(root.querySelector(".rl-prompt-subject")?.textContent).toContain("#woman")
+    expect(root.querySelector(".rl-prompt-subject")).toBeNull()
 
     inputText(sectionEntry(root), "/camera")
     press(sectionEntry(root), "Enter")
@@ -521,17 +514,17 @@ describe("Reference Prompt section stack", () => {
 
     const serialized = JSON.parse(controller.serialize())
     expect(serialized.subjects).toHaveLength(1)
-    expect(serialized.sections[0].parts[1]).toMatchObject({
-      type: "subject",
-      subjectId: serialized.subjects[0].subjectId,
-      label: "woman",
+    expect(serialized.subjects[0]).toMatchObject({ tag: "woman", parts: [] })
+    expect(serialized.sections[0].parts[0]).toMatchObject({
+      type: "text",
+      text: "Meet #woman ",
     })
     expect(controller.compiledPrompt).toBe(
-      "scene:\nMeet <Subject 1>\n\ncamera_direction:\nFollow <Subject 1>",
+      "subject_definitions:\n<Subject 1>:\n\nscene:\nMeet <Subject 1>\n\ncamera_direction:\nFollow <Subject 1>",
     )
     root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')!.click()
-    expect(JSON.parse(controller.serialize()).subjects).toEqual([])
-    expect(controller.compiledPrompt).toBe("")
+    expect(JSON.parse(controller.serialize()).subjects).toHaveLength(1)
+    expect(controller.compiledPrompt).toBe("subject_definitions:\n<Subject 1>:")
     controller.destroy()
   })
 
@@ -552,10 +545,10 @@ describe("Reference Prompt section stack", () => {
     inputText(renderedScene, "Meet elsewhere")
     expect(JSON.parse(controller.serialize()).subjects).toHaveLength(1)
     inputText(camera, "Show elsewhere")
-    expect(JSON.parse(controller.serialize()).subjects).toEqual([])
+    expect(JSON.parse(controller.serialize()).subjects).toHaveLength(1)
 
     inputText(renderedScene, "Search #pla")
-    expect(root.querySelector("[data-prompt-subject-index]")).toBeNull()
+    expect(root.querySelector("[data-prompt-subject-index]")).not.toBeNull()
     expect(root.querySelector("[data-prompt-subject-create]")).not.toBeNull()
     controller.destroy()
   })
@@ -563,15 +556,15 @@ describe("Reference Prompt section stack", () => {
   test("prunes an already orphaned Subject when restoring saved state", () => {
     const serialized = serializePromptDocument({
       ...createEmptyPromptDocument(),
-      subjects: [{ subjectId: "orphan-id", label: "orphan" }],
+      subjects: [{ tag: "orphan", parts: [] }],
       sections: [{ title: "scene", parts: [{ type: "text", text: "No subjects" }] }],
     })
     const { root, controller } = makeController([], serialized)
-    expect(JSON.parse(controller.serialize()).subjects).toEqual([])
+    expect(JSON.parse(controller.serialize()).subjects).toEqual([{ tag: "orphan", parts: [] }])
 
     const scene = sectionBody(root, "scene")
     inputText(scene, "Search #orph")
-    expect(root.querySelector("[data-prompt-subject-index]")).toBeNull()
+    expect(root.querySelector("[data-prompt-subject-index]")).not.toBeNull()
     expect(root.querySelector("[data-prompt-subject-create]")).not.toBeNull()
     controller.destroy()
   })
@@ -580,17 +573,17 @@ describe("Reference Prompt section stack", () => {
     const serialized = serializePromptDocument({
       ...createEmptyPromptDocument(),
       subjects: [
-        { subjectId: "place-id", label: "place" },
-        { subjectId: "woman-id", label: "woman" },
+        { tag: "place", parts: [] },
+        { tag: "woman", parts: [] },
       ],
       sections: [
         {
           title: "scene",
-          parts: [{ type: "subject", subjectId: "place-id", label: "place" }],
+          parts: [{ type: "text", text: "#place" }],
         },
         {
           title: "camera_direction",
-          parts: [{ type: "subject", subjectId: "woman-id", label: "woman" }],
+          parts: [{ type: "text", text: "#woman" }],
         },
       ],
     })
@@ -621,8 +614,10 @@ describe("Reference Prompt section stack", () => {
       "camera_direction",
       "scene",
     ])
-    expect(controller.document.subjects.map((subject) => subject.label)).toEqual(["place", "woman"])
-    expect(controller.compiledPrompt).toBe("camera_direction:\n<Subject 2>\n\nscene:\n<Subject 1>")
+    expect(controller.document.subjects.map((subject) => subject.tag)).toEqual(["place", "woman"])
+    expect(controller.compiledPrompt).toBe(
+      "subject_definitions:\n<Subject 1>:\n\n<Subject 2>:\n\ncamera_direction:\n<Subject 2>\n\nscene:\n<Subject 1>",
+    )
     expect(transactions).toEqual(["before", "after"])
 
     const movedSceneHandle = root.querySelector<HTMLElement>(
@@ -658,7 +653,7 @@ describe("Reference Prompt section stack", () => {
     inputText(definitions, "#hero")
     expect(root.querySelectorAll("[data-prompt-subject-create]")).toHaveLength(1)
     press(definitions, "Enter")
-    expect(JSON.parse(controller.serialize()).subjects[0].label).toBe("hero")
+    expect(JSON.parse(controller.serialize()).subjects[0].tag).toBe("hero")
     controller.destroy()
   })
 
@@ -666,17 +661,13 @@ describe("Reference Prompt section stack", () => {
     const serialized = serializePromptDocument({
       ...createEmptyPromptDocument(),
       subjects: [
-        { subjectId: "hero-id", label: "hero" },
-        { subjectId: "villain-id", label: "villain" },
+        { tag: "hero", parts: [] },
+        { tag: "villain", parts: [] },
       ],
       sections: [
         {
           title: "subject_definitions",
-          parts: [
-            { type: "subject", subjectId: "hero-id", label: "hero" },
-            { type: "text", text: " and " },
-            { type: "subject", subjectId: "villain-id", label: "villain" },
-          ],
+          parts: [{ type: "text", text: "#hero and #villain" }],
         },
       ],
     })
@@ -684,7 +675,7 @@ describe("Reference Prompt section stack", () => {
       presetId: "minimax_h3_reference",
     })
 
-    const subjects = [...root.querySelectorAll<HTMLElement>(".rl-prompt-subject")]
+    const subjects = [...root.querySelectorAll<HTMLElement>('[data-prompt-definition="subject"]')]
     expect(
       subjects.map((subject) => subject.style.getPropertyValue("--rl-prompt-subject-color")),
     ).toEqual(["#6ea8fe", "#8f9cf4"])
@@ -817,12 +808,12 @@ describe("Reference Prompt section stack", () => {
       })
       const serialized = serializePromptDocument({
         ...createEmptyPromptDocument(),
-        subjects: [{ subjectId: "place-id", label: "place" }],
+        subjects: [{ tag: "place", parts: [] }],
         sections: [
           {
             title: "scene",
             parts: [
-              { type: "subject", subjectId: "place-id", label: "place" },
+              { type: "text", text: "#place" },
               { type: "text", text: " contains " },
               {
                 type: "mention",
@@ -835,11 +826,13 @@ describe("Reference Prompt section stack", () => {
         ],
       })
       const { root, controller } = makeController([imageReference()], serialized)
-      const copy = root.querySelector<HTMLButtonElement>('[data-prompt-action="copy"]')!
+      const copy = root.querySelector<HTMLButtonElement>('[data-prompt-action="copy-compiled"]')!
       expect(copy.disabled).toBe(false)
       copy.click()
       await new Promise((resolve) => setTimeout(resolve, 0))
-      expect(copied).toEqual(["scene:\n<Subject 1> contains <Picture 1>"])
+      expect(copied).toEqual([
+        "subject_definitions:\n<Subject 1>:\n\nscene:\n<Subject 1> contains <Picture 1>",
+      ])
       expect(root.querySelector<HTMLElement>("[data-prompt-hint]")?.textContent).toBe(
         "Prompt copied.",
       )
@@ -862,9 +855,9 @@ describe("Reference Prompt section stack", () => {
 
   test("disables Copy while Prompt is empty", () => {
     const { root, controller } = makeController()
-    expect(root.querySelector<HTMLButtonElement>('[data-prompt-action="copy"]')?.disabled).toBe(
-      true,
-    )
+    expect(
+      root.querySelector<HTMLButtonElement>('[data-prompt-action="copy-source"]')?.disabled,
+    ).toBe(true)
     controller.destroy()
   })
 

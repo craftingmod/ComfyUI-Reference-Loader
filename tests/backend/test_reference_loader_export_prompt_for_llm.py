@@ -55,13 +55,12 @@ def _bundle(module):
     }
   )
   prompt_state_json = (
-    '{"sections":[{"parts":[{"label":"woman","subjectId":"subject-woman",'
-    '"type":"subject"},{"text":" uses ","type":"text"},'
+    '{"sections":[{"parts":[{"text":"<Subject 1> uses ","type":"text"},'
     '{"label":"image1","mediaKind":"image","referenceId":"image",'
     '"type":"mention"},{"text":" carefully","type":"text"}],'
     '"title":"detailed_description"},{"parts":[{"text":"N/A",'
     '"type":"text"}],"title":"non_diegetic_music"}],'
-    '"subjects":[{"subjectId":"subject-woman","label":"woman"}],"version":4}'
+    '"shots":[],"subjects":[],"version":5}'
   )
   return module.ReferenceLoaderBundle(
     images=("image-payload",),
@@ -170,10 +169,13 @@ def test_export_prompt_for_llm_does_not_evaluate_response_seq_without_media():
   )
   bundle = _empty_bundle(module)
 
-  assert module.ReferenceLoaderExportPromptForLLMNode.check_lazy_status(
-    [bundle],
-    response_seq=None,
-  ) == []
+  assert (
+    module.ReferenceLoaderExportPromptForLLMNode.check_lazy_status(
+      [bundle],
+      response_seq=None,
+    )
+    == []
+  )
   assert module.ReferenceLoaderExportPromptForLLMNode.check_lazy_status(
     [_bundle(module)],
     response_seq=None,

@@ -32,6 +32,15 @@ import {
   type MediaItem,
 } from "../types.ts"
 import { VideoPreviewPlayer } from "../video-preview-player.ts"
+import {
+  createLoaderViewSnapshot,
+  projectPromptReferences,
+  promptReferenceSourceKey,
+  sameLoaderViewSnapshot,
+  samePromptReferences,
+  type LoaderDisplayState,
+  type LoaderViewSnapshot,
+} from "../view-model.ts"
 import { isSilentWaveform } from "../waveform.ts"
 import { createH3GuideEditor, type H3GuidePosition } from "./h3-guide-editor.tsx"
 import { H3Timeline, type TimelineView } from "./h3-timeline.ts"
@@ -87,16 +96,7 @@ export interface ReferenceLoaderControllerOptions {
   mode?: ReferenceLoaderMode
 }
 
-export interface LoaderDisplayState {
-  gridColumns: number
-  previewPixels: number
-  showCaptions: boolean
-  twoImageMode: boolean
-  promptByOrder: boolean
-  cardAspect: string
-  previewFit: "contain" | "cover"
-  waveformPairs: number
-}
+export type { LoaderDisplayState } from "../view-model.ts"
 
 const DRAG_MIME = "application/x-reference-loader-item"
 const NODE_PROPERTY_KEY = "referenceLoader"
@@ -366,6 +366,10 @@ export class ReferenceLoaderController {
   #changeEvents: LoaderChangeEvents
   #mode: ReferenceLoaderMode
   #referenceListeners = new Set<() => void>()
+  #viewListeners = new Set<() => void>()
+  #viewSnapshot: LoaderViewSnapshot | undefined
+  #promptReferences: PromptReference[] = []
+  #promptReferenceSourceKey = ""
   #h3Collapsed = true
   #h3SummaryExpanded = false
   #h3BodyId = `rl-h3-media-guides-body-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`
@@ -397,6 +401,9 @@ export class ReferenceLoaderController {
     this.#store = new LoaderStore(this.#stateForMode(parsed.state))
     if (parsed.issues.length > 0) this.#status = parsed.issues.join(" ")
     else if (this.#mode === "single-image") this.#status = ""
+    this.#promptReferences = projectPromptReferences(this.state, this.#runtime)
+    this.#promptReferenceSourceKey = promptReferenceSourceKey(this.state)
+    this.#viewSnapshot = this.#buildViewSnapshot()
     this.#installEvents()
     this.#unsubscribeAudioPreview = this.#audioPreview.subscribe(() => this.#syncPlaybackUi())
     this.#unsubscribeVideoPreview = this.#videoPreview.subscribe(() => this.#syncPlaybackUi())
@@ -412,6 +419,22 @@ export class ReferenceLoaderController {
   }
 
   get displayState(): LoaderDisplayState {
+    return this.getViewSnapshot().display
+  }
+
+  getViewSnapshot(): LoaderViewSnapshot {
+    if (!this.#viewSnapshot) this.#viewSnapshot = this.#buildViewSnapshot()
+    return this.#viewSnapshot
+  }
+
+  subscribeView(listener: () => void): () => void {
+    if (this.#destroyed) return () => undefined
+    this.#viewListeners.add(listener)
+    listener()
+    return () => this.#viewListeners.delete(listener)
+  }
+
+  #displayState(): LoaderDisplayState {
     return {
       gridColumns: this.state.ui.gridColumns,
       previewPixels: this.state.ui.previewMaxPixels / 1_000_000,
@@ -425,59 +448,8 @@ export class ReferenceLoaderController {
   }
 
   get promptReferences(): PromptReference[] {
-    const references: PromptReference[] = []
-    let ordinal = 0
-    for (const id of this.state.imageOrder) {
-      const item = this.state.items[id]
-      if (!item || item.kind !== "image" || !item.imageEnabled) continue
-      ordinal += 1
-      references.push({
-        referenceId: id,
-        itemId: id,
-        mediaKind: "image",
-        ordinal,
-        tag: `<Picture ${ordinal}>`,
-        label: `image${ordinal}`,
-        filename: itemFilename(item),
-        ...(this.#runtime.get(id)?.previewUrl
-          ? { previewUrl: this.#runtime.get(id)?.previewUrl }
-          : {}),
-      })
-    }
-    ordinal = 0
-    for (const id of this.state.videoOrder) {
-      const item = this.state.items[id]
-      if (!item || item.kind !== "video" || !item.videoEnabled) continue
-      ordinal += 1
-      references.push({
-        referenceId: id,
-        itemId: id,
-        mediaKind: "video",
-        ordinal,
-        tag: `<Video ${ordinal}>`,
-        label: `video${ordinal}`,
-        filename: itemFilename(item),
-        ...(this.#runtime.get(id)?.previewUrl
-          ? { previewUrl: this.#runtime.get(id)?.previewUrl }
-          : {}),
-      })
-    }
-    ordinal = 0
-    for (const id of this.state.audioOrder) {
-      const item = this.state.items[id]
-      if (!item || !isAudioItem(item) || !item.audioEnabled) continue
-      ordinal += 1
-      references.push({
-        referenceId: item.kind === "video" ? `${id}:audio` : id,
-        itemId: id,
-        mediaKind: "audio",
-        ordinal,
-        tag: `<Audio ${ordinal}>`,
-        label: `audio${ordinal}`,
-        filename: itemFilename(item),
-      })
-    }
-    return references
+    this.#syncPromptReferences(false)
+    return this.#promptReferences
   }
 
   subscribePromptReferences(listener: () => void): () => void {
@@ -638,6 +610,7 @@ export class ReferenceLoaderController {
         : this.#mode === "single-image"
           ? ""
           : "Workflow state restored."
+    this.#syncPromptReferences()
     this.#cancelScheduledRender()
     this.#hydrateRestoredRuntime(true)
   }
@@ -691,6 +664,7 @@ export class ReferenceLoaderController {
     this.#runtime.clear()
     this.#runtimeSequences.clear()
     this.#referenceListeners.clear()
+    this.#viewListeners.clear()
     this.#promptShots = []
     this.#promptShotChange = undefined
     this.#promptShotSelect = undefined
@@ -705,6 +679,7 @@ export class ReferenceLoaderController {
 
   render(force = false): void {
     if (this.#destroyed) return
+    this.#publishView()
     if (this.#h3Axis?.dragging) {
       this.#renderPending = true
       return
@@ -785,7 +760,6 @@ export class ReferenceLoaderController {
     this.#mountH3Timeline()
     this.#drawWaveforms()
     this.#syncPlaybackUi()
-    for (const listener of this.#referenceListeners) listener()
   }
 
   #renderSingleImage(state: LoaderState): void {
@@ -829,7 +803,6 @@ export class ReferenceLoaderController {
         }
         ${status}
       </section>`
-    for (const listener of this.#referenceListeners) listener()
   }
 
   #hydrateRestoredRuntime(force = false): void {
@@ -853,6 +826,48 @@ export class ReferenceLoaderController {
     if (this.#renderFrame === undefined) return
     globalThis.cancelAnimationFrame(this.#renderFrame)
     this.#renderFrame = undefined
+  }
+
+  #buildViewSnapshot(): LoaderViewSnapshot {
+    return createLoaderViewSnapshot({
+      state: this.state,
+      display: this.#displayState(),
+      runtime: this.#runtime,
+      pending: [...this.#pending.values()].map((pending) => ({
+        id: pending.id,
+        filename: pending.file.name,
+      })),
+      selectedId: this.#selectedId,
+      status: this.#status,
+      canUndo: this.#store.canUndo,
+      canRedo: this.#store.canRedo,
+    })
+  }
+
+  #publishView(): void {
+    const next = this.#buildViewSnapshot()
+    if (this.#viewSnapshot && sameLoaderViewSnapshot(this.#viewSnapshot, next)) return
+    this.#viewSnapshot = next
+    for (const listener of this.#viewListeners) listener()
+  }
+
+  #syncPromptReferences(notify = true): boolean {
+    const next = projectPromptReferences(this.state, this.#runtime)
+    const nextSourceKey = promptReferenceSourceKey(this.state)
+    if (
+      samePromptReferences(this.#promptReferences, next) &&
+      this.#promptReferenceSourceKey === nextSourceKey
+    )
+      return false
+    this.#promptReferences = next
+    this.#promptReferenceSourceKey = nextSourceKey
+    if (notify) for (const listener of this.#referenceListeners) listener()
+    return true
+  }
+
+  #publishRuntimeUpdate(): void {
+    this.#publishView()
+    this.#syncPromptReferences()
   }
 
   #pendingMarkup(): string {
@@ -1696,8 +1711,10 @@ export class ReferenceLoaderController {
       case "remove":
         if (id && this.#audioPreview.snapshot.owner === `grid:${id}`) this.#audioPreview.stop()
         if (id && this.#videoPreview.snapshot.owner === `grid:${id}`) this.#videoPreview.stop()
-        if (id) this.#dispatch({ type: "remove", id })
-        this.#runtime.delete(id ?? "")
+        if (id) {
+          this.#runtime.delete(id)
+          this.#dispatch({ type: "remove", id })
+        }
         return
       case "toggle-image":
         if (id) this.#toggleOutput(id, "image")
@@ -2316,6 +2333,7 @@ export class ReferenceLoaderController {
       card.classList.toggle("is-selected", selected)
       card.setAttribute("aria-selected", String(selected))
     }
+    this.#publishView()
   }
 
   #clearAll(): void {
@@ -2779,7 +2797,8 @@ export class ReferenceLoaderController {
     this.#recordGraphChange(() => {
       this.#store.disableSilentVideoAudio(id)
     })
-    this.#node.setDirtyCanvas(true, true)
+    this.#finishStateChange()
+    this.render()
   }
 
   async #uploadFile(file: File, replaceId?: string): Promise<void> {
@@ -2915,6 +2934,7 @@ export class ReferenceLoaderController {
         ...(proxy ? { previewUrl: proxy.url } : {}),
         ...(waveform ? { waveform: waveform.pairs } : {}),
       })
+      this.#publishRuntimeUpdate()
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return
       if (
@@ -2928,6 +2948,7 @@ export class ReferenceLoaderController {
         loading: false,
         error: error instanceof Error ? error.message : "Preview failed.",
       })
+      this.#publishRuntimeUpdate()
     } finally {
       release()
     }
@@ -3029,6 +3050,7 @@ export class ReferenceLoaderController {
               ? { metadata: runtime.metadata }
               : {}),
         })
+        this.#publishRuntimeUpdate()
         this.render(true)
         // The proxy URL arrives after the graph-backed edit state has already
         // dirtied the canvas. Notify ComfyUI again after replacing the card DOM
@@ -3106,6 +3128,7 @@ export class ReferenceLoaderController {
           loading: false,
           error: error instanceof Error ? error.message : "Edit failed.",
         })
+        this.#publishRuntimeUpdate()
         this.render()
       }
     } finally {
@@ -3149,7 +3172,10 @@ export class ReferenceLoaderController {
     this.#recordGraphChange(() => {
       changed = this.#store.dispatch(action, { mergeKey: options.mergeKey })
     })
-    if (changed && options.render !== false) this.#changed()
+    if (changed) {
+      this.#finishStateChange()
+      if (options.render !== false) this.render()
+    }
     return changed
   }
 
@@ -3199,6 +3225,15 @@ export class ReferenceLoaderController {
 
   #changed(reloadRuntime = false): void {
     if (this.#destroyed) return
+    this.#finishStateChange()
+    this.render()
+    if (reloadRuntime) {
+      for (const item of Object.values(this.state.items)) void this.#loadRuntime(item)
+    }
+  }
+
+  #finishStateChange(): void {
+    if (this.#destroyed) return
     if (this.#selectedId && !this.state.items[this.#selectedId]) this.#selectedId = undefined
     if (this.#h3Editor?.mediaId) {
       const itemId = this.#h3Editor.mediaId.endsWith(":audio")
@@ -3215,10 +3250,8 @@ export class ReferenceLoaderController {
       }
     }
     this.#node.setDirtyCanvas(true, true)
-    this.render()
-    if (reloadRuntime) {
-      for (const item of Object.values(this.state.items)) void this.#loadRuntime(item)
-    }
+    this.#syncPromptReferences()
+    this.#publishView()
   }
 }
 

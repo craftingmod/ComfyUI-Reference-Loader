@@ -220,8 +220,10 @@ export function loaderReducer(state: LoaderState, action: LoaderAction): LoaderS
       if (!item) return state
       const caption = action.caption.slice(0, 16_384)
       if (item.kind === "video" && action.channel === "audio") {
+        if (item.audioCaptionOverride === caption) return state
         return replaceItem(state, { ...item, audioCaptionOverride: caption })
       }
+      if (item.caption === caption) return state
       return replaceItem(state, { ...item, caption })
     }
     case "toggle": {

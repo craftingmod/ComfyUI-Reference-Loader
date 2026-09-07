@@ -18,15 +18,7 @@ import {
   validateH3Timeline,
   type H3GuideChannel,
 } from "../h3-media-guides.ts"
-import {
-  canRedo,
-  canUndo,
-  commitHistory,
-  createHistory,
-  redoHistory,
-  undoHistory,
-  type HistoryState,
-} from "../history.ts"
+import { LoaderStore, type LoaderDispatchOptions } from "../loader-store.ts"
 import type { PromptReference, PromptShot } from "../prompt-state.ts"
 import { loaderReducer, type LoaderAction, type LoaderChannel } from "../reducer.ts"
 import { deserializeLoaderState, serializeLoaderState } from "../serialization.ts"
@@ -41,13 +33,13 @@ import {
 } from "../types.ts"
 import { VideoPreviewPlayer } from "../video-preview-player.ts"
 import { isSilentWaveform } from "../waveform.ts"
-import { H3Timeline, type TimelineView } from "./h3-timeline.ts"
 import { createH3GuideEditor, type H3GuidePosition } from "./h3-guide-editor.tsx"
+import { H3Timeline, type TimelineView } from "./h3-timeline.ts"
 
 function isH3ReactEvent(event: Event): boolean {
-  return event.composedPath().some(
-    (target) => target instanceof HTMLElement && target.hasAttribute("data-h3-react-surface"),
-  )
+  return event
+    .composedPath()
+    .some((target) => target instanceof HTMLElement && target.hasAttribute("data-h3-react-surface"))
 }
 
 interface PendingUpload {
@@ -346,7 +338,7 @@ export class ReferenceLoaderController {
   readonly root: HTMLElement
   #node: ComfyNode
   #api: ReferenceLoaderApi
-  #history: HistoryState<LoaderState>
+  #store: LoaderStore
   #runtime = new Map<string, ItemRuntime>()
   #runtimeSequences = new Map<string, number>()
   #runtimeSequence = 0
@@ -402,7 +394,7 @@ export class ReferenceLoaderController {
     this.#changeEvents = changeEvents
     this.#mode = options.mode ?? "references"
     const parsed = deserializeLoaderState(serialized)
-    this.#history = createHistory(this.#stateForMode(parsed.state))
+    this.#store = new LoaderStore(this.#stateForMode(parsed.state))
     if (parsed.issues.length > 0) this.#status = parsed.issues.join(" ")
     else if (this.#mode === "single-image") this.#status = ""
     this.#installEvents()
@@ -412,7 +404,7 @@ export class ReferenceLoaderController {
   }
 
   get state(): LoaderState {
-    return this.#history.present
+    return this.#store.state
   }
 
   get h3Timeline(): H3TimelineState {
@@ -633,7 +625,7 @@ export class ReferenceLoaderController {
     for (const pending of this.#pending.values()) URL.revokeObjectURL(pending.objectUrl)
     this.#pending.clear()
     const parsed = deserializeLoaderState(serialized)
-    this.#history = createHistory(this.#stateForMode(parsed.state))
+    this.#store.restore(this.#stateForMode(parsed.state))
     this.#selectedId = undefined
     this.#h3Editor = undefined
     this.#h3SummaryExpanded = false
@@ -752,9 +744,11 @@ export class ReferenceLoaderController {
       return
     }
     const reactEditor = this.#h3ReactEditor
-    const activeReactField = active instanceof HTMLElement &&
+    const activeReactField =
+      active instanceof HTMLElement &&
       (reactEditor?.view.media.contains(active) || reactEditor?.view.body.contains(active))
-      ? active : undefined
+        ? active
+        : undefined
     if (reactEditor && reactEditor.session !== this.#h3Editor) {
       reactEditor.view.destroy()
       this.#h3ReactEditor = undefined
@@ -771,8 +765,8 @@ export class ReferenceLoaderController {
         </header>
         <section class="rl-toolbar" aria-label="Reference Loader toolbar">
           <label class="rl-primary rl-file-button" aria-label="Add media" title="Add media">Add<input type="file" accept="image/*,audio/*,video/*" multiple></label>
-          <button type="button" data-action="undo" ${canUndo(this.#history) ? "" : "disabled"} title="Undo (Ctrl+Z)">↶ Undo</button>
-          <button type="button" data-action="redo" ${canRedo(this.#history) ? "" : "disabled"} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+          <button type="button" data-action="undo" ${this.#store.canUndo ? "" : "disabled"} title="Undo (Ctrl+Z)">↶ Undo</button>
+          <button type="button" data-action="redo" ${this.#store.canRedo ? "" : "disabled"} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
           <button type="button" class="rl-clear" data-action="clear" ${hasClearableState ? "" : "disabled"} title="Clear all references and Timeline Guides (Undo available)">Clear</button>
           <span class="rl-snapshot"><button type="button" class="rl-snapshot__trigger" data-action="snapshot-menu" aria-haspopup="menu" aria-expanded="${String(this.#snapshotMenuOpen)}">Snapshot <span aria-hidden="true">▾</span></button><span class="rl-snapshot__menu" role="menu"${this.#snapshotMenuOpen ? "" : " hidden"}><button type="button" role="menuitem" data-action="snapshot-save" title="Save Loader and Prompt settings to JSON">Save</button><button type="button" role="menuitem" data-action="snapshot-load" title="Load Loader and Prompt settings from JSON">Load</button></span><input type="file" accept="application/json,.json" data-snapshot-input aria-label="Load snapshot" hidden></span>
         </section>
@@ -1387,14 +1381,12 @@ export class ReferenceLoaderController {
       })
   }
 
-  #h3RecoveryGuideMarkup(
-    guide: {
-      id: string
-      frameIndex: number
-      visualId: string | null
-      audioId: string | null
-    },
-  ): string {
+  #h3RecoveryGuideMarkup(guide: {
+    id: string
+    frameIndex: number
+    visualId: string | null
+    audioId: string | null
+  }): string {
     const visualOptions = this.#h3VisualOptions(guide.visualId)
     const audioOptions = this.#h3AudioOptions(guide.audioId)
     return `<article class="rl-h3-editor__placement rl-h3-editor__stack-row" data-h3-guide-id="${escapeHtml(guide.id)}"><div class="rl-h3-editor__placement-heading"><label><span>Frame</span><input type="number" min="0" step="1" value="${Number.isInteger(guide.frameIndex) ? String(guide.frameIndex) : ""}" data-h3-draft-field="frame" data-h3-guide-id="${escapeHtml(guide.id)}" aria-describedby="h3-frame-${escapeHtml(guide.id)}"></label><span id="h3-frame-${escapeHtml(guide.id)}" class="rl-h3-editor__seconds">${Number.isInteger(guide.frameIndex) ? `${(guide.frameIndex / 24).toFixed(2)}s` : ""}</span><button type="button" data-h3-action="delete-draft-placement" data-h3-delete-mode="entry" data-h3-guide-id="${escapeHtml(guide.id)}" aria-label="Delete incomplete Guide" title="Delete incomplete Guide">×</button></div><label><span>Visual source</span><select data-h3-draft-field="visual" data-h3-guide-id="${escapeHtml(guide.id)}">${visualOptions}</select></label><label><span>Audio source</span><select data-h3-draft-field="audio" data-h3-guide-id="${escapeHtml(guide.id)}">${audioOptions}</select></label></article>`
@@ -1685,14 +1677,16 @@ export class ReferenceLoaderController {
         this.root.querySelector<HTMLInputElement>("[data-snapshot-input]")?.click()
         return
       case "undo":
+        if (!this.#store.canUndo) return
         this.#recordGraphChange(() => {
-          this.#history = undoHistory(this.#history)
+          this.#store.undo()
         })
         this.#changed(true)
         return
       case "redo":
+        if (!this.#store.canRedo) return
         this.#recordGraphChange(() => {
-          this.#history = redoHistory(this.#history)
+          this.#store.redo()
         })
         this.#changed(true)
         return
@@ -2446,18 +2440,14 @@ export class ReferenceLoaderController {
     const id = card?.dataset.id
     const channel = card?.dataset.channel as LoaderChannel | undefined
     if (!id || !channel) return
-    const next = loaderReducer(this.state, {
-      type: "set-caption",
-      id,
-      caption: textarea.value,
-      channel,
-    })
-    if (next === this.state) return
-    this.#recordGraphChange(() => {
-      this.#history = commitHistory(this.#history, next, {
+    const changed = this.#dispatch(
+      { type: "set-caption", id, caption: textarea.value, channel },
+      {
         mergeKey: this.#composing ? `ime:${channel}:${id}` : `caption:${channel}:${id}`,
-      })
-    })
+        render: false,
+      },
+    )
+    if (!changed) return
     this.#syncCaptionFields(id, textarea)
     this.#node.setDirtyCanvas(true, true)
   }
@@ -2785,26 +2775,9 @@ export class ReferenceLoaderController {
 
   #disableSilentVideoAudio(id: string): void {
     if (this.#destroyed) return
-    const disable = (state: LoaderState): LoaderState => {
-      const candidate = state.items[id]
-      if (candidate?.kind !== "video") return state
-      let next = state
-      if (candidate.audioEnabled)
-        next = loaderReducer(next, { type: "toggle", id, channel: "audio" })
-      const current = next.items[id]
-      if (current?.kind === "video" && current.videoAudioEnabled)
-        next = loaderReducer(next, { type: "toggle-video-audio", id })
-      return next
-    }
-    const present = disable(this.#history.present)
-    if (present === this.#history.present) return
+    if (!this.#store.canDisableSilentVideoAudio(id)) return
     this.#recordGraphChange(() => {
-      this.#history = {
-        ...this.#history,
-        past: this.#history.past.map(disable),
-        present,
-        future: this.#history.future.map(disable),
-      }
+      this.#store.disableSilentVideoAudio(id)
     })
     this.#node.setDirtyCanvas(true, true)
   }
@@ -3166,14 +3139,18 @@ export class ReferenceLoaderController {
     this.#runtimeSequences.set(id, ++this.#runtimeSequence)
   }
 
-  #dispatch(action: LoaderAction): void {
-    if (this.#destroyed) return
-    const next = loaderReducer(this.state, action)
-    if (next === this.state) return
+  #dispatch(
+    action: LoaderAction,
+    options: LoaderDispatchOptions & { render?: boolean } = {},
+  ): boolean {
+    if (this.#destroyed) return false
+    if (!this.#store.hasChange(action)) return false
+    let changed = false
     this.#recordGraphChange(() => {
-      this.#history = commitHistory(this.#history, next)
+      changed = this.#store.dispatch(action, { mergeKey: options.mergeKey })
     })
-    this.#changed()
+    if (changed && options.render !== false) this.#changed()
+    return changed
   }
 
   #activeImageCount(): number {

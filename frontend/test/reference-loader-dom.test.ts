@@ -188,6 +188,73 @@ describe("Reference Loader DOM lifecycle", () => {
     root.remove()
   })
 
+  test("merges caption input during IME into one undoable change", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const image = createMediaItem(
+      "image",
+      { path: "reference_loader/sources/ime.png", mime: "image/png", sha256: "d".repeat(64) },
+      "ime-image",
+    )
+    const state = loaderReducer(createEmptyLoaderState(), { type: "add", item: image })
+    const controller = new ReferenceLoaderController(
+      root,
+      {
+        addWidget: () => ({ name: "unused", value: null }),
+        addDOMWidget: () => ({ name: "unused", value: null }),
+        setDirtyCanvas: () => undefined,
+      },
+      new ReferenceLoaderApi({ fetchApi: async () => new Promise<Response>(() => undefined) }),
+      serializeLoaderState(state),
+    )
+    const caption = root.querySelector<HTMLTextAreaElement>('textarea[data-field="caption"]')
+    expect(caption).not.toBeNull()
+
+    caption?.dispatchEvent(new Event("compositionstart", { bubbles: true }))
+    for (const value of ["한", "한글"]) {
+      if (caption) caption.value = value
+      caption?.dispatchEvent(new Event("input", { bubbles: true }))
+    }
+    caption?.dispatchEvent(new Event("compositionend", { bubbles: true }))
+    expect(controller.state.items[image.id]?.caption).toBe("한글")
+
+    controller.render(true)
+    root.querySelector<HTMLButtonElement>('[data-action="undo"]')?.click()
+    expect(controller.state.items[image.id]?.caption).toBe("")
+    root.querySelector<HTMLButtonElement>('[data-action="redo"]')?.click()
+    expect(controller.state.items[image.id]?.caption).toBe("한글")
+    controller.destroy()
+    root.remove()
+  })
+
+  test("writes display properties through one graph transaction and ignores a no-op", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const transactions: string[] = []
+    const controller = new ReferenceLoaderController(
+      root,
+      {
+        addWidget: () => ({ name: "unused", value: null }),
+        addDOMWidget: () => ({ name: "unused", value: null }),
+        setDirtyCanvas: () => undefined,
+        graph: {
+          beforeChange: () => transactions.push("before"),
+          afterChange: () => transactions.push("after"),
+        },
+      },
+      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
+      undefined,
+    )
+
+    controller.writeDisplayProxy({ showCaptions: false })
+    controller.writeDisplayProxy({ showCaptions: false })
+
+    expect(controller.displayState.showCaptions).toBe(false)
+    expect(transactions).toEqual(["before", "after"])
+    controller.destroy()
+    root.remove()
+  })
+
   test("numbers only enabled outputs independently in each media channel", () => {
     const root = document.createElement("div")
     document.body.append(root)
@@ -1484,6 +1551,10 @@ describe("Reference Loader DOM lifecycle", () => {
     )
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(routes.some((route) => route.endsWith("waveform"))).toBe(false)
+    expect(controller.state.items.v).toMatchObject({
+      audioEnabled: false,
+      videoAudioEnabled: false,
+    })
     expect(
       root
         .querySelector<HTMLImageElement>('.rl-card[data-channel="video"] img')

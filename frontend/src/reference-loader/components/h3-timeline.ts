@@ -174,21 +174,35 @@ export class H3Timeline {
       { signal },
     )
     root.addEventListener("wheel", (event) => event.stopPropagation(), { signal })
-    root.addEventListener("pointerdown", (event) => this.#pointerDown(event), { signal })
-    document.addEventListener("pointermove", (event) => this.#pointerMove(event), { signal })
+    // Nodes 2.0 may stop widget pointer events while they bubble through its
+    // Vue wrapper. Capture the gesture before that wrapper can consume it.
+    root.addEventListener("pointerdown", (event) => this.#pointerDown(event), {
+      signal,
+      capture: true,
+    })
+    document.addEventListener("pointermove", (event) => this.#pointerMove(event), {
+      signal,
+      capture: true,
+    })
     document.addEventListener(
       "pointerup",
       (event) => {
-        if (event.pointerId === this.#drag?.pointerId) this.#finish(false)
+        if (event.pointerId === this.#drag?.pointerId) {
+          event.stopPropagation()
+          this.#finish(false)
+        }
       },
-      { signal },
+      { signal, capture: true },
     )
     document.addEventListener(
       "pointercancel",
       (event) => {
-        if (event.pointerId === this.#drag?.pointerId) this.#finish(true)
+        if (event.pointerId === this.#drag?.pointerId) {
+          event.stopPropagation()
+          this.#finish(true)
+        }
       },
-      { signal },
+      { signal, capture: true },
     )
     document.addEventListener(
       "keydown",

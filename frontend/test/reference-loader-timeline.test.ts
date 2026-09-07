@@ -184,6 +184,37 @@ describe("Guide timeline", () => {
     expect(changes).toEqual([72])
   })
 
+  test("starts and continues a drag when a Nodes 2.0 wrapper stops bubbling", () => {
+    const host = document.createElement("div")
+    const root = document.createElement("div")
+    host.append(root)
+    document.body.append(host)
+    const changes: number[] = []
+    const axis = new H3Timeline(
+      root,
+      fixture(),
+      new Map(),
+      { zoom: 1, scrollLeft: 0 },
+      {
+        select: () => undefined,
+        change: (_id, frame) => changes.push(frame),
+        settled: () => undefined,
+      },
+    )
+    cleanups.push(() => {
+      axis.destroy()
+      host.remove()
+    })
+    sizeSurface(root)
+    const mark = root.querySelector<HTMLElement>('[data-timeline-guide="pair"]')!
+    mark.addEventListener("pointerdown", (event) => event.stopPropagation())
+    host.addEventListener("pointermove", (event) => event.stopPropagation())
+    pointer(mark, "pointerdown", 128)
+    pointer(mark, "pointermove", 192)
+    pointer(mark, "pointerup", 192)
+    expect(changes).toEqual([72])
+  })
+
   test("defers full renders during dragging and discards the edited frame on Cancel", () => {
     const { root, controller } = mount()
     sizeSurface(root)

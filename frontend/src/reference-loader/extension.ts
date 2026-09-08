@@ -312,8 +312,13 @@ function saveSnapshot(node: ComfyNode, loader: ReferenceLoaderController): void 
   const anchor = document.createElement("a")
   anchor.href = url
   anchor.download = REFERENCE_LOADER_SNAPSHOT_FILENAME
+  anchor.style.display = "none"
+  document.body.append(anchor)
   anchor.click()
-  globalThis.setTimeout(() => URL.revokeObjectURL(url), 0)
+  globalThis.setTimeout(() => {
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  }, 1000)
 }
 
 async function loadSnapshot(

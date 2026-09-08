@@ -540,6 +540,71 @@ describe("Reference Loader custom widget", () => {
     expect(presetWidget.callback).toBe(originalPresetCallback)
   })
 
+  test("downloads a snapshot from the React Media menu", async () => {
+    let extension: ComfyExtension | undefined
+    const app: ComfyAppLike = {
+      registerExtension(candidate) {
+        extension = candidate
+      },
+    }
+    registerReferenceLoader(app, { fetchApi: async () => new Response("{}") })
+    const factories = extension?.getCustomWidgets?.()
+    const loaderFactory = factories?.[REFERENCE_LOADER_WIDGET_TYPE]
+    const promptFactory = factories?.[REFERENCE_PROMPT_WIDGET_TYPE]
+    const loaderWidget: ComfyWidget = { name: "loader_state", value: "" }
+    const alphaBackground: ComfyWidget = { name: "alpha_background", value: "" }
+    const promptWidget: ComfyWidget = { name: "prompt", value: "" }
+    const roots = new Map<string, HTMLElement>()
+    const node: ComfyNode = {
+      widgets: [loaderWidget, alphaBackground, promptWidget],
+      addDOMWidget(name, _type, element) {
+        roots.set(name, element)
+        return name === "loader_state" ? loaderWidget : promptWidget
+      },
+      setDirtyCanvas: () => undefined,
+    }
+    loaderFactory?.(
+      node,
+      "loader_state",
+      ["STRING", { default: serializeLoaderState(createEmptyLoaderState()) }],
+      app,
+    )
+    promptFactory?.(
+      node,
+      "prompt",
+      ["STRING", { default: serializePromptDocument(createEmptyPromptDocument()) }],
+      app,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const originalCreateObjectURL = URL.createObjectURL
+    const originalRevokeObjectURL = URL.revokeObjectURL
+    const originalAnchorClick = HTMLAnchorElement.prototype.click
+    let clicked: HTMLAnchorElement | undefined
+    let wasConnected = false
+    URL.createObjectURL = () => "blob:reference-loader-test"
+    URL.revokeObjectURL = () => undefined
+    HTMLAnchorElement.prototype.click = function () {
+      clicked = this
+      wasConnected = this.isConnected
+    }
+    try {
+      const root = roots.get("loader_state")
+      root?.querySelector<HTMLButtonElement>('[data-action="snapshot-menu"]')?.click()
+      root?.querySelector<HTMLButtonElement>('[data-action="snapshot-save"]')?.click()
+
+      expect(clicked?.download).toBe("reference-loader-snapshot.json")
+      expect(wasConnected).toBe(true)
+      expect(root?.querySelector(".rl-status")?.textContent).toBe("Snapshot saved.")
+    } finally {
+      URL.createObjectURL = originalCreateObjectURL
+      URL.revokeObjectURL = originalRevokeObjectURL
+      HTMLAnchorElement.prototype.click = originalAnchorClick
+      loaderWidget.onRemove?.()
+      promptWidget.onRemove?.()
+    }
+  })
+
   test("loads one validated snapshot across Loader, Prompt, properties, and native widgets", async () => {
     let extension: ComfyExtension | undefined
     let beforeChanges = 0

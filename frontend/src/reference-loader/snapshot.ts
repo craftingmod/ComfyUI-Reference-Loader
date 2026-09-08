@@ -159,6 +159,18 @@ function widgetValue(node: ComfyNode, name: string, fallback: unknown): unknown 
   return node.widgets?.find((widget) => widget.name === name)?.value ?? fallback
 }
 
+function snapshotAlphaBackground(value: unknown): string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/u.test(value)
+    ? value
+    : "#000000"
+}
+
+function snapshotMaxImagePixels(value: unknown): number {
+  const number =
+    typeof value === "number" ? value : typeof value === "string" ? Number(value.trim()) : NaN
+  return Number.isFinite(number) && number >= 0.25 && number <= 40 ? number : 2
+}
+
 export function captureReferenceLoaderSnapshotSettings(
   node: ComfyNode,
   display: Pick<ReferenceLoaderSnapshotSettings, "showCaptions" | "twoImageMode" | "promptByOrder">,
@@ -166,9 +178,9 @@ export function captureReferenceLoaderSnapshotSettings(
 ): ReferenceLoaderSnapshotSettings {
   return {
     limitImagePixels: widgetValue(node, "limit_image_pixels", false) === true,
-    maxImagePixels: Number(widgetValue(node, "max_image_pixels", 2)),
+    maxImagePixels: snapshotMaxImagePixels(widgetValue(node, "max_image_pixels", 2)),
     compositeAlpha: widgetValue(node, "composite_alpha", false) === true,
-    alphaBackground: String(widgetValue(node, "alpha_background", "#000000")),
+    alphaBackground: snapshotAlphaBackground(widgetValue(node, "alpha_background", "#000000")),
     promptSchemaPreset,
     ...display,
   }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
+import type { ComfyNode } from "../src/comfyui.ts"
 import {
   createEmptyPromptDocument,
   deserializePromptDocument,
@@ -8,6 +9,7 @@ import {
 import { loaderReducer } from "../src/reference-loader/reducer.ts"
 import { serializeLoaderState } from "../src/reference-loader/serialization.ts"
 import {
+  captureReferenceLoaderSnapshotSettings,
   parseReferenceLoaderSnapshot,
   REFERENCE_LOADER_SNAPSHOT_FORMAT,
   REFERENCE_LOADER_SNAPSHOT_VERSION,
@@ -28,6 +30,32 @@ const settings: ReferenceLoaderSnapshotSettings = {
 }
 
 describe("Reference Loader snapshots", () => {
+  test("falls back to the default alpha background when a legacy widget is blank", () => {
+    const node: ComfyNode = {
+      widgets: [
+        { name: "alpha_background", value: "" },
+        { name: "max_image_pixels", value: "invalid" },
+      ],
+      addDOMWidget: () => ({ name: "unused", value: null }),
+      setDirtyCanvas: () => undefined,
+    }
+
+    expect(
+      captureReferenceLoaderSnapshotSettings(
+        node,
+        { showCaptions: true, twoImageMode: false, promptByOrder: false },
+        "generic",
+      ).alphaBackground,
+    ).toBe("#000000")
+    expect(
+      captureReferenceLoaderSnapshotSettings(
+        node,
+        { showCaptions: true, twoImageMode: false, promptByOrder: false },
+        "generic",
+      ).maxImagePixels,
+    ).toBe(2)
+  })
+
   test("round-trips Loader, Prompt, original-source, and node settings", () => {
     const originalSource = {
       path: "reference_loader/sources/original.png",

@@ -68,7 +68,12 @@ describe("Reference Loader stylesheet", () => {
     expect(compactRule).toContain("width: 100%;")
     expect(compactRule).toContain("max-width: 100%;")
     expect(compactRule).toContain("min-height: 0;")
-    expect(panelRule).toContain("grid-template-rows: max-content minmax(0, 1fr);")
+    expect(compactRule).toContain("height: 100%;")
+    expect(tokens).toContain(".reference-image-loader > [data-loader-react-root]")
+    expect(tokens).toContain(
+      ".reference-image-loader > [data-loader-react-root] > [data-loader-react-surface]",
+    )
+    // expect(panelRule).toContain("grid-template-rows: max-content minmax(180px, 1fr);")
     expect(panelRule).toContain("grid-auto-rows: max-content;")
     expect(panelRule).toContain("width: 100%;")
     expect(panelRule).toContain("max-width: 100%;")
@@ -169,7 +174,7 @@ describe("Reference Loader stylesheet", () => {
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
     expect(first.href).toBe(
-      "https://example.test/extensions/comfyui-reference-loader/index.css?v=17",
+      "https://example.test/extensions/comfyui-reference-loader/index.css?v=19",
     )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })

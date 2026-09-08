@@ -53,11 +53,24 @@
 }
 
 .reference-image-loader {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   max-width: 100%;
   min-width: 0;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
+}
+
+.reference-image-loader > [data-loader-react-root] {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.reference-image-loader > [data-loader-react-root] > [data-loader-react-surface] {
+  height: 100%;
 }
 
 /* Vue Nodes stretches `auto auto` widget-grid rows across the remaining node height. */

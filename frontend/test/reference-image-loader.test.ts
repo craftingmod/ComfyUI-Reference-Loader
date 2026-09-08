@@ -132,7 +132,7 @@ describe("Load Reference Image custom widget", () => {
     expect(root?.querySelector('[data-channel="audio"]')).toBeNull()
     expect(root?.querySelector<HTMLInputElement>('input[type="file"]')?.multiple).toBe(false)
     expect(root?.querySelector<HTMLInputElement>('input[type="file"]')?.accept).toBe("")
-    expect(domOptions?.getMinHeight?.()).toBe(80)
+    expect(domOptions?.getMinHeight?.()).toBe(250)
     expect(domOptions?.getMaxHeight).toBeUndefined()
     expect(vueWidgetGrid.classList.contains("rl-reference-loader-widgets")).toBe(false)
     expect(previewWidget.callback).not.toBe(originalPreviewCallback)

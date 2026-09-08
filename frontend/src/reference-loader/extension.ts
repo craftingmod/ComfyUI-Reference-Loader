@@ -106,7 +106,7 @@ export function registerReferenceLoader(
           : REFERENCE_LOADER_WIDGET_TYPE
         const layoutOptions = singleImage
           ? {
-              getMinHeight: () => 80,
+              getMinHeight: contentHeight,
             }
           : {
               getMinHeight: contentHeight,

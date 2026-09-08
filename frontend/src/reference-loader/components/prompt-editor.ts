@@ -25,6 +25,7 @@ import {
 } from "../prompt-state.ts"
 import {
   makePromptDefinitions,
+  makePromptSectionBody,
   makePromptSectionCard,
   makePromptDefinitionBody,
   type PromptCardContext,
@@ -99,6 +100,23 @@ export interface PromptDefinitionsSnapshot {
   readonly mounted: boolean
 }
 
+export interface PromptSectionSnapshot {
+  readonly title: string
+  readonly color: string
+  readonly colorIndex: number
+  readonly isVirtual: boolean
+  readonly dragTitle: string
+  readonly dragAria: string
+  readonly removeTitle: string
+  readonly removeAria: string
+}
+
+export interface PromptSectionsSnapshot {
+  readonly view: PromptDocument["view"]
+  readonly sections: readonly PromptSectionSnapshot[]
+  readonly mounted: boolean
+}
+
 const PROMPT_SECTION_DRAG_MIME = "application/x-reference-loader-prompt-section"
 
 function findOrderedReference(
@@ -125,6 +143,9 @@ export class ReferencePromptController {
   readonly root: HTMLElement
   #legacyShell: boolean
   #workspaceRoot: HTMLElement | undefined
+  #sectionHosts = new Map<string, HTMLElement>()
+  #sectionEntryHost: HTMLElement | undefined
+  #rawEditorHost: HTMLElement | undefined
   #definitionsRoot: HTMLElement | undefined
   #definitionHosts = new Map<string, HTMLElement>()
   #pickerHost: HTMLElement | undefined
@@ -159,8 +180,10 @@ export class ReferencePromptController {
   #shotListeners = new Set<() => void>()
   #viewListeners = new Set<() => void>()
   #definitionsListeners = new Set<() => void>()
+  #sectionsListeners = new Set<() => void>()
   #viewSnapshot: PromptViewSnapshot | undefined
   #definitionsSnapshot: PromptDefinitionsSnapshot | undefined
+  #sectionsSnapshot: PromptSectionsSnapshot | undefined
   #definitionIdentityCounter = 0
   #definitionIdentities: Record<PromptDefinitionKind, Map<string, string>> = {
     subject: new Map(),
@@ -236,8 +259,41 @@ export class ReferencePromptController {
 
   unmountDefinitionHosts(): void {
     if (this.#definitionHosts.size === 0) return
-    for (const host of this.#definitionHosts.values()) host.replaceChildren()
+    if (this.#legacyShell) for (const host of this.#definitionHosts.values()) host.replaceChildren()
     this.#definitionHosts.clear()
+  }
+
+  mountSectionHosts(
+    hosts: ReadonlyMap<string, HTMLElement>,
+    entryHost: HTMLElement | undefined,
+  ): void {
+    if (this.#destroyed) return
+    if (
+      hosts.size === this.#sectionHosts.size &&
+      [...hosts].every(([title, host]) => this.#sectionHosts.get(title) === host) &&
+      this.#sectionEntryHost === entryHost
+    )
+      return
+    this.#sectionHosts = new Map(hosts)
+    this.#sectionEntryHost = entryHost
+    this.#renderEditor()
+  }
+
+  unmountSectionHosts(): void {
+    if (this.#sectionHosts.size === 0 && !this.#sectionEntryHost) return
+    this.#sectionHosts.clear()
+    this.#sectionEntryHost = undefined
+  }
+
+  mountRawEditorHost(host: HTMLElement | undefined): void {
+    if (this.#destroyed || this.#rawEditorHost === host) return
+    this.#rawEditorHost = host
+    this.#renderEditor()
+  }
+
+  unmountRawEditorHost(): void {
+    if (!this.#rawEditorHost) return
+    this.#rawEditorHost = undefined
   }
 
   getDefinitionsSnapshot(): PromptDefinitionsSnapshot {
@@ -260,13 +316,18 @@ export class ReferencePromptController {
         (pickerHost === undefined) === (this.#pickerElement === undefined))
     )
       return
-    this.unmountNativeHosts()
+    if (
+      this.#workspaceRoot !== undefined ||
+      this.#pickerHost !== undefined ||
+      this.#nativeHostController !== undefined
+    )
+      this.unmountNativeHosts()
     this.#workspaceRoot = workspace
     this.#pickerHost = pickerHost
     this.#nativeHostController = new AbortController()
     const signal = this.#nativeHostController.signal
     if (workspace) {
-      this.#installEditableRootEvents(workspace, signal)
+      this.#installEditableRootEvents(workspace, signal, this.#legacyShell)
       this.#installWorkspaceEvents(workspace, signal)
     }
     if (pickerHost) {
@@ -287,11 +348,16 @@ export class ReferencePromptController {
     this.#closePicker()
     this.#nativeHostController?.abort()
     this.#nativeHostController = undefined
-    this.#workspaceRoot?.replaceChildren()
-    if (this.#pickerHost) this.#pickerHost.replaceChildren()
+    if (this.#legacyShell) this.#workspaceRoot?.replaceChildren()
+    else {
+      this.unmountSectionHosts()
+      this.unmountRawEditorHost()
+    }
+    if (this.#legacyShell && this.#pickerHost) this.#pickerHost.replaceChildren()
     this.#workspaceRoot = undefined
     this.#pickerHost = undefined
     this.#pickerElement = undefined
+    this.#publishSections()
     this.#publishView()
   }
 
@@ -305,6 +371,26 @@ export class ReferencePromptController {
     this.#viewListeners.add(listener)
     listener()
     return () => this.#viewListeners.delete(listener)
+  }
+
+  getSectionsSnapshot(): PromptSectionsSnapshot {
+    if (!this.#sectionsSnapshot) this.#sectionsSnapshot = this.#buildSectionsSnapshot()
+    return this.#sectionsSnapshot
+  }
+
+  subscribeSections(listener: () => void): () => void {
+    if (this.#destroyed) return () => undefined
+    this.#sectionsListeners.add(listener)
+    listener()
+    return () => this.#sectionsListeners.delete(listener)
+  }
+
+  removeSection(title: string): void {
+    this.#removeSection(title)
+  }
+
+  moveSection(title: string, delta: -1 | 1): void {
+    this.#moveSection(title, delta)
   }
 
   addDefinition(kind: PromptDefinitionKind): void {
@@ -556,12 +642,19 @@ export class ReferencePromptController {
     this.#shotListeners.clear()
     this.#viewListeners.clear()
     this.#definitionsListeners.clear()
+    this.#sectionsListeners.clear()
     this.#shotDraft = undefined
     this.#closePicker()
+    if (!this.#legacyShell) {
+      this.unmountSectionHosts()
+      this.unmountRawEditorHost()
+    }
     this.unmountDefinitionHosts()
-    this.#definitionsRoot?.replaceChildren()
-    this.#workspaceRoot?.replaceChildren()
-    this.#pickerHost?.replaceChildren()
+    if (this.#legacyShell) {
+      this.#definitionsRoot?.replaceChildren()
+      this.#workspaceRoot?.replaceChildren()
+    }
+    if (this.#legacyShell) this.#pickerHost?.replaceChildren()
     if (this.#legacyShell) this.root.replaceChildren()
   }
 
@@ -651,6 +744,68 @@ export class ReferencePromptController {
     }
   }
 
+  #buildSectionsSnapshot(): PromptSectionsSnapshot {
+    const sections =
+      this.#document.sections.length > 0
+        ? this.#document.sections.map((section) => ({ section, isVirtual: false }))
+        : this.#document.view === "structured"
+          ? [{ section: { title: this.#preset.defaultSectionTitle, parts: [] }, isVirtual: true }]
+          : []
+    return {
+      view: this.#document.view,
+      sections: sections.map(({ section, isVirtual }) => {
+        const accent = sectionColor(section.title)
+        return {
+          title: section.title,
+          color: accent.color,
+          colorIndex: accent.index,
+          isVirtual,
+          dragTitle:
+            this.#locale === "ko"
+              ? `${section.title} 섹션 순서 이동`
+              : `Reorder ${section.title} section`,
+          dragAria:
+            this.#locale === "ko"
+              ? `${section.title} 섹션 순서 이동. Alt와 위아래 화살표도 사용할 수 있습니다.`
+              : `Reorder ${section.title} section. You can also use Alt plus Up or Down.`,
+          removeTitle: this.#locale === "ko" ? `${section.title} 제거` : `Remove ${section.title}`,
+          removeAria:
+            this.#locale === "ko"
+              ? `${section.title} 섹션 제거`
+              : `Remove ${section.title} section`,
+        }
+      }),
+      mounted: this.#workspaceRoot !== undefined,
+    }
+  }
+
+  #publishSections(): void {
+    const next = this.#buildSectionsSnapshot()
+    const previous = this.#sectionsSnapshot
+    const same =
+      previous &&
+      previous.view === next.view &&
+      previous.mounted === next.mounted &&
+      previous.sections.length === next.sections.length &&
+      previous.sections.every((section, index) => {
+        const candidate = next.sections[index]
+        return (
+          candidate &&
+          section.title === candidate.title &&
+          section.color === candidate.color &&
+          section.colorIndex === candidate.colorIndex &&
+          section.isVirtual === candidate.isVirtual &&
+          section.dragTitle === candidate.dragTitle &&
+          section.dragAria === candidate.dragAria &&
+          section.removeTitle === candidate.removeTitle &&
+          section.removeAria === candidate.removeAria
+        )
+      })
+    if (same) return
+    this.#sectionsSnapshot = next
+    for (const listener of this.#sectionsListeners) listener()
+  }
+
   #publishDefinitions(force = false): void {
     const next = this.#buildDefinitionsSnapshot()
     const previous = this.#definitionsSnapshot
@@ -730,8 +885,91 @@ export class ReferencePromptController {
         "[data-prompt-definition-body]",
       )!.dataset.promptDefinitionBodyState = bodyState
     }
-    for (const [identity, host] of this.#definitionHosts)
-      if (!active.has(identity)) host.replaceChildren()
+  }
+
+  #renderSectionBodies(): void {
+    if (!this.#workspaceRoot || this.#legacyShell || this.#document.view !== "structured") return
+    const cardContext: PromptCardContext = {
+      prompt: this.#document,
+      references: this.#references(),
+      preset: this.#preset,
+      locale: this.#locale,
+    }
+    const references = new Map(
+      this.#references().map((reference) => [
+        referenceKey(reference.mediaKind, reference.referenceId),
+        reference,
+      ]),
+    )
+    const subjects = new Map(
+      this.#document.subjects.map((subject, index) => [
+        subject.tag ?? subject.label ?? subject.subjectId ?? "",
+        { subject, ordinal: index + 1 },
+      ]),
+    )
+    const sections =
+      this.#document.sections.length > 0
+        ? this.#document.sections
+        : [{ title: this.#preset.defaultSectionTitle, parts: [] as PromptSectionPart[] }]
+    const active = new Set<string>()
+    for (const section of sections) {
+      const host = this.#sectionHosts.get(section.title)
+      if (!host) continue
+      active.add(section.title)
+      let body = host.querySelector<HTMLElement>("[data-prompt-section-body]")
+      const bodyState = JSON.stringify(section.parts)
+      if (!body) {
+        body = makePromptSectionBody(cardContext, section, references, subjects)
+        host.append(body)
+      } else {
+        body.dataset.promptSectionBody = section.title
+        body.contentEditable = "true"
+        body.dataset.placeholder = localize(
+          this.#preset.subjectMode === "disabled"
+            ? PROMPT_MESSAGES.bodyPlaceholder
+            : PROMPT_MESSAGES.bodyPlaceholderWithSubjects,
+          this.#locale,
+        )
+        if (body.dataset.promptSectionBodyState !== bodyState) {
+          const next = makePromptSectionBody(cardContext, section, references, subjects)
+          body.replaceChildren(...next.childNodes)
+        }
+      }
+      body.dataset.promptSectionBodyState = bodyState
+    }
+    if (!this.#sectionEntryHost) return
+    let entry = this.#sectionEntryHost.querySelector<HTMLElement>("[data-prompt-section-entry]")
+    if (!entry) {
+      entry = document.createElement("div")
+      entry.className = "rl-prompt-section-entry"
+      entry.dataset.promptSectionEntry = ""
+      entry.contentEditable = "true"
+      entry.role = "textbox"
+      entry.spellcheck = false
+      this.#sectionEntryHost.append(entry)
+    }
+    entry.dataset.placeholder = localize(PROMPT_MESSAGES.addSectionPlaceholder, this.#locale)
+    entry.setAttribute("aria-label", localize(PROMPT_MESSAGES.addSectionAria, this.#locale))
+    entry.replaceChildren()
+  }
+
+  #renderRawEditor(): void {
+    if (!this.#workspaceRoot || this.#legacyShell || this.#document.view !== "raw") return
+    if (!this.#rawEditorHost) return
+    let editor = this.#rawEditorHost.querySelector<HTMLElement>("[data-prompt-editor]")
+    if (!editor) {
+      editor = document.createElement("div")
+      editor.className = "rl-prompt-editor is-raw"
+      editor.dataset.promptEditor = ""
+      editor.contentEditable = "true"
+      editor.role = "textbox"
+      editor.ariaMultiLine = "true"
+      editor.spellcheck = false
+      this.#rawEditorHost.append(editor)
+    }
+    editor.dataset.placeholder = localize(PROMPT_MESSAGES.rawPlaceholder, this.#locale)
+    editor.replaceChildren()
+    this.#appendPromptText(editor, renderAuthoringPrompt(this.#document, this.#references()))
   }
 
   get #picker(): HTMLElement {
@@ -896,6 +1134,7 @@ export class ReferencePromptController {
   }
 
   #publishView(): void {
+    this.#publishSections()
     const next = this.#buildViewSnapshot()
     const previous = this.#viewSnapshot
     if (
@@ -958,6 +1197,15 @@ export class ReferencePromptController {
         preset.textContent = presetLabel
         preset.title = `${localize(PROMPT_MESSAGES.preset, this.#locale)}: ${presetLabel} · ${localize(this.#preset.description, this.#locale)}`
       }
+    }
+    if (!this.#legacyShell) {
+      if (this.#document.view === "raw") this.#renderRawEditor()
+      else this.#renderSectionBodies()
+      this.#renderDefinitionBodies()
+      this.#publishDefinitions()
+      this.#publishSections()
+      this.#setHint(renderHint)
+      return
     }
     const workspace = this.#workspaceRoot
     workspace?.replaceChildren()
@@ -1987,14 +2235,22 @@ export class ReferencePromptController {
       ":scope > .rl-prompt-definition__body, :scope > .rl-prompt-definition__body-host > .rl-prompt-definition__body",
     )
     if (definitionBody) {
-      definitionBody.before(picker)
+      const host = definitionBody.parentElement
+      if (host?.matches(".rl-prompt-definition__body-host")) host.before(picker)
+      else definitionBody.before(picker)
       return
     }
     const card = anchor.matches("[data-prompt-section]")
       ? anchor
       : anchor.closest<HTMLElement>("[data-prompt-section]")
-    const body = card?.querySelector<HTMLElement>(":scope > [data-prompt-section-body]")
-    body?.before(picker)
+    const body = card?.querySelector<HTMLElement>(
+      ":scope > [data-prompt-section-body], :scope > .rl-prompt-section__body-host > [data-prompt-section-body]",
+    )
+    if (body) {
+      const host = body.parentElement
+      if (host?.matches(".rl-prompt-section__body-host")) host.before(picker)
+      else body.before(picker)
+    }
   }
 
   #insertMention(reference: PromptReference | undefined): void {

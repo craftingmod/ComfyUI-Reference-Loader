@@ -423,6 +423,15 @@
   white-space: pre-wrap;
 }
 
+.rl-prompt-section__body-host {
+  min-width: 0;
+}
+
+.rl-prompt-section__body-host > .rl-prompt-section__body {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .rl-prompt-section__body:empty::before,
 .rl-prompt-section-entry:empty::before {
   color: var(--rl-muted);

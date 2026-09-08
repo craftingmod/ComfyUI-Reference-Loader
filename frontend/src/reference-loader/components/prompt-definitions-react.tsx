@@ -206,23 +206,20 @@ export function PromptDefinitionsReactRoot({
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   const hosts = useRef(new Map<string, HTMLElement>())
   const callbacks = useRef(new Map<string, RefCallback<HTMLDivElement>>())
-  const updateHosts = useCallback(() => {
+  const getBodyHost = useCallback((identity: string): RefCallback<HTMLDivElement> => {
+    const existing = callbacks.current.get(identity)
+    if (existing) return existing
+    const callback: RefCallback<HTMLDivElement> = (host) => {
+      if (host) hosts.current.set(identity, host)
+      else hosts.current.delete(identity)
+    }
+    callbacks.current.set(identity, callback)
+    return callback
+  }, [])
+
+  useLayoutEffect(() => {
     controller.mountDefinitionHosts(hosts.current)
-  }, [controller])
-  const getBodyHost = useCallback(
-    (identity: string): RefCallback<HTMLDivElement> => {
-      const existing = callbacks.current.get(identity)
-      if (existing) return existing
-      const callback: RefCallback<HTMLDivElement> = (host) => {
-        if (host) hosts.current.set(identity, host)
-        else hosts.current.delete(identity)
-        updateHosts()
-      }
-      callbacks.current.set(identity, callback)
-      return callback
-    },
-    [updateHosts],
-  )
+  })
 
   useLayoutEffect(
     () => () => {

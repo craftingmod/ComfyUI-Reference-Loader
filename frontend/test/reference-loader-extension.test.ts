@@ -40,27 +40,50 @@ describe("Reference Loader custom widget", () => {
     const promptFactory = factories?.[REFERENCE_PROMPT_WIDGET_TYPE]
     const roots = new Map<string, HTMLElement>()
     const widgets = new Map<string, ComfyWidget>()
+    const orderedWidgets: ComfyWidget[] = []
     const node: ComfyNode = {
-      addDOMWidget(name, _type, element) {
+      addDOMWidget(name, _type, element, options) {
         roots.set(name, element)
-        const widget = { name, value: "" } as ComfyWidget
+        const widget = { name, value: "", options } as ComfyWidget
+        Object.defineProperty(widget, "value", {
+          configurable: true,
+          get: () => options.getValue?.() ?? "",
+          set: (value: unknown) => options.setValue?.(value),
+        })
         widgets.set(name, widget)
+        orderedWidgets.push(widget)
         return widget
       },
       setDirtyCanvas: () => undefined,
     }
 
     definitionsFactory?.(node, "prompt_definitions", ["STRING", { default: "" }], app)
+    const promptState = {
+      ...createEmptyPromptDocument(),
+      subjects: [{ tag: "hero", parts: [{ type: "text" as const, text: "red coat" }] }],
+      sections: [{ title: "scene", parts: [{ type: "text" as const, text: "Keep this" }] }],
+    }
     promptFactory?.(
       node,
       "prompt",
-      ["STRING", { default: serializePromptDocument(createEmptyPromptDocument()) }],
+      ["STRING", { default: serializePromptDocument(promptState) }],
       app,
     )
 
     expect(roots.get("prompt_definitions")?.querySelector(".rl-prompt-definitions")).toBeTruthy()
     expect(roots.get("prompt")?.querySelector(".rl-prompt-definitions")).toBeNull()
-    expect(widgets.get("prompt_definitions")?.serialize).toBe(false)
+    expect(widgets.get("prompt_definitions")?.serialize).toBe(true)
+    expect(widgets.get("prompt_definitions")?.options?.serialize).toBe(false)
+
+    const savedValues = orderedWidgets.map((widget) =>
+      widget.serialize === false ? undefined : widget.value,
+    )
+    let restoredIndex = 0
+    for (const widget of orderedWidgets) {
+      if (widget.serialize === false) continue
+      widget.value = savedValues[restoredIndex++]
+    }
+    expect(JSON.parse(String(widgets.get("prompt")?.value))).toEqual(promptState)
 
     widgets.get("prompt_definitions")?.onRemove?.()
     widgets.get("prompt")?.onRemove?.()

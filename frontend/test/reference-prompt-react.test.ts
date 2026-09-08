@@ -54,6 +54,13 @@ describe("Reference Prompt React shell", () => {
     expect(root.querySelector<HTMLElement>("[data-prompt-panel]")).toBe(panel)
     expect(workspace?.querySelector("[data-prompt-editor]")).not.toBeNull()
 
+    flushSync(() =>
+      root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click(),
+    )
+    expect(controller.document.view).toBe("structured")
+    expect(workspace?.querySelector("[data-prompt-editor]")).toBeNull()
+    expect(workspace?.querySelector('[data-prompt-section-body="scene"]')).not.toBeNull()
+
     flushSync(() => root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')?.click())
     expect(controller.compiledPrompt).toBe("")
     expect(root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')?.disabled).toBe(
@@ -122,6 +129,67 @@ describe("Reference Prompt React shell", () => {
     controller.destroy()
   })
 
+  test("renders section shells in React while preserving native body identity", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const initial = {
+      ...createEmptyPromptDocument(),
+      sections: [
+        { title: "scene", parts: [{ type: "text" as const, text: "Keep scene" }] },
+        { title: "camera_direction", parts: [{ type: "text" as const, text: "Keep camera" }] },
+      ],
+    }
+    const controller = new ReferencePromptController(
+      root,
+      node,
+      () => [],
+      serializePromptDocument(initial),
+      { legacyShell: false },
+    )
+    const mount = createPromptReact({ container: root, controller })
+    const scene = root.querySelector<HTMLElement>('[data-prompt-section="scene"]')!
+    const sceneBody = scene.querySelector<HTMLElement>("[data-prompt-section-body]")!
+
+    expect(root.querySelectorAll("[data-prompt-section]")).toHaveLength(2)
+    expect(scene.querySelector("[data-prompt-section-body-host]")).not.toBeNull()
+    expect(sceneBody.textContent).toBe("Keep scene")
+
+    flushSync(() => controller.setPreset("minimax_h3_base"))
+    expect(root.querySelector<HTMLElement>('[data-prompt-section="scene"]')).toBe(scene)
+    expect(
+      root.querySelector<HTMLElement>('[data-prompt-section="scene"] [data-prompt-section-body]'),
+    ).toBe(sceneBody)
+
+    flushSync(() => controller.moveSection("scene", 1))
+    expect(
+      [...root.querySelectorAll<HTMLElement>("[data-prompt-section]")].map(
+        (card) => card.dataset.promptSection,
+      ),
+    ).toEqual(["camera_direction", "scene"])
+    expect(
+      root.querySelector<HTMLElement>('[data-prompt-section="scene"] [data-prompt-section-body]'),
+    ).toBe(sceneBody)
+
+    flushSync(() =>
+      root
+        .querySelector<HTMLButtonElement>(
+          '[data-prompt-action="remove-section"][data-prompt-section-title="camera_direction"]',
+        )
+        ?.click(),
+    )
+    expect(
+      JSON.parse(controller.serialize()).sections.map(
+        (section: { title: string }) => section.title,
+      ),
+    ).toEqual(["scene"])
+    expect(
+      root.querySelector<HTMLElement>('[data-prompt-section="scene"] [data-prompt-section-body]'),
+    ).toBe(sceneBody)
+
+    mount.destroy()
+    controller.destroy()
+  })
+
   test("moves definition cards to React while preserving native body hosts and identity", () => {
     const promptRoot = document.createElement("div")
     const definitionsRoot = document.createElement("div")
@@ -181,6 +249,52 @@ describe("Reference Prompt React shell", () => {
 
     definitionsMount.destroy()
     expect(definitionsRoot.childElementCount).toBe(0)
+    promptMount.destroy()
+    controller.destroy()
+  })
+
+  test("persists edits from the React Prompt and Subject native bodies", () => {
+    const promptRoot = document.createElement("div")
+    const definitionsRoot = document.createElement("div")
+    document.body.append(promptRoot, definitionsRoot)
+    const initial = {
+      ...createEmptyPromptDocument(),
+      sections: [{ title: "scene", parts: [{ type: "text" as const, text: "old scene" }] }],
+      subjects: [{ tag: "hero", parts: [{ type: "text" as const, text: "old subject" }] }],
+    }
+    const controller = new ReferencePromptController(
+      promptRoot,
+      node,
+      () => [],
+      serializePromptDocument(initial),
+      { legacyShell: false },
+    )
+    const promptMount = createPromptReact({ container: promptRoot, controller })
+    controller.mountDefinitions(definitionsRoot)
+    const definitionsMount = createPromptDefinitionsReact({
+      container: definitionsRoot,
+      controller,
+    })
+
+    flushSync(() =>
+      promptRoot.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click(),
+    )
+    flushSync(() =>
+      promptRoot.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click(),
+    )
+    const promptBody = promptRoot.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')!
+    const subjectBody = definitionsRoot.querySelector<HTMLElement>("[data-prompt-definition-body]")!
+    promptBody.textContent = "new scene"
+    promptBody.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+    subjectBody.textContent = "new subject"
+    subjectBody.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+
+    expect(JSON.parse(controller.serialize())).toMatchObject({
+      sections: [{ title: "scene", parts: [{ type: "text", text: "new scene" }] }],
+      subjects: [{ tag: "hero", parts: [{ type: "text", text: "new subject" }] }],
+    })
+
+    definitionsMount.destroy()
     promptMount.destroy()
     controller.destroy()
   })

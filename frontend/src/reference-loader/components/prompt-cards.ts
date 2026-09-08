@@ -256,6 +256,17 @@ export function makePromptSectionCard(
   )
   remove.textContent = "×"
   header.append(drag, title, remove)
+  const body = makePromptSectionBody(context, section, references, subjects)
+  card.append(header, body)
+  return card
+}
+
+export function makePromptSectionBody(
+  context: PromptCardContext,
+  section: { title: string; parts: readonly PromptSectionPart[] },
+  references: ReadonlyMap<string, PromptReference>,
+  subjects: ReadonlyMap<string, { subject: PromptSubject; ordinal: number }>,
+): HTMLElement {
   const body = document.createElement("div")
   body.className = "rl-prompt-section__body"
   body.dataset.promptSectionBody = section.title
@@ -280,6 +291,5 @@ export function makePromptSectionCard(
         makeMentionChip(part, references.get(referenceKey(part.mediaKind, part.referenceId))),
       )
   }
-  card.append(header, body)
-  return card
+  return body
 }

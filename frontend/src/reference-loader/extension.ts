@@ -203,7 +203,10 @@ export function registerReferenceLoader(
             root,
             ".reference-prompt-definitions",
           )
-          widget.serialize = false
+          // Keep an empty workflow slot for this UI-only input. It precedes the
+          // canonical prompt widget, and an omitted indexed widget shifts every
+          // following value when older workflow deserializers compact the array.
+          widget.serialize = true
           promptDefinitionRoots.set(node, root)
           const controller = promptControllers.get(node)
           controller?.mountDefinitions(root)

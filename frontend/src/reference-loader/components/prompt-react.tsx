@@ -18,7 +18,6 @@ export interface PromptReactOptions {
 }
 
 export interface PromptReactMount {
-  update(): void
   destroy(): void
 }
 
@@ -137,21 +136,22 @@ export function createPromptReact(options: PromptReactOptions): PromptReactMount
     setPreset: (value) => controller.setPreset(value),
   }
   const root: Root = createRoot(options.container)
+  let destroyed = false
   const update = (): void => {
+    if (destroyed) return
     flushSync(() =>
       root.render(<ReferencePromptReactRoot controller={controller} actions={actions} />),
     )
   }
   update()
   return {
-    update,
     destroy() {
+      if (destroyed) return
+      destroyed = true
       root.unmount()
       options.container.replaceChildren()
     },
   }
 }
-
-export const mountPromptReact = createPromptReact
 
 export { PromptToolbar }

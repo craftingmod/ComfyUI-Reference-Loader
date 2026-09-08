@@ -60,6 +60,7 @@ describe("Reference Prompt React shell", () => {
     )
 
     mount.destroy()
+    expect(() => mount.destroy()).not.toThrow()
     expect(root.childElementCount).toBe(0)
     controller.destroy()
   })

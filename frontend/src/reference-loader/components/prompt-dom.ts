@@ -214,7 +214,6 @@ export function highlightPromptTags(
   container: HTMLElement,
   visuals: ReadonlyMap<string, PromptTagVisual>,
 ): void {
-  const offsets = capturePromptSelection(container)
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
   const nodes: Text[] = []
   let node: Node | null
@@ -226,8 +225,11 @@ export function highlightPromptTags(
       )
     )
       continue
-    if (scanPromptTags(node.textContent ?? "").length > 0) nodes.push(node as Text)
+    const tags = scanPromptTags(node.textContent ?? "")
+    if (tags.some((tag) => !tag.escaped && visuals.has(tag.tag))) nodes.push(node as Text)
   }
+  if (nodes.length === 0) return
+  const offsets = capturePromptSelection(container)
   for (const text of nodes) {
     const replacement = document.createDocumentFragment()
     appendPromptText(replacement, text.textContent ?? "", visuals)

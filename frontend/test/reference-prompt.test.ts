@@ -1101,6 +1101,29 @@ describe("Reference Prompt section stack", () => {
     controller.destroy()
   })
 
+  test("keeps the caret on the new line after a native Enter", () => {
+    const { root, controller } = makeController(
+      [],
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        sections: [{ title: "scene", parts: [{ type: "text", text: "Line one" }] }],
+      }),
+    )
+    const scene = sectionBody(root, "scene")
+    const nextLine = document.createElement("div")
+    nextLine.append(document.createElement("br"))
+    scene.append(nextLine)
+    placeCaretAtEnd(nextLine)
+
+    scene.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertParagraph" }))
+
+    const selection = getSelection()!
+    expect(selection.isCollapsed).toBe(true)
+    expect(selection.anchorNode).toBe(nextLine)
+    expect(selection.anchorOffset).toBe(1)
+    controller.destroy()
+  })
+
   test("round-trips arbitrary title cards through raw pseudo-YAML", () => {
     const serialized = serializePromptDocument({
       ...createEmptyPromptDocument(),

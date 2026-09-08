@@ -48,6 +48,7 @@ export interface LoaderReactActions {
   reorder(id: string, channel: LoaderViewChannel, toIndex: number): void
   edit(id: string, channel: LoaderViewChannel): void
   acceptsFileDrop(dataTransfer: DataTransfer | null): boolean
+  flushDeferredPreviews(): void
 }
 
 export interface LoaderReactMount {
@@ -103,14 +104,42 @@ function transferFiles(dataTransfer: DataTransfer | null): File[] {
   return dataTransfer ? [...dataTransfer.files] : []
 }
 
-function clearFileDropFeedback(target: HTMLElement): void {
-  const surface = target.closest<HTMLElement>("[data-loader-react-surface]")
-  if (!surface) return
+function mediaDropKinds(dataTransfer: DataTransfer | null): LoaderViewChannel[] {
+  if (!dataTransfer) return []
+  const kinds = new Set<LoaderViewChannel>()
+  for (const file of dataTransfer.files) {
+    const kind = mediaKind(file)
+    if (kind) kinds.add(kind)
+  }
+  if (kinds.size === 0) {
+    for (const item of dataTransfer.items) {
+      const match = /^(image|audio|video)\//.exec(item.type)
+      if (match) kinds.add(match[1] as LoaderViewChannel)
+    }
+  }
+  return [...kinds]
+}
+
+function setFileDropFeedback(
+  surface: HTMLElement,
+  target: HTMLElement | undefined,
+  kinds: readonly LoaderViewChannel[],
+): void {
   surface.classList.remove("is-file-dragging")
-  delete surface.dataset.fileDropKinds
-  delete surface.dataset.fileDropTarget
   for (const element of surface.querySelectorAll<HTMLElement>(".is-file-drop-target"))
     element.classList.remove("is-file-drop-target")
+  delete surface.dataset.fileDropKinds
+  delete surface.dataset.fileDropTarget
+  if (kinds.length === 0) return
+  surface.classList.add("is-file-dragging")
+  surface.dataset.fileDropKinds = kinds.join(" ")
+  if (!target) return
+  target.classList.add("is-file-drop-target")
+  surface.dataset.fileDropTarget = target.classList.contains("rl-card") ? "replace" : "add"
+}
+
+function clearFileDropFeedback(surface: HTMLElement): void {
+  setFileDropFeedback(surface, undefined, [])
 }
 
 function stop(event: { stopPropagation(): void }): void {
@@ -784,9 +813,11 @@ function PendingUploads({ snapshot }: { snapshot: LoaderViewSnapshot }): ReactNo
 function SingleImagePanel({
   snapshot,
   actions,
+  surface,
 }: {
   snapshot: LoaderViewSnapshot
   actions: LoaderReactActions
+  surface: HTMLElement
 }): ReactNode {
   const imageChannel = projectLoaderChannels(snapshot).find(
     (channel) => channel.channel === "image",
@@ -810,7 +841,7 @@ function SingleImagePanel({
     if (!actions.acceptsFileDrop(event.dataTransfer)) return
     event.preventDefault()
     stop(event)
-    clearFileDropFeedback(event.currentTarget)
+    clearFileDropFeedback(surface)
     const files = transferFiles(event.dataTransfer)
     if (files.length > 0) void actions.addFiles(files, card?.id)
   }
@@ -854,9 +885,19 @@ function SingleImagePanel({
       className="rl-single-image-panel"
       aria-label="Reference image"
       onDragOver={(event) => {
-        if (!hasFilePayload(event.dataTransfer) || !actions.acceptsFileDrop(event.dataTransfer))
+        const kinds = mediaDropKinds(event.dataTransfer)
+        if (!hasFilePayload(event.dataTransfer) || !actions.acceptsFileDrop(event.dataTransfer)) {
+          clearFileDropFeedback(surface)
           return
+        }
         event.preventDefault()
+        const candidate =
+          event.target instanceof Element
+            ? event.target.closest<HTMLElement>(".rl-card, .rl-single-image-preview.is-empty")
+            : undefined
+        const target =
+          candidate && kinds.length === 1 && kinds[0] === "image" ? candidate : undefined
+        setFileDropFeedback(surface, target, kinds)
       }}
       onDrop={dropFiles}
     >
@@ -1003,7 +1044,19 @@ function ReferenceLoaderReactRoot({
 
   const onDragOver = (info: DragInfo, event: DragEvent<HTMLElement>): void => {
     if (hasFilePayload(event.dataTransfer)) {
+      const kinds = mediaDropKinds(event.dataTransfer)
+      if (!actions.acceptsFileDrop(event.dataTransfer)) {
+        clearFileDrop()
+        return
+      }
       event.preventDefault()
+      stop(event)
+      const item = snapshot.state.items[info.id]
+      const target =
+        kinds.length === 1 && kinds[0] === item?.kind
+          ? (event.currentTarget.closest<HTMLElement>(".rl-card") ?? undefined)
+          : undefined
+      setFileDropFeedback(surface, target, kinds)
       return
     }
     const activeDrag = dragRef.current
@@ -1062,7 +1115,20 @@ function ReferenceLoaderReactRoot({
 
   const onChannelDragOver = (channel: LoaderViewChannel, event: DragEvent<HTMLElement>): void => {
     if (hasFilePayload(event.dataTransfer)) {
+      const kinds = mediaDropKinds(event.dataTransfer)
+      if (!actions.acceptsFileDrop(event.dataTransfer)) {
+        clearFileDrop()
+        return
+      }
       event.preventDefault()
+      stop(event)
+      const target =
+        kinds.length === 1 && kinds[0] === channel
+          ? (event.currentTarget.querySelector<HTMLElement>(
+              `.rl-grid-add[data-media-kind="${channel}"]`,
+            ) ?? undefined)
+          : undefined
+      setFileDropFeedback(surface, target, kinds)
       return
     }
     const activeDrag = dragRef.current
@@ -1103,8 +1169,13 @@ function ReferenceLoaderReactRoot({
   }
 
   const onSurfaceDragOver = (event: DragEvent<HTMLDivElement>): void => {
-    if (!hasFilePayload(event.dataTransfer) || !actions.acceptsFileDrop(event.dataTransfer)) return
+    const kinds = mediaDropKinds(event.dataTransfer)
+    if (!hasFilePayload(event.dataTransfer) || !actions.acceptsFileDrop(event.dataTransfer)) {
+      clearFileDrop()
+      return
+    }
     event.preventDefault()
+    setFileDropFeedback(surface, undefined, kinds)
   }
 
   const onSurfaceDragLeave = (event: DragEvent<HTMLDivElement>): void => {
@@ -1129,9 +1200,12 @@ function ReferenceLoaderReactRoot({
       onDragOver={onSurfaceDragOver}
       onDragLeave={onSurfaceDragLeave}
       onDrop={onSurfaceDrop}
+      onBlurCapture={() => {
+        globalThis.queueMicrotask(() => actions.flushDeferredPreviews())
+      }}
     >
       {mode === "single-image" ? (
-        <SingleImagePanel snapshot={snapshot} actions={actions} />
+        <SingleImagePanel snapshot={snapshot} actions={actions} surface={surface} />
       ) : (
         <>
           <LoaderToolbar snapshot={snapshot} actions={actions} />

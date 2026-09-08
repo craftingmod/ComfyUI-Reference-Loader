@@ -56,14 +56,6 @@ function isH3ReactEvent(event: Event): boolean {
     .some((target) => target instanceof HTMLElement && target.hasAttribute("data-h3-react-surface"))
 }
 
-function isLoaderReactEvent(event: Event): boolean {
-  return event
-    .composedPath()
-    .some(
-      (target) => target instanceof HTMLElement && target.hasAttribute("data-loader-react-surface"),
-    )
-}
-
 interface PendingUpload {
   id: string
   file: File
@@ -371,6 +363,7 @@ export class ReferenceLoaderController {
     reorder: (id, channel, toIndex) => this.reorderItem(id, channel, toIndex),
     edit: (id, channel) => this.editItem(id, channel),
     acceptsFileDrop: (dataTransfer) => this.acceptsFileDrop(dataTransfer),
+    flushDeferredPreviews: () => this.flushDeferredPreviews(),
   }
   #node: ComfyNode
   #api: ReferenceLoaderApi
@@ -555,6 +548,12 @@ export class ReferenceLoaderController {
     if (!changed) return
     this.#syncCaptionFields(id)
     this.#node.setDirtyCanvas(true, true)
+  }
+
+  flushDeferredPreviews(): void {
+    if (this.#destroyed || !this.#deferPreviews || this.#hasFocusedCaption()) return
+    this.#deferPreviews = false
+    this.render()
   }
 
   toggleOutput(id: string, channel: LoaderChannel): void {
@@ -1007,6 +1006,11 @@ export class ReferenceLoaderController {
     this.#reactMount?.destroy()
     this.#reactMount = undefined
     this.#reactHost.hidden = true
+    this.#clearDropTarget()
+    this.#setFileDropTarget(undefined)
+    this.root.classList.remove("is-dragging", "is-file-dragging")
+    delete this.root.dataset.fileDropKinds
+    delete this.root.dataset.fileDropTarget
   }
 
   #renderReact(): void {
@@ -1702,19 +1706,20 @@ export class ReferenceLoaderController {
 
   #installEvents(): void {
     const signal = this.#destroyController.signal
-    this.root.addEventListener("click", (event) => this.#onClick(event), { signal })
-    this.root.addEventListener("dblclick", (event) => this.#onDoubleClick(event), { signal })
-    this.root.addEventListener("input", (event) => this.#onInput(event), { signal })
-    this.root.addEventListener("change", (event) => this.#onChange(event), { signal })
-    this.root.addEventListener("compositionstart", () => (this.#composing = true), { signal })
-    this.root.addEventListener(
+    const legacyRoot = this.#legacyRoot
+    legacyRoot.addEventListener("click", (event) => this.#onClick(event), { signal })
+    legacyRoot.addEventListener("dblclick", (event) => this.#onDoubleClick(event), { signal })
+    legacyRoot.addEventListener("input", (event) => this.#onInput(event), { signal })
+    legacyRoot.addEventListener("change", (event) => this.#onChange(event), { signal })
+    legacyRoot.addEventListener("compositionstart", () => (this.#composing = true), { signal })
+    legacyRoot.addEventListener(
       "compositionend",
       () => {
         this.#composing = false
       },
       { signal },
     )
-    this.root.addEventListener(
+    legacyRoot.addEventListener(
       "focusout",
       () => {
         setTimeout(() => {
@@ -1742,7 +1747,7 @@ export class ReferenceLoaderController {
       },
       { signal },
     )
-    this.root.addEventListener("keydown", (event) => this.#onKeydown(event), { signal })
+    legacyRoot.addEventListener("keydown", (event) => this.#onKeydown(event), { signal })
     document.addEventListener(
       "pointerdown",
       (event) => {
@@ -1755,7 +1760,7 @@ export class ReferenceLoaderController {
       },
       { capture: true, signal },
     )
-    this.root.addEventListener(
+    legacyRoot.addEventListener(
       "pointerdown",
       (event) => {
         const target = event.target as Element
@@ -1770,60 +1775,60 @@ export class ReferenceLoaderController {
       },
       { signal },
     )
-    this.root.addEventListener(
+    legacyRoot.addEventListener(
       "pointerup",
       () => {
         if (!this.#drag) this.#armedDrag = undefined
       },
       { signal },
     )
-    this.root.addEventListener("dragstart", (event) => this.#onDragStart(event), { signal })
-    this.root.addEventListener(
-      "dragend",
-      (event) => {
-        if (isLoaderReactEvent(event)) return
+    legacyRoot.addEventListener("dragstart", (event) => this.#onDragStart(event), { signal })
+    const onDragEnd = (event: DragEvent): void => {
+      if (event.currentTarget === this.root && event.target !== this.root) return
+      this.#clearDropTarget()
+      this.#drag = undefined
+      this.#armedDrag = undefined
+      this.root.classList.remove("is-dragging", "is-file-dragging")
+      this.#setFileDropGuide(null)
+      this.#setFileDropTarget(undefined)
+    }
+    legacyRoot.addEventListener("dragend", onDragEnd, { signal })
+    this.root.addEventListener("dragend", onDragEnd, { signal })
+    const onDragOver = (event: DragEvent): void => {
+      if (event.currentTarget === this.root && event.target !== this.root) return
+      const fileDrop = this.acceptsFileDrop(event.dataTransfer)
+      if (!fileDrop && !this.#drag) return
+      event.preventDefault()
+      this.root.classList.toggle("is-file-dragging", fileDrop)
+      this.#setFileDropGuide(fileDrop ? event.dataTransfer : null)
+      this.#updateFileDropTarget(fileDrop ? event : undefined)
+      if (event.dataTransfer) event.dataTransfer.dropEffect = fileDrop ? "copy" : "move"
+      this.#updateDropTarget(event)
+    }
+    legacyRoot.addEventListener("dragover", onDragOver, { signal })
+    this.root.addEventListener("dragover", onDragOver, { signal })
+    const onDragLeave = (event: DragEvent): void => {
+      if (event.currentTarget === this.root && event.target !== this.root) return
+      const related = event.relatedTarget
+      if (!(related instanceof Node) || !this.root.contains(related)) {
         this.#clearDropTarget()
-        this.#drag = undefined
-        this.#armedDrag = undefined
-        this.root.classList.remove("is-dragging", "is-file-dragging")
+        this.root.classList.remove("is-file-dragging")
         this.#setFileDropGuide(null)
         this.#setFileDropTarget(undefined)
-      },
-      { signal },
-    )
-    this.root.addEventListener(
-      "dragover",
-      (event) => {
-        const fileDrop = this.acceptsFileDrop(event.dataTransfer)
-        if (!fileDrop && !this.#drag) return
-        event.preventDefault()
-        this.root.classList.toggle("is-file-dragging", fileDrop)
-        this.#setFileDropGuide(fileDrop ? event.dataTransfer : null)
-        this.#updateFileDropTarget(fileDrop ? event : undefined)
-        if (event.dataTransfer) event.dataTransfer.dropEffect = fileDrop ? "copy" : "move"
-        this.#updateDropTarget(event)
-      },
-      { signal },
-    )
-    this.root.addEventListener(
-      "dragleave",
-      (event) => {
-        const related = event.relatedTarget
-        if (!(related instanceof Node) || !this.root.contains(related)) {
-          this.#clearDropTarget()
-          this.root.classList.remove("is-file-dragging")
-          this.#setFileDropGuide(null)
-          this.#setFileDropTarget(undefined)
-        }
-      },
-      { signal },
-    )
-    this.root.addEventListener("drop", (event) => this.#onDrop(event), { signal })
+      }
+    }
+    legacyRoot.addEventListener("dragleave", onDragLeave, { signal })
+    this.root.addEventListener("dragleave", onDragLeave, { signal })
+    const onDrop = (event: DragEvent): void => {
+      if (event.currentTarget === this.root && event.target !== this.root) return
+      this.#onDrop(event)
+    }
+    legacyRoot.addEventListener("drop", onDrop, { signal })
+    this.root.addEventListener("drop", onDrop, { signal })
   }
 
   #onClick(event: MouseEvent): void {
     if (isH3ReactEvent(event)) return
-    if (isLoaderReactEvent(event)) return
     const h3Button = (event.target as Element).closest<HTMLElement>("[data-h3-action]")
     if (h3Button && this.root.contains(h3Button)) {
       this.#onH3Click(h3Button)
@@ -2475,7 +2480,6 @@ export class ReferenceLoaderController {
   }
 
   #onDoubleClick(event: MouseEvent): void {
-    if (isLoaderReactEvent(event)) return
     const target = event.target as Element
     if (target.closest("button, textarea, input, select, a, [contenteditable='true']")) return
     if (
@@ -2609,7 +2613,6 @@ export class ReferenceLoaderController {
 
   #onInput(event: Event): void {
     if (isH3ReactEvent(event)) return
-    if (isLoaderReactEvent(event)) return
     const h3Input = event.target
     if (h3Input instanceof HTMLInputElement && h3Input.dataset.h3DraftField === "frame") {
       const editor = this.#h3Editor
@@ -2662,7 +2665,6 @@ export class ReferenceLoaderController {
 
   #onChange(event: Event): void {
     if (isH3ReactEvent(event)) return
-    if (isLoaderReactEvent(event)) return
     const input = event.target
     if (
       (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) &&
@@ -2701,7 +2703,6 @@ export class ReferenceLoaderController {
   }
 
   #onKeydown(event: KeyboardEvent): void {
-    if (isLoaderReactEvent(event)) return
     if (event.key === "Escape" && (event.target as Element).closest("[data-h3-editor]")) {
       event.preventDefault()
       this.#closeH3Editor()
@@ -2761,7 +2762,6 @@ export class ReferenceLoaderController {
   }
 
   #onDragStart(event: DragEvent): void {
-    if (isLoaderReactEvent(event)) return
     const card = (event.target as Element).closest<HTMLElement>(".rl-card")
     if (
       !card?.dataset.id ||
@@ -2810,13 +2810,23 @@ export class ReferenceLoaderController {
   }
 
   #setFileDropTarget(card: HTMLElement | undefined): void {
-    if (this.#fileDropTarget === card) return
+    if (
+      this.#fileDropTarget === card &&
+      !(
+        card === undefined &&
+        (this.root.dataset.fileDropTarget !== undefined ||
+          this.root.querySelector(".is-file-drop-target") !== null)
+      )
+    )
+      return
     this.#fileDropTarget?.classList.remove("is-file-drop-target")
     this.#fileDropTarget = card
     if (card) {
       card.classList.add("is-file-drop-target")
       this.root.dataset.fileDropTarget = card.classList.contains("rl-card") ? "replace" : "add"
     } else {
+      for (const element of this.root.querySelectorAll<HTMLElement>(".is-file-drop-target"))
+        element.classList.remove("is-file-drop-target")
       delete this.root.dataset.fileDropTarget
     }
   }
@@ -2852,7 +2862,6 @@ export class ReferenceLoaderController {
   }
 
   #onDrop(event: DragEvent): void {
-    if (isLoaderReactEvent(event)) return
     this.#clearDropTarget()
     this.root.classList.remove("is-file-dragging")
     this.#setFileDropGuide(null)

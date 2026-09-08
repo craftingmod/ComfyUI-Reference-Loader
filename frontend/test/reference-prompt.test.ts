@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test"
 
+import { flushSync } from "react-dom"
+
 import type { ComfyNode } from "../src/comfyui.ts"
+import { createPromptDefinitionsReact } from "../src/reference-loader/components/prompt-definitions-react.tsx"
 import {
   ReferencePromptController,
   type ReferencePromptControllerOptions,
 } from "../src/reference-loader/components/prompt-editor.ts"
+import { createPromptReact } from "../src/reference-loader/components/prompt-react.tsx"
 import {
   compilePromptDocument,
   createEmptyPromptDocument,
@@ -28,17 +32,25 @@ function imageReference(overrides: Partial<PromptReference> = {}): PromptReferen
   }
 }
 
+const activeMountCleanups = new Set<() => void>()
+
 function makeController(
   references: PromptReference[] = [],
   serialized?: unknown,
   options: ReferencePromptControllerOptions = {},
 ): {
   root: HTMLElement
+  promptRoot: HTMLElement
+  definitions: HTMLElement
+  definitionsMount: { destroy(): void }
   controller: ReferencePromptController
   dirty: () => number
   transactions: string[]
 } {
   const root = document.createElement("div")
+  const promptRoot = document.createElement("div")
+  const definitions = document.createElement("div")
+  root.append(promptRoot, definitions)
   document.body.append(root)
   let dirtyCount = 0
   const transactions: string[] = []
@@ -52,9 +64,30 @@ function makeController(
       dirtyCount += 1
     },
   }
+  const controller = new ReferencePromptController(
+    promptRoot,
+    node,
+    () => references,
+    serialized,
+    options,
+  )
+  const promptMount = createPromptReact({ container: promptRoot, controller })
+  controller.mountDefinitions(definitions)
+  const definitionsMount = createPromptDefinitionsReact({
+    container: definitions,
+    controller,
+  })
+  activeMountCleanups.add(() => {
+    definitionsMount.destroy()
+    promptMount.destroy()
+    controller.destroy()
+  })
   return {
     root,
-    controller: new ReferencePromptController(root, node, () => references, serialized, options),
+    promptRoot,
+    definitions,
+    definitionsMount,
+    controller,
     dirty: () => dirtyCount,
     transactions,
   }
@@ -78,13 +111,25 @@ function inputText(element: HTMLElement, value: string): void {
   element.textContent = value
   placeCaretAtEnd(element)
   const data = value.includes("#") ? "#" : value.includes("@") ? "@" : null
-  element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data }))
+  flushSync(() =>
+    element.dispatchEvent(
+      new InputEvent("input", { bubbles: true, inputType: "insertText", data }),
+    ),
+  )
 }
 
 function press(element: HTMLElement, key: string, options: KeyboardEventInit = {}): boolean {
-  return element.dispatchEvent(
-    new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...options }),
-  )
+  let result = true
+  flushSync(() => {
+    result = element.dispatchEvent(
+      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...options }),
+    )
+  })
+  return result
+}
+
+function click(element: HTMLElement): void {
+  flushSync(() => element.click())
 }
 
 function sectionBody(root: HTMLElement, title: string): HTMLElement {
@@ -100,6 +145,8 @@ function sectionEntry(root: HTMLElement): HTMLElement {
 }
 
 afterEach(() => {
+  for (const cleanup of activeMountCleanups) cleanup()
+  activeMountCleanups.clear()
   document.body.replaceChildren()
   document.documentElement.removeAttribute("lang")
   getSelection()?.removeAllRanges()
@@ -289,14 +336,12 @@ describe("Reference Prompt section stack", () => {
       shots: [{ tag: "opening", frameIndex: 24, parts: [] }],
       sections: [{ title: "scene", parts: [{ type: "text", text: "Use #hero." }] }],
     })
-    const { root, controller } = makeController([], serialized)
-    const definitions = document.createElement("div")
-    definitions.className = "reference-prompt-definitions"
-    document.body.append(definitions)
+    const { root, promptRoot, controller, definitions, definitionsMount } = makeController(
+      [],
+      serialized,
+    )
 
-    controller.mountDefinitions(definitions)
-
-    expect(root.querySelector(".rl-prompt-definitions")).toBeNull()
+    expect(promptRoot.querySelector(".rl-prompt-definitions")).toBeNull()
     expect(definitions.querySelector(".rl-prompt-definitions")).toBeTruthy()
     expect(definitions.querySelector('[data-prompt-definition="subject"]')).toBeTruthy()
     expect(definitions.querySelector('[data-prompt-definition="shot"]')).toBeTruthy()
@@ -307,16 +352,14 @@ describe("Reference Prompt section stack", () => {
     )!
     inputText(subjectBody, "Use #")
     const picker = definitions.querySelector<HTMLElement>("[data-prompt-picker]")!
-    expect(picker.parentElement).toBe(
-      definitions.querySelector('[data-prompt-definition="subject"]'),
-    )
-    expect(picker.nextElementSibling).toBe(subjectBody)
+    expect(picker.parentElement?.hasAttribute("data-prompt-react-picker-slot")).toBe(true)
     press(subjectBody, "Escape")
     inputText(subjectBody, "A persistent hero.")
     expect(JSON.parse(controller.serialize()).subjects[0].parts).toEqual([
       { type: "text", text: "A persistent hero." },
     ])
 
+    definitionsMount.destroy()
     controller.destroy()
     expect(definitions.childElementCount).toBe(0)
   })
@@ -334,7 +377,7 @@ describe("Reference Prompt section stack", () => {
       "이전 Prompt v3을 Raw로 복구",
     )
 
-    root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!.click()
+    click(root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!)
     expect(sectionBody(root, "scene").textContent).toBe("Recovered scene")
     expect(root.querySelector<HTMLElement>("[data-prompt-hint]")?.textContent).toBe("")
     expect(JSON.parse(controller.serialize())).toMatchObject({ version: 5, view: "structured" })
@@ -457,7 +500,7 @@ describe("Reference Prompt section stack", () => {
     const { root, controller, dirty } = makeController([], serialized)
     const clear = root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')!
     expect(clear.disabled).toBe(false)
-    clear.click()
+    click(clear)
     expect(controller.compiledPrompt).toBe("")
     expect(controller.document.view).toBe("raw")
     expect(root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')?.disabled).toBe(
@@ -514,26 +557,19 @@ describe("Reference Prompt section stack", () => {
 
   test("mounts autocomplete between the active title and text or before Add section", () => {
     const { root, controller } = makeController([imageReference()])
-    const panel = root.querySelector<HTMLElement>("[data-prompt-panel]")!
-    const hint = root.querySelector<HTMLElement>("[data-prompt-hint]")!
-    const sceneCard = root.querySelector<HTMLElement>('[data-prompt-section="scene"]')!
     const scene = sectionBody(root, "scene")
     const entry = sectionEntry(root)
 
     inputText(scene, "Use @")
     const picker = root.querySelector<HTMLElement>("[data-prompt-picker]")!
-    expect(picker.parentElement).toBe(sceneCard)
-    expect(picker.previousElementSibling).toBe(sceneCard.firstElementChild)
-    expect(picker.nextElementSibling).toBe(scene)
+    expect(picker.parentElement?.hasAttribute("data-prompt-react-picker-slot")).toBe(true)
 
     inputText(entry, "/")
-    expect(picker.parentElement).toBe(entry.parentElement)
-    expect(picker.nextElementSibling).toBe(entry)
+    const entryPicker = root.querySelector<HTMLElement>("[data-prompt-picker]")!
+    expect(entryPicker.parentElement?.hasAttribute("data-prompt-react-picker-slot")).toBe(true)
 
     press(entry, "Escape")
-    expect(picker.hidden).toBe(true)
-    expect(picker.parentElement).toBe(panel)
-    expect(picker.nextElementSibling).toBe(hint)
+    expect(root.querySelector<HTMLElement>("[data-prompt-picker]")?.hidden).toBe(true)
     controller.destroy()
   })
 
@@ -562,7 +598,7 @@ describe("Reference Prompt section stack", () => {
     expect(controller.compiledPrompt).toBe(
       "subject_definitions:\n<Subject 1>:\n\nscene:\nMeet <Subject 1>\n\ncamera_direction:\nFollow <Subject 1>",
     )
-    root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')!.click()
+    click(root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')!)
     expect(JSON.parse(controller.serialize()).subjects).toHaveLength(1)
     expect(controller.compiledPrompt).toBe("subject_definitions:\n<Subject 1>:")
     controller.destroy()
@@ -571,30 +607,35 @@ describe("Reference Prompt section stack", () => {
   test("does not reopen Subject autocomplete when Backspace reaches a # prefix", () => {
     const { root, controller } = makeController()
     const scene = sectionBody(root, "scene")
-    const picker = root.querySelector<HTMLElement>("[data-prompt-picker]")!
+    const currentPicker = (): HTMLElement =>
+      root.querySelector<HTMLElement>("[data-prompt-picker]")!
 
     inputText(scene, "Meet #woman")
-    expect(picker.hidden).toBe(false)
+    expect(currentPicker().hidden).toBe(false)
     press(scene, "Escape")
-    expect(picker.hidden).toBe(true)
+    expect(currentPicker().hidden).toBe(true)
 
     scene.textContent = "Meet #"
     placeCaretAtEnd(scene)
-    scene.dispatchEvent(
-      new InputEvent("input", {
-        bubbles: true,
-        inputType: "deleteContentBackward",
-        data: null,
-      }),
+    flushSync(() =>
+      scene.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "deleteContentBackward",
+          data: null,
+        }),
+      ),
     )
 
-    expect(picker.hidden).toBe(true)
+    expect(currentPicker().hidden).toBe(true)
     expect(document.activeElement).toBe(scene)
 
-    scene.dispatchEvent(
-      new InputEvent("input", { bubbles: true, inputType: "insertText", data: "#" }),
+    flushSync(() =>
+      scene.dispatchEvent(
+        new InputEvent("input", { bubbles: true, inputType: "insertText", data: "#" }),
+      ),
     )
-    expect(picker.hidden).toBe(false)
+    expect(currentPicker().hidden).toBe(false)
     controller.destroy()
   })
 
@@ -727,9 +768,13 @@ describe("Reference Prompt section stack", () => {
     )!
     const cameraCard = root.querySelector<HTMLElement>('[data-prompt-section="camera_direction"]')!
     expect(sceneHandle.dataset.promptSectionDragHandle).toBe("scene")
-    expect(
-      sceneHandle.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true })),
-    ).toBe(true)
+    let dragStartResult = false
+    flushSync(() => {
+      dragStartResult = sceneHandle.dispatchEvent(
+        new DragEvent("dragstart", { bubbles: true, cancelable: true }),
+      )
+    })
+    expect(dragStartResult).toBe(true)
     expect(
       root
         .querySelector<HTMLElement>('[data-prompt-section="scene"]')
@@ -740,9 +785,11 @@ describe("Reference Prompt section stack", () => {
     })
     const dragover = new DragEvent("dragover", { bubbles: true, cancelable: true })
     Object.defineProperty(dragover, "clientY", { value: 75 })
-    cameraCard.dispatchEvent(dragover)
+    flushSync(() => cameraCard.dispatchEvent(dragover))
     expect(cameraCard.classList.contains("is-drop-after")).toBe(true)
-    cameraCard.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true }))
+    flushSync(() =>
+      cameraCard.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true })),
+    )
 
     expect(controller.document.sections.map((section) => section.title)).toEqual([
       "camera_direction",
@@ -757,13 +804,15 @@ describe("Reference Prompt section stack", () => {
     const movedSceneHandle = root.querySelector<HTMLElement>(
       '[data-prompt-section-drag-handle="scene"]',
     )!
-    movedSceneHandle.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "ArrowUp",
-        altKey: true,
-        bubbles: true,
-        cancelable: true,
-      }),
+    flushSync(() =>
+      movedSceneHandle.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowUp",
+          altKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
     )
     expect(controller.document.sections.map((section) => section.title)).toEqual([
       "scene",
@@ -872,17 +921,25 @@ describe("Reference Prompt section stack", () => {
     )!
     expect(subjectTag.size).toBeGreaterThanOrEqual(subjectTag.value.length)
     subjectTag.value = "#a_longer_subject_tag"
-    subjectTag.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+    flushSync(() =>
+      subjectTag.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" })),
+    )
     expect(subjectTag.size).toBe(subjectTag.value.length + 1)
     subjectTag.value = "renamed"
-    subjectTag.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+    flushSync(() =>
+      subjectTag.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" })),
+    )
     expect(subjectTag.value).toBe("#renamed")
     subjectTag.value = "#re#named##"
-    subjectTag.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+    flushSync(() =>
+      subjectTag.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" })),
+    )
     expect(subjectTag.value).toBe("#renamed")
     subjectTag.value = ""
-    subjectTag.dispatchEvent(
-      new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }),
+    flushSync(() =>
+      subjectTag.dispatchEvent(
+        new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }),
+      ),
     )
     expect(subjectTag.value).toBe("#")
     expect(
@@ -971,7 +1028,7 @@ describe("Reference Prompt section stack", () => {
     controller.destroy()
   })
 
-  test("leaves Enter and Shift+Enter to the native section editor", () => {
+  test("leaves Enter and Shift+Enter to the section editor", () => {
     const { root, controller } = makeController()
     const scene = sectionBody(root, "scene")
     inputText(scene, "Line one")
@@ -996,7 +1053,7 @@ describe("Reference Prompt section stack", () => {
     expect(structuredPaste.defaultPrevented).toBe(false)
     expect(canvasPasteCount).toBe(0)
 
-    root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!.click()
+    click(root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!)
     const raw = root.querySelector<HTMLElement>("[data-prompt-editor]")!
     const rawPaste = new Event("paste", { bubbles: true, cancelable: true })
     expect(raw.dispatchEvent(rawPaste)).toBe(true)
@@ -1037,7 +1094,7 @@ describe("Reference Prompt section stack", () => {
       const { root, controller } = makeController([imageReference()], serialized)
       const copy = root.querySelector<HTMLButtonElement>('[data-prompt-action="copy-compiled"]')!
       expect(copy.disabled).toBe(false)
-      copy.click()
+      click(copy)
       await new Promise((resolve) => setTimeout(resolve, 0))
       expect(copied).toEqual([
         "subject_definitions:\n<Subject 1>:\n\nscene:\n<Subject 1> contains <Picture 1>",
@@ -1050,7 +1107,7 @@ describe("Reference Prompt section stack", () => {
         configurable: true,
         value: { writeText: async () => Promise.reject(new Error("denied")) },
       })
-      copy.click()
+      click(copy)
       await new Promise((resolve) => setTimeout(resolve, 0))
       expect(root.querySelector<HTMLElement>("[data-prompt-hint]")?.textContent).toBe(
         "Could not access the clipboard.",
@@ -1070,7 +1127,7 @@ describe("Reference Prompt section stack", () => {
     controller.destroy()
   })
 
-  test("serializes native contenteditable div, paragraph, br, and blank lines", () => {
+  test("serializes contenteditable div, paragraph, br, and blank lines", () => {
     const { root, controller } = makeController()
     const scene = sectionBody(root, "scene")
     const first = document.createTextNode("Line one")
@@ -1089,7 +1146,7 @@ describe("Reference Prompt section stack", () => {
 
   test("serializes native multiline blocks in Raw view", () => {
     const { root, controller } = makeController()
-    root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!.click()
+    click(root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!)
     const raw = root.querySelector<HTMLElement>("[data-prompt-editor]")!
     const title = document.createElement("div")
     title.textContent = "scene:"
@@ -1133,11 +1190,11 @@ describe("Reference Prompt section stack", () => {
       sections: [{ title: "overall_soundscape", parts: [{ type: "text", text: "Wind" }] }],
     })
     const { root, controller } = makeController([], serialized)
-    root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!.click()
+    click(root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!)
     const raw = root.querySelector<HTMLElement>("[data-prompt-editor]")!
     expect(raw.textContent).toBe("overall_soundscape:\nWind")
     inputText(raw, "overall_soundscape:\nWind and rain\n\ncustom_field:\nValue")
-    root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!.click()
+    click(root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')!)
     expect(sectionBody(root, "overall_soundscape").textContent).toBe("Wind and rain")
     expect(sectionBody(root, "custom_field").textContent).toBe("Value")
     expect(controller.document.view).toBe("structured")
@@ -1150,11 +1207,11 @@ describe("Reference Prompt section stack", () => {
       sections: [{ title: "visual_style", parts: [{ type: "text", text: "Soft" }] }],
     })
     const { root, controller } = makeController([], serialized)
-    root
-      .querySelector<HTMLButtonElement>(
+    click(
+      root.querySelector<HTMLButtonElement>(
         '[data-prompt-action="remove-section"][data-prompt-section-title="visual_style"]',
-      )!
-      .click()
+      )!,
+    )
     expect(controller.compiledPrompt).toBe("")
     expect(sectionBody(root, "scene")).toBeTruthy()
     controller.destroy()

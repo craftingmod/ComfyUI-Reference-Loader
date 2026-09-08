@@ -748,6 +748,7 @@ describe("Reference Loader DOM lifecycle", () => {
     const card = root.querySelector<HTMLElement>('.rl-card[data-channel="image"]')
     const surface = card?.querySelector<HTMLElement>(".rl-card__media")
     const caption = card?.querySelector<HTMLTextAreaElement>("textarea")
+    expect(caption?.dataset.captureWheel).toBe("true")
     expect(card).toBeDefined()
     expect(surface?.classList.contains("is-transparent-preview")).toBe(true)
     expect(

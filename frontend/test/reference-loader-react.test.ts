@@ -116,6 +116,7 @@ describe("Reference Loader React Media surface", () => {
     expect(scene?.classList.contains("is-output-disabled")).toBe(true)
 
     const caption = scene?.querySelector<HTMLTextAreaElement>('textarea[data-field="caption"]')
+    expect(caption?.dataset.captureWheel).toBe("true")
     caption?.focus()
     caption?.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }))
     for (const value of ["한", "한글"]) {

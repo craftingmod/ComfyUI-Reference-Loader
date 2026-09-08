@@ -584,6 +584,7 @@ function MediaCard({
         {showCaptions ? (
           <textarea
             data-field="caption"
+            data-capture-wheel="true"
             rows={2}
             maxLength={16_384}
             placeholder="Caption"

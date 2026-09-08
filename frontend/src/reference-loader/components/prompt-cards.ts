@@ -39,6 +39,7 @@ export function makePromptDefinitionBody(
   body.contentEditable = disabled ? "false" : "true"
   body.role = "textbox"
   body.ariaMultiLine = "true"
+  body.dataset.captureWheel = "true"
   body.dataset.promptDefinitionBody = ""
   body.dataset.promptDefinitionTag = definitionTag
   const references = new Map(
@@ -71,6 +72,7 @@ export function makePromptSectionBody(
   body.contentEditable = "true"
   body.role = "textbox"
   body.ariaMultiLine = "true"
+  body.dataset.captureWheel = "true"
   body.spellcheck = true
   body.dataset.placeholder = localize(
     context.preset.subjectMode === "disabled"

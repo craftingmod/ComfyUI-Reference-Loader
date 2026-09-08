@@ -199,6 +199,7 @@ export function PromptEditor({
         }
         spellCheck
         data-placeholder={placeholder}
+        data-capture-wheel="true"
         contentEditable={disabled ? "false" : "true"}
         onCompositionStart={() => {
           composing.current = true
@@ -305,6 +306,7 @@ function PromptSectionEntry({
         ref={entryRef}
         className="rl-prompt-section-entry"
         data-prompt-section-entry=""
+        data-capture-wheel="true"
         contentEditable="true"
         suppressContentEditableWarning
         role="textbox"

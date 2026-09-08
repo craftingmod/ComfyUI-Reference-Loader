@@ -595,7 +595,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     const captionField =
       options.showCaption === false
         ? ""
-        : `<label class="rl-modal__caption">${escapeHtml(captionLabel)}<textarea data-field="caption" rows="2" maxlength="16384" placeholder="${escapeHtml(captionPlaceholder)}">${escapeHtml(options.item.caption)}</textarea></label>`
+        : `<label class="rl-modal__caption">${escapeHtml(captionLabel)}<textarea data-field="caption" data-capture-wheel="true" rows="2" maxlength="16384" placeholder="${escapeHtml(captionPlaceholder)}">${escapeHtml(options.item.caption)}</textarea></label>`
     const mediaColumnClass = `rl-editor-media-column${options.showCaption === false ? " is-captionless" : ""}`
     dialog.className = "rl-modal rl-image-editor"
     dialog.setAttribute("aria-label", "Image reference editor")

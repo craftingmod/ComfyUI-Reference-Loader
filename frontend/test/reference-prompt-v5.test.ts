@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test"
 
+import { flushSync } from "react-dom"
+
 import type { ComfyNode } from "../src/comfyui.ts"
 import { timelineMarks } from "../src/reference-loader/components/h3-timeline.ts"
+import { createPromptDefinitionsReact } from "../src/reference-loader/components/prompt-definitions-react.tsx"
 import { ReferencePromptController } from "../src/reference-loader/components/prompt-editor.ts"
+import { createPromptReact } from "../src/reference-loader/components/prompt-react.tsx"
 import {
   compilePromptDocument,
   createEmptyPromptDocument,
@@ -93,6 +97,9 @@ describe("Reference Prompt v5 authoring", () => {
   test("keeps Timeline Shot timing in a Prompt draft until Apply or Cancel", () => {
     const transactions: string[] = []
     const root = document.createElement("div")
+    const promptRoot = document.createElement("div")
+    const definitionsRoot = document.createElement("div")
+    root.append(promptRoot, definitionsRoot)
     document.body.append(root)
     const initial = {
       ...createEmptyPromptDocument(),
@@ -100,13 +107,19 @@ describe("Reference Prompt v5 authoring", () => {
       sections: [{ title: "scene", parts: [{ type: "text" as const, text: "#opening" }] }],
     }
     const controller = new ReferencePromptController(
-      root,
+      promptRoot,
       node(transactions),
       () => [],
       serializePromptDocument(initial),
     )
+    const promptMount = createPromptReact({ container: promptRoot, controller })
+    controller.mountDefinitions(definitionsRoot)
+    const definitionsMount = createPromptDefinitionsReact({
+      container: definitionsRoot,
+      controller,
+    })
 
-    expect(controller.setShotFrameDraft("opening", 24)).toBe(true)
+    flushSync(() => expect(controller.setShotFrameDraft("opening", 24)).toBe(true))
     expect(controller.shots[0]?.frameIndex).toBe(24)
     expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(0)
     expect(root.querySelector('[data-prompt-action="apply-shot-draft"]')).not.toBeNull()
@@ -116,41 +129,58 @@ describe("Reference Prompt v5 authoring", () => {
     expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(24)
     expect(transactions).toEqual(["before", "after"])
 
-    controller.setShotFrameDraft("opening", 48)
-    expect(controller.cancelShotDraft()).toBe(true)
+    flushSync(() => controller.setShotFrameDraft("opening", 48))
+    flushSync(() => expect(controller.cancelShotDraft()).toBe(true))
     expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(24)
+    definitionsMount.destroy()
+    promptMount.destroy()
     controller.destroy()
   })
 
   test("updates Shot timing from the frame change event", () => {
     const root = document.createElement("div")
+    const promptRoot = document.createElement("div")
+    const definitionsRoot = document.createElement("div")
+    root.append(promptRoot, definitionsRoot)
     document.body.append(root)
     const initial = {
       ...createEmptyPromptDocument(),
       shots: [{ tag: "opening", frameIndex: 0, parts: [] }],
     }
     const controller = new ReferencePromptController(
-      root,
+      promptRoot,
       node([]),
       () => [],
       serializePromptDocument(initial),
     )
-    const frame = root.querySelector<HTMLInputElement>("[data-prompt-shot-frame]")!
+    const promptMount = createPromptReact({ container: promptRoot, controller })
+    controller.mountDefinitions(definitionsRoot)
+    const definitionsMount = createPromptDefinitionsReact({
+      container: definitionsRoot,
+      controller,
+    })
+    const frame = definitionsRoot.querySelector<HTMLInputElement>("[data-prompt-shot-frame]")!
 
-    frame.value = "49"
-    frame.dispatchEvent(new Event("input", { bubbles: true }))
-    expect(root.querySelector<HTMLElement>("[data-prompt-shot-seconds]")?.textContent).toBe(
-      "0f · 0.000s",
-    )
-    expect(root.querySelector('[data-prompt-action="apply-shot-draft"]')).toBeNull()
-    frame.dispatchEvent(new Event("change", { bubbles: true }))
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(frame, "49")
+    flushSync(() => frame.dispatchEvent(new Event("input", { bubbles: true })))
+    expect(
+      definitionsRoot.querySelector<HTMLElement>("[data-prompt-shot-seconds]")?.textContent,
+    ).toBe("0f · 0.000s")
+    expect(definitionsRoot.querySelector('[data-prompt-action="apply-shot-draft"]')).toBeNull()
+    flushSync(() => frame.dispatchEvent(new Event("change", { bubbles: true })))
+    flushSync(() => {
+      frame.focus()
+      frame.blur()
+    })
 
     expect(controller.shots[0]?.frameIndex).toBe(49)
     expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(49)
-    expect(root.querySelector<HTMLElement>("[data-prompt-shot-seconds]")?.textContent).toBe(
-      "49f · 2.042s",
-    )
-    expect(root.querySelector('[data-prompt-action="apply-shot-draft"]')).toBeNull()
+    expect(
+      definitionsRoot.querySelector<HTMLElement>("[data-prompt-shot-seconds]")?.textContent,
+    ).toBe("49f · 2.042s")
+    expect(definitionsRoot.querySelector('[data-prompt-action="apply-shot-draft"]')).toBeNull()
+    definitionsMount.destroy()
+    promptMount.destroy()
     controller.destroy()
   })
 

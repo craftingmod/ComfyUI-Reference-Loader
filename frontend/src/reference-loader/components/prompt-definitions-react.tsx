@@ -4,12 +4,13 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
   type ReactNode,
 } from "react"
 import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
-import { normalizeDefinitionTagInput } from "./prompt-dom.ts"
+import { normalizeDefinitionTagInput, subjectColor } from "./prompt-dom.ts"
 import {
   type PromptDefinitionKind,
   type PromptDefinitionSnapshot,
@@ -72,6 +73,7 @@ function PromptDefinitionCard({
       actions.renderDefinitionEditor(definition.kind, definition.identity, editor),
     [actions, definition.identity, definition.kind],
   )
+  const subjectAccent = definition.kind === "subject" ? subjectColor(definition.ordinal) : undefined
 
   useLayoutEffect(() => {
     if (document.activeElement !== tagInput.current) setTagValue(`#${definition.tag}`)
@@ -85,6 +87,11 @@ function PromptDefinitionCard({
       data-prompt-definition={definition.kind}
       data-prompt-definition-identity={definition.identity}
       data-prompt-definition-tag={definition.tag}
+      style={
+        subjectAccent
+          ? ({ "--rl-prompt-subject-color": subjectAccent } as CSSProperties)
+          : undefined
+      }
     >
       <div className="rl-prompt-definition__toolbar">
         <div className="rl-prompt-definition__identity">

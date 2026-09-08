@@ -600,7 +600,7 @@ export function ReferencePromptReactRoot({
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 
   useLayoutEffect(() => {
-    controller.mountNativeHosts(workspaceRef.current ?? undefined, undefined)
+    controller.mountNativeHosts(workspaceRef.current ?? undefined)
     return () => controller.unmountNativeHosts()
   }, [controller])
 

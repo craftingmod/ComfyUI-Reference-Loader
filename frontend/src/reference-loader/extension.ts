@@ -256,7 +256,6 @@ export function registerReferenceLoader(
               presetId: node.widgets?.find((candidate) => candidate.name === "prompt_schema_preset")
                 ?.value,
               presetCatalog: promptPresetCatalog(inputData),
-              legacyShell: false,
             },
           )
           const definitionsRoot = promptDefinitionRoots.get(node)

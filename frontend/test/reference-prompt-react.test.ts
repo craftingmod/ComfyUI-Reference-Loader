@@ -66,16 +66,14 @@ afterEach(() => {
 })
 
 describe("Reference Prompt React shell", () => {
-  test("owns one shell root while native editor actions stay in the Controller", () => {
+  test("owns one shell root while editor actions stay in the Controller", () => {
     const root = document.createElement("div")
     document.body.append(root)
     const serialized = serializePromptDocument({
       ...createEmptyPromptDocument(),
       sections: [{ title: "scene", parts: [{ type: "text", text: "Keep this" }] }],
     })
-    const controller = new ReferencePromptController(root, node, () => [], serialized, {
-      legacyShell: false,
-    })
+    const controller = new ReferencePromptController(root, node, () => [], serialized)
     const mount = createPromptReact({ container: root, controller })
     const panel = root.querySelector<HTMLElement>("[data-prompt-panel]")
     const workspace = root.querySelector<HTMLElement>("[data-prompt-workspace]")
@@ -131,7 +129,7 @@ describe("Reference Prompt React shell", () => {
         ...createEmptyPromptDocument(),
         subjects: [{ tag: "hero", parts: [] }],
       }),
-      { legacyShell: false },
+      {},
     )
     const mount = createPromptReact({ container: root, controller })
 
@@ -163,7 +161,7 @@ describe("Reference Prompt React shell", () => {
       node,
       () => [],
       serializePromptDocument(createEmptyPromptDocument()),
-      { legacyShell: false },
+      {},
     )
     const first = controller.getViewSnapshot()
     expect(controller.getViewSnapshot()).toBe(first)
@@ -171,8 +169,7 @@ describe("Reference Prompt React shell", () => {
     const unsubscribe = controller.subscribeView(() => notifications++)
     notifications = 0
     const workspace = document.createElement("div")
-    const picker = document.createElement("div")
-    controller.mountNativeHosts(workspace, picker)
+    controller.mountNativeHosts(workspace)
     expect(notifications).toBeGreaterThan(0)
     const afterMount = controller.getViewSnapshot()
     expect(afterMount).not.toBe(first)
@@ -202,7 +199,7 @@ describe("Reference Prompt React shell", () => {
       node,
       () => [],
       serializePromptDocument(initial),
-      { legacyShell: false },
+      {},
     )
     const mount = createPromptReact({ container: root, controller })
     const scene = root.querySelector<HTMLElement>('[data-prompt-section="scene"]')!
@@ -272,7 +269,7 @@ describe("Reference Prompt React shell", () => {
       node,
       () => [],
       serializePromptDocument(initial),
-      { legacyShell: false },
+      {},
     )
     const mount = createPromptReact({ container: root, controller })
     const editor = root.querySelector<HTMLElement>("[data-prompt-react-editor]")!
@@ -328,7 +325,7 @@ describe("Reference Prompt React shell", () => {
         ...createEmptyPromptDocument(),
         sections: [{ title: "scene", parts: [{ type: "text", text: "old" }] }],
       }),
-      { legacyShell: false },
+      {},
     )
     const mount = createPromptReact({ container: root, controller })
 
@@ -381,7 +378,7 @@ describe("Reference Prompt React shell", () => {
         ...createEmptyPromptDocument(),
         sections: [{ title: "scene", parts: [{ type: "text", text: "Use " }] }],
       }),
-      { legacyShell: false },
+      {},
     )
     const mount = createPromptReact({ container: root, controller })
     const editor = root.querySelector<HTMLElement>("[data-prompt-react-editor]")!
@@ -413,7 +410,7 @@ describe("Reference Prompt React shell", () => {
         ...createEmptyPromptDocument(),
         sections: [{ title: "scene", parts: [{ type: "text", text: "before" }] }],
       }),
-      { legacyShell: false },
+      {},
     )
     const mount = createPromptReact({ container: root, controller })
     const editor = root.querySelector<HTMLElement>("[data-prompt-react-editor]")!
@@ -443,7 +440,7 @@ describe("Reference Prompt React shell", () => {
         ...createEmptyPromptDocument(),
         sections: [{ title: "scene", parts: [{ type: "text", text: "Battle" }] }],
       }),
-      { legacyShell: false },
+      {},
     )
     const mount = createPromptReact({ container: root, controller })
     const editor = root.querySelector<HTMLElement>("[data-prompt-react-editor]")!
@@ -488,7 +485,7 @@ describe("Reference Prompt React shell", () => {
         shots: [{ tag: "shot_entrance", frameIndex: 24, parts: [] }],
         sections: [{ title: "scene", parts: [] }],
       }),
-      { legacyShell: false },
+      {},
     )
     const mount = createPromptReact({ container: root, controller })
     const editor = root.querySelector<HTMLElement>("[data-prompt-react-editor]")!
@@ -528,7 +525,7 @@ describe("Reference Prompt React shell", () => {
         ...createEmptyPromptDocument(),
         sections: [{ title: "scene", parts: [] }],
       }),
-      { legacyShell: false },
+      {},
     )
     const second = new ReferencePromptController(
       secondRoot,
@@ -538,7 +535,7 @@ describe("Reference Prompt React shell", () => {
         ...createEmptyPromptDocument(),
         sections: [{ title: "scene", parts: [] }],
       }),
-      { legacyShell: false },
+      {},
     )
     const firstMount = createPromptReact({ container: firstRoot, controller: first })
     const secondMount = createPromptReact({ container: secondRoot, controller: second })
@@ -575,7 +572,7 @@ describe("Reference Prompt React shell", () => {
           { title: "camera_direction", parts: [{ type: "text", text: "camera" }] },
         ],
       }),
-      { legacyShell: false },
+      {},
     )
     const mount = createPromptReact({ container: root, controller })
     const entry = root.querySelector<HTMLElement>("[data-prompt-section-entry]")!
@@ -642,7 +639,7 @@ describe("Reference Prompt React shell", () => {
       node,
       () => [],
       serializePromptDocument(initial),
-      { legacyShell: false },
+      {},
     )
     const promptMount = createPromptReact({ container: promptRoot, controller })
     controller.mountDefinitions(definitionsRoot)
@@ -720,7 +717,7 @@ describe("Reference Prompt React shell", () => {
       node,
       () => [],
       serializePromptDocument(initial),
-      { legacyShell: false },
+      {},
     )
     const promptMount = createPromptReact({ container: promptRoot, controller })
     controller.mountDefinitions(definitionsRoot)

@@ -58,7 +58,9 @@ describe("Reference Prompt React shell", () => {
       root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click(),
     )
     expect(controller.document.view).toBe("structured")
-    expect(workspace?.querySelector("[data-prompt-editor]")).toBeNull()
+    expect(
+      workspace?.querySelector("[data-prompt-editor][data-prompt-react-editor]"),
+    ).not.toBeNull()
     expect(workspace?.querySelector('[data-prompt-section-body="scene"]')).not.toBeNull()
 
     flushSync(() => root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')?.click())
@@ -148,17 +150,21 @@ describe("Reference Prompt React shell", () => {
     )
     const mount = createPromptReact({ container: root, controller })
     const scene = root.querySelector<HTMLElement>('[data-prompt-section="scene"]')!
-    const sceneBody = scene.querySelector<HTMLElement>("[data-prompt-section-body]")!
+    const sceneEditor = scene.querySelector<HTMLElement>("[data-prompt-react-editor]")!
+    const camera = root.querySelector<HTMLElement>('[data-prompt-section="camera_direction"]')!
+    const cameraBody = camera.querySelector<HTMLElement>("[data-prompt-section-body]")!
 
     expect(root.querySelectorAll("[data-prompt-section]")).toHaveLength(2)
-    expect(scene.querySelector("[data-prompt-section-body-host]")).not.toBeNull()
-    expect(sceneBody.textContent).toBe("Keep scene")
+    expect(scene.querySelector("[data-prompt-section-body-host]")).toBeNull()
+    expect(sceneEditor.textContent).toBe("Keep scene")
+    expect(camera.querySelector("[data-prompt-section-body-host]")).not.toBeNull()
+    expect(cameraBody.textContent).toBe("Keep camera")
 
     flushSync(() => controller.setPreset("minimax_h3_base"))
     expect(root.querySelector<HTMLElement>('[data-prompt-section="scene"]')).toBe(scene)
     expect(
-      root.querySelector<HTMLElement>('[data-prompt-section="scene"] [data-prompt-section-body]'),
-    ).toBe(sceneBody)
+      root.querySelector<HTMLElement>('[data-prompt-section="scene"] [data-prompt-react-editor]'),
+    ).toBe(sceneEditor)
 
     flushSync(() => controller.moveSection("scene", 1))
     expect(
@@ -167,8 +173,8 @@ describe("Reference Prompt React shell", () => {
       ),
     ).toEqual(["camera_direction", "scene"])
     expect(
-      root.querySelector<HTMLElement>('[data-prompt-section="scene"] [data-prompt-section-body]'),
-    ).toBe(sceneBody)
+      root.querySelector<HTMLElement>('[data-prompt-section="scene"] [data-prompt-react-editor]'),
+    ).toBe(sceneEditor)
 
     flushSync(() =>
       root
@@ -183,8 +189,98 @@ describe("Reference Prompt React shell", () => {
       ),
     ).toEqual(["scene"])
     expect(
-      root.querySelector<HTMLElement>('[data-prompt-section="scene"] [data-prompt-section-body]'),
-    ).toBe(sceneBody)
+      root.querySelector<HTMLElement>('[data-prompt-section="scene"] [data-prompt-react-editor]'),
+    ).toBe(sceneEditor)
+
+    mount.destroy()
+    controller.destroy()
+  })
+
+  test("keeps one plain text editor uncontrolled while syncing canonical prompt state", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const initial = {
+      ...createEmptyPromptDocument(),
+      sections: [
+        { title: "scene", parts: [{ type: "text" as const, text: "old scene" }] },
+        { title: "camera_direction", parts: [{ type: "text" as const, text: "native camera" }] },
+      ],
+    }
+    const controller = new ReferencePromptController(
+      root,
+      node,
+      () => [],
+      serializePromptDocument(initial),
+      { legacyShell: false },
+    )
+    const mount = createPromptReact({ container: root, controller })
+    const editor = root.querySelector<HTMLElement>("[data-prompt-react-editor]")!
+    expect(editor.dataset.promptSectionTitle).toBe("scene")
+    expect(editor.contentEditable).toBe("true")
+    expect(editor.dataset.placeholder).not.toBe("")
+    expect(
+      root.querySelector('[data-prompt-section="camera_direction"] [data-prompt-react-editor]'),
+    ).toBeNull()
+
+    editor.focus()
+    flushSync(() => {
+      editor.textContent = "new scene"
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, data: "e" }))
+    })
+    expect(JSON.parse(controller.serialize()).sections).toEqual([
+      { title: "scene", parts: [{ type: "text", text: "new scene" }] },
+      { title: "camera_direction", parts: [{ type: "text", text: "native camera" }] },
+    ])
+    expect(root.querySelector<HTMLElement>("[data-prompt-react-editor]")).toBe(editor)
+
+    flushSync(() => controller.setPreset("minimax_h3_base"))
+    expect(root.querySelector<HTMLElement>("[data-prompt-react-editor]")).toBe(editor)
+    expect(editor.textContent).toBe("new scene")
+
+    editor.blur()
+    flushSync(() =>
+      controller.restore(
+        serializePromptDocument({
+          ...initial,
+          sections: [
+            { title: "scene", parts: [{ type: "text" as const, text: "restored scene" }] },
+            initial.sections[1]!,
+          ],
+        }),
+      ),
+    )
+    expect(root.querySelector<HTMLElement>("[data-prompt-react-editor]")).toBe(editor)
+    expect(editor.textContent).toBe("restored scene")
+
+    mount.destroy()
+    controller.destroy()
+  })
+
+  test("defers canonical updates during IME composition until compositionend", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const controller = new ReferencePromptController(
+      root,
+      node,
+      () => [],
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        sections: [{ title: "scene", parts: [{ type: "text", text: "before" }] }],
+      }),
+      { legacyShell: false },
+    )
+    const mount = createPromptReact({ container: root, controller })
+    const editor = root.querySelector<HTMLElement>("[data-prompt-react-editor]")!
+
+    flushSync(() => {
+      editor.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }))
+      editor.textContent = "during composition"
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, data: "중" }))
+    })
+    expect(controller.getSectionsSnapshot().sections[0]?.text).toBe("before")
+
+    flushSync(() => editor.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })))
+    expect(controller.getSectionsSnapshot().sections[0]?.text).toBe("during composition")
 
     mount.destroy()
     controller.destroy()

@@ -105,6 +105,9 @@ export interface PromptSectionSnapshot {
   readonly color: string
   readonly colorIndex: number
   readonly isVirtual: boolean
+  readonly editor: "native" | "react-text"
+  readonly text: string
+  readonly placeholder: string
   readonly dragTitle: string
   readonly dragAria: string
   readonly removeTitle: string
@@ -137,6 +140,15 @@ function normalizeSubjectLabel(value: string): string | undefined {
   return label.length > 0 && label.length <= 64 && /^[\p{L}\p{N}][\p{L}\p{N}_-]*$/u.test(label)
     ? label
     : undefined
+}
+
+function plainTextSectionValue(parts: readonly PromptSectionPart[]): string | undefined {
+  let value = ""
+  for (const part of parts) {
+    if (part.type !== "text") return undefined
+    value += part.text
+  }
+  return value
 }
 
 export class ReferencePromptController {
@@ -184,6 +196,7 @@ export class ReferencePromptController {
   #viewSnapshot: PromptViewSnapshot | undefined
   #definitionsSnapshot: PromptDefinitionsSnapshot | undefined
   #sectionsSnapshot: PromptSectionsSnapshot | undefined
+  #reactEditorTitle: string | undefined
   #definitionIdentityCounter = 0
   #definitionIdentities: Record<PromptDefinitionKind, Map<string, string>> = {
     subject: new Map(),
@@ -387,6 +400,35 @@ export class ReferencePromptController {
 
   removeSection(title: string): void {
     this.#removeSection(title)
+  }
+
+  setPlainTextSectionText(title: string, text: string): boolean {
+    if (this.#destroyed) return false
+    const sectionIndex = this.#document.sections.findIndex((section) => section.title === title)
+    if (sectionIndex < 0) {
+      if (
+        this.#document.sections.length > 0 ||
+        title !== this.#preset.defaultSectionTitle ||
+        text.trim().length === 0
+      )
+        return false
+      this.#document = {
+        ...this.#document,
+        sections: [{ title, parts: [{ type: "text", text }] }],
+      }
+    } else {
+      const section = this.#document.sections[sectionIndex]
+      const currentText = section && plainTextSectionValue(section.parts)
+      if (currentText === undefined) return false
+      if (currentText === text) return true
+      const sections = [...this.#document.sections]
+      sections[sectionIndex] = { ...section, parts: text ? [{ type: "text", text }] : [] }
+      this.#document = { ...this.#document, sections }
+    }
+    this.#closePicker()
+    this.#publishView()
+    this.#node.setDirtyCanvas(true, true)
+    return true
   }
 
   moveSection(title: string, delta: -1 | 1): void {
@@ -664,6 +706,10 @@ export class ReferencePromptController {
     return roots
   }
 
+  #isReactTextEditor(target: EventTarget | null): boolean {
+    return target instanceof Element && Boolean(target.closest("[data-prompt-react-editor]"))
+  }
+
   get #definitionsHost(): HTMLElement {
     return this.#definitionsRoot ?? this.#workspaceRoot ?? this.root
   }
@@ -751,15 +797,34 @@ export class ReferencePromptController {
         : this.#document.view === "structured"
           ? [{ section: { title: this.#preset.defaultSectionTitle, parts: [] }, isVirtual: true }]
           : []
+    const currentEditor = sections.find(
+      ({ section }) =>
+        section.title === this.#reactEditorTitle &&
+        plainTextSectionValue(section.parts) !== undefined,
+    )
+    this.#reactEditorTitle =
+      currentEditor?.section.title ??
+      sections.find(({ section }) => plainTextSectionValue(section.parts) !== undefined)?.section
+        .title
+    const reactEditorTitle = this.#reactEditorTitle
     return {
       view: this.#document.view,
       sections: sections.map(({ section, isVirtual }) => {
         const accent = sectionColor(section.title)
+        const editor = section.title === reactEditorTitle ? "react-text" : "native"
         return {
           title: section.title,
           color: accent.color,
           colorIndex: accent.index,
           isVirtual,
+          editor,
+          text: editor === "react-text" ? (plainTextSectionValue(section.parts) ?? "") : "",
+          placeholder: localize(
+            this.#preset.subjectMode === "disabled"
+              ? PROMPT_MESSAGES.bodyPlaceholder
+              : PROMPT_MESSAGES.bodyPlaceholderWithSubjects,
+            this.#locale,
+          ),
           dragTitle:
             this.#locale === "ko"
               ? `${section.title} 섹션 순서 이동`
@@ -795,6 +860,9 @@ export class ReferencePromptController {
           section.color === candidate.color &&
           section.colorIndex === candidate.colorIndex &&
           section.isVirtual === candidate.isVirtual &&
+          section.editor === candidate.editor &&
+          section.text === candidate.text &&
+          section.placeholder === candidate.placeholder &&
           section.dragTitle === candidate.dragTitle &&
           section.dragAria === candidate.dragAria &&
           section.removeTitle === candidate.removeTitle &&
@@ -1056,10 +1124,17 @@ export class ReferencePromptController {
       signal,
     })
     if (includeClick) root.addEventListener("click", (event) => this.#onClick(event), { signal })
-    root.addEventListener("compositionstart", () => (this.#composing = true), { signal })
+    root.addEventListener(
+      "compositionstart",
+      (event) => {
+        if (!this.#isReactTextEditor(event.target)) this.#composing = true
+      },
+      { signal },
+    )
     root.addEventListener(
       "compositionend",
-      () => {
+      (event) => {
+        if (this.#isReactTextEditor(event.target)) return
         this.#composing = false
         this.#syncDocumentFromEditor()
         this.#updatePickerQuery()
@@ -1404,6 +1479,7 @@ export class ReferencePromptController {
       !this.#editorRoots.some((root) => root.contains(event.target as Node))
     )
       return
+    if (this.#isReactTextEditor(event.target)) return
     if (this.#composing) return
     if (
       !this.#legacyShell &&
@@ -1670,6 +1746,7 @@ export class ReferencePromptController {
       !this.#editorRoots.some((root) => root.contains(event.target as Node))
     )
       return
+    if (this.#isReactTextEditor(event.target)) return
     const dragHandle =
       event.target instanceof Element
         ? event.target.closest<HTMLElement>("[data-prompt-section-drag-handle]")

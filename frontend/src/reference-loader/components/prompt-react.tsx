@@ -4,6 +4,7 @@ import {
   useRef,
   useSyncExternalStore,
   type CSSProperties,
+  type FormEvent,
   type Ref,
   type ReactNode,
   type RefCallback,
@@ -11,6 +12,7 @@ import {
 import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
+import { textContentWithBreaks } from "./prompt-dom.ts"
 import type {
   PromptSectionSnapshot,
   PromptSectionsSnapshot,
@@ -24,6 +26,7 @@ export interface PromptReactActions {
   copySource(): Promise<void>
   copyCompiled(): Promise<void>
   setPreset(value: unknown): void
+  setPlainTextSectionText(title: string, text: string): boolean
   removeSection(title: string): void
 }
 
@@ -104,6 +107,60 @@ function PromptToolbar({
   )
 }
 
+export function PromptEditor({
+  actions,
+  section,
+}: {
+  actions: PromptReactActions
+  section: PromptSectionSnapshot
+}): ReactNode {
+  const editorRef = useRef<HTMLDivElement>(null)
+  const composing = useRef(false)
+
+  useLayoutEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
+    if (textContentWithBreaks(editor) === section.text) return
+    if (document.activeElement === editor) return
+    editor.textContent = section.text
+  }, [section.title, section.text])
+
+  const commit = (editor: HTMLDivElement): void => {
+    if (!composing.current)
+      actions.setPlainTextSectionText(section.title, textContentWithBreaks(editor))
+  }
+
+  const handleInput = (event: FormEvent<HTMLDivElement>): void => {
+    commit(event.currentTarget)
+  }
+
+  return (
+    <div
+      ref={editorRef}
+      className="rl-prompt-editor rl-prompt-editor--plain"
+      data-prompt-editor=""
+      data-prompt-react-editor=""
+      data-prompt-section-body={section.title}
+      data-prompt-section-title={section.title}
+      contentEditable="true"
+      suppressContentEditableWarning
+      role="textbox"
+      aria-multiline="true"
+      aria-label={`${section.title} text`}
+      spellCheck
+      data-placeholder={section.placeholder}
+      onCompositionStart={() => {
+        composing.current = true
+      }}
+      onCompositionEnd={(event) => {
+        composing.current = false
+        commit(event.currentTarget)
+      }}
+      onInput={handleInput}
+    />
+  )
+}
+
 function PromptSectionCard({
   section,
   actions,
@@ -144,11 +201,15 @@ function PromptSectionCard({
           ×
         </button>
       </header>
-      <div
-        className="rl-prompt-section__body-host"
-        data-prompt-section-body-host=""
-        ref={getBodyHost(section.title)}
-      />
+      {section.editor === "react-text" ? (
+        <PromptEditor actions={actions} section={section} />
+      ) : (
+        <div
+          className="rl-prompt-section__body-host"
+          data-prompt-section-body-host=""
+          ref={getBodyHost(section.title)}
+        />
+      )}
     </section>
   )
 }
@@ -282,6 +343,7 @@ export function createPromptReact(options: PromptReactOptions): PromptReactMount
     copySource: () => controller.copySource(),
     copyCompiled: () => controller.copyCompiled(),
     setPreset: (value) => controller.setPreset(value),
+    setPlainTextSectionText: (title, text) => controller.setPlainTextSectionText(title, text),
     removeSection: (title) => controller.removeSection(title),
   }
   const root: Root = createRoot(options.container)

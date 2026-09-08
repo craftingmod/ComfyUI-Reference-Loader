@@ -1,5 +1,8 @@
 import type { PromptReference } from "./prompt-state.ts"
-import type { ItemRuntime, LoaderState, MediaItem } from "./types.ts"
+import { isAudioItem, type ItemRuntime, type LoaderState, type MediaItem } from "./types.ts"
+import { isSilentWaveform } from "./waveform.ts"
+
+export type LoaderViewChannel = "image" | "video" | "audio"
 
 export interface LoaderDisplayState {
   gridColumns: number
@@ -24,6 +27,7 @@ export interface LoaderViewSnapshot {
   readonly pending: readonly PendingUploadView[]
   readonly selectedId: string | undefined
   readonly status: string
+  readonly deferPreviews: boolean
   readonly canUndo: boolean
   readonly canRedo: boolean
 }
@@ -35,8 +39,181 @@ export interface LoaderViewInput {
   pending: Iterable<PendingUploadView>
   selectedId: string | undefined
   status: string
+  deferPreviews?: boolean
   canUndo: boolean
   canRedo: boolean
+}
+
+export interface LoaderCardView {
+  readonly id: string
+  readonly kind: MediaItem["kind"]
+  readonly channel: LoaderViewChannel
+  readonly replaceIndex: number
+  readonly sourceRevision: number | undefined
+  readonly outputIndex: number | undefined
+  readonly filename: string
+  readonly caption: string
+  readonly selected: boolean
+  readonly outputEnabled: boolean
+  readonly imageEnabled: boolean
+  readonly videoEnabled: boolean
+  readonly videoAudioEnabled: boolean
+  readonly audioEnabled: boolean
+  readonly silentVideo: boolean
+  readonly loading: boolean
+  readonly applyingEdit: boolean
+  readonly error: string | undefined
+  readonly previewUrl: string | undefined
+  readonly waveformStatus: "No audio track" | "Silent" | undefined
+  readonly metadata: Readonly<NonNullable<ItemRuntime["metadata"]>> | undefined
+  readonly playbackDuration: number | undefined
+  readonly durationLabel: string
+  readonly megapixelLabel: string
+}
+
+export interface LoaderChannelView {
+  readonly channel: LoaderViewChannel
+  readonly label: string
+  readonly description: string
+  readonly count: number
+  readonly hasOpenCell: boolean
+  readonly cards: readonly LoaderCardView[]
+}
+
+const CHANNEL_LABELS: Record<LoaderViewChannel, string> = {
+  image: "Images",
+  video: "Videos",
+  audio: "Audio",
+}
+
+const CHANNEL_DESCRIPTIONS: Record<LoaderViewChannel, string> = {
+  image: "Image output and captions",
+  video: "Video output and captions",
+  audio: "Standalone and video sound",
+}
+
+function channelOrder(state: LoaderState, channel: LoaderViewChannel): readonly string[] {
+  return channel === "image"
+    ? state.imageOrder
+    : channel === "video"
+      ? state.videoOrder
+      : state.audioOrder
+}
+
+function channelOutputEnabled(channel: LoaderViewChannel, item: MediaItem): boolean {
+  if (channel === "image") return item.kind === "image" && item.imageEnabled
+  if (channel === "video") return item.kind === "video" && item.videoEnabled
+  return isAudioItem(item) && item.audioEnabled
+}
+
+function itemFilename(item: MediaItem): string {
+  return item.sourceFilename || item.source.path.split("/").pop() || item.source.path
+}
+
+function durationLabel(item: MediaItem, runtime: ItemRuntime | undefined): string {
+  const duration =
+    item.kind === "image"
+      ? undefined
+      : item.crop
+        ? item.crop.end - item.crop.start
+        : runtime?.metadata?.duration
+  return duration === undefined ? "" : `${duration.toFixed(duration < 10 ? 2 : 1)}s`
+}
+
+function megapixelLabel(item: MediaItem, runtime: ItemRuntime | undefined): string {
+  if (item.kind !== "image") return ""
+  const width = runtime?.metadata?.width
+  const height = runtime?.metadata?.height
+  if (width === undefined || height === undefined || width <= 0 || height <= 0) return ""
+  const megapixels = (width * height) / 1_000_000
+  if (megapixels < 0.01) return "<0.01 MP"
+  return `${Number(megapixels.toFixed(megapixels >= 10 ? 1 : 2))} MP`
+}
+
+function outputIndexFor(
+  state: LoaderState,
+  channel: LoaderViewChannel,
+  orderIndex: number,
+): number | undefined {
+  const order = channelOrder(state, channel)
+  let outputIndex = 0
+  for (let index = 0; index <= orderIndex; index += 1) {
+    const item = state.items[order[index] ?? ""]
+    if (!item || !channelOutputEnabled(channel, item)) continue
+    outputIndex += 1
+  }
+  const item = state.items[order[orderIndex] ?? ""]
+  return item && channelOutputEnabled(channel, item) ? outputIndex : undefined
+}
+
+function cardView(
+  snapshot: LoaderViewSnapshot,
+  channel: LoaderViewChannel,
+  id: string,
+  orderIndex: number,
+): LoaderCardView | undefined {
+  const item = snapshot.state.items[id]
+  if (!item) return undefined
+  const runtime = snapshot.runtime.get(id)
+  const silentVideo = item.kind === "video" && runtime?.metadata?.hasAudio === false
+  const audioChannel = channel === "audio"
+  const waveformStatus =
+    audioChannel && isAudioItem(item)
+      ? silentVideo
+        ? "No audio track"
+        : isSilentWaveform(runtime?.waveform)
+          ? "Silent"
+          : undefined
+      : undefined
+  const caption =
+    item.kind === "video" && audioChannel
+      ? (item.audioCaptionOverride ?? item.caption)
+      : item.caption
+  const playbackDuration =
+    item.kind === "image" ? undefined : (runtime?.metadata?.duration ?? item.crop?.end)
+  return {
+    id,
+    kind: item.kind,
+    channel,
+    replaceIndex: orderIndex + 1,
+    sourceRevision: item.source.revision,
+    outputIndex: outputIndexFor(snapshot.state, channel, orderIndex),
+    filename: itemFilename(item),
+    caption,
+    selected: snapshot.selectedId === id,
+    outputEnabled: channelOutputEnabled(channel, item),
+    imageEnabled: item.kind === "image" && item.imageEnabled,
+    videoEnabled: item.kind === "video" && item.videoEnabled,
+    videoAudioEnabled: item.kind === "video" && item.videoAudioEnabled && !silentVideo,
+    audioEnabled: isAudioItem(item) && item.audioEnabled,
+    silentVideo,
+    loading: Boolean(runtime?.loading),
+    applyingEdit: Boolean(runtime?.applyingEdit),
+    error: runtime?.error,
+    previewUrl: channel === "image" || channel === "video" ? runtime?.previewUrl : undefined,
+    waveformStatus,
+    metadata: runtime?.metadata,
+    playbackDuration,
+    durationLabel: durationLabel(item, runtime),
+    megapixelLabel: megapixelLabel(item, runtime),
+  }
+}
+
+export function projectLoaderChannels(snapshot: LoaderViewSnapshot): LoaderChannelView[] {
+  return (Object.keys(CHANNEL_LABELS) as LoaderViewChannel[]).map((channel) => {
+    const order = channelOrder(snapshot.state, channel)
+    return {
+      channel,
+      label: CHANNEL_LABELS[channel],
+      description: CHANNEL_DESCRIPTIONS[channel],
+      count: order.length,
+      hasOpenCell: order.length > 0 && order.length % snapshot.display.gridColumns !== 0,
+      cards: order.flatMap((id, index) => {
+        const card = cardView(snapshot, channel, id, index)
+        return card ? [card] : []
+      }),
+    }
+  })
 }
 
 function cloneRuntime(runtime: ItemRuntime): Readonly<ItemRuntime> {
@@ -59,6 +236,7 @@ export function createLoaderViewSnapshot(input: LoaderViewInput): LoaderViewSnap
     pending: [...input.pending].map(({ id, filename }) => ({ id, filename })),
     selectedId: input.selectedId,
     status: input.status,
+    deferPreviews: input.deferPreviews === true,
     canUndo: input.canUndo,
     canRedo: input.canRedo,
   }
@@ -103,6 +281,7 @@ export function sameLoaderViewSnapshot(
     previous.state !== next.state ||
     previous.selectedId !== next.selectedId ||
     previous.status !== next.status ||
+    previous.deferPreviews !== next.deferPreviews ||
     previous.canUndo !== next.canUndo ||
     previous.canRedo !== next.canRedo
   )
@@ -129,10 +308,6 @@ export function sameLoaderViewSnapshot(
     ({ id, filename }, index) =>
       previous.pending[index]?.id === id && previous.pending[index]?.filename === filename,
   )
-}
-
-function itemFilename(item: MediaItem): string {
-  return item.sourceFilename || item.source.path.split("/").pop() || item.source.path
 }
 
 export function projectPromptReferences(

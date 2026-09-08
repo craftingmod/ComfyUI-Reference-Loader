@@ -44,11 +44,24 @@ import {
 import { isSilentWaveform } from "../waveform.ts"
 import { createH3GuideEditor, type H3GuidePosition } from "./h3-guide-editor.tsx"
 import { H3Timeline, type TimelineView } from "./h3-timeline.ts"
+import {
+  createLoaderReact,
+  type LoaderReactActions,
+  type LoaderReactMount,
+} from "./loader-react.tsx"
 
 function isH3ReactEvent(event: Event): boolean {
   return event
     .composedPath()
     .some((target) => target instanceof HTMLElement && target.hasAttribute("data-h3-react-surface"))
+}
+
+function isLoaderReactEvent(event: Event): boolean {
+  return event
+    .composedPath()
+    .some(
+      (target) => target instanceof HTMLElement && target.hasAttribute("data-loader-react-surface"),
+    )
 }
 
 interface PendingUpload {
@@ -336,6 +349,29 @@ class RuntimeLoadLimiter {
 
 export class ReferenceLoaderController {
   readonly root: HTMLElement
+  #legacyRoot: HTMLElement
+  #reactHost: HTMLElement
+  #reactMount: LoaderReactMount | undefined
+  #reactActions: LoaderReactActions = {
+    addFiles: (files, replaceId) => this.uploadFiles(files, replaceId),
+    saveSnapshot: () => this.saveSnapshot(),
+    loadSnapshot: (file) => this.loadSnapshot(file),
+    undo: () => this.undo(),
+    redo: () => this.redo(),
+    clear: () => this.clear(),
+    select: (id) => this.selectItem(id),
+    remove: (id) => this.removeItem(id),
+    setCaption: (id, channel, caption, composing) =>
+      this.setCaption(id, channel, caption, composing),
+    toggleOutput: (id, channel) => this.toggleOutput(id, channel),
+    toggleVideoAudio: (id) => this.toggleVideoAudio(id),
+    previewAudio: (id) => this.previewAudio(id),
+    previewVideo: (id) => this.previewVideo(id),
+    move: (id, channel, delta) => this.moveItem(id, channel, delta),
+    reorder: (id, channel, toIndex) => this.reorderItem(id, channel, toIndex),
+    edit: (id, channel) => this.editItem(id, channel),
+    acceptsFileDrop: (dataTransfer) => this.acceptsFileDrop(dataTransfer),
+  }
   #node: ComfyNode
   #api: ReferenceLoaderApi
   #store: LoaderStore
@@ -351,6 +387,7 @@ export class ReferenceLoaderController {
   #pending = new Map<string, PendingUpload>()
   #selectedId: string | undefined
   #status = "Drop image, audio, or video files to begin."
+  #deferPreviews = false
   #destroyController = new AbortController()
   #stateController = new AbortController()
   #modalController: AbortController | undefined
@@ -393,6 +430,13 @@ export class ReferenceLoaderController {
     options: ReferenceLoaderControllerOptions = {},
   ) {
     this.root = root
+    this.#legacyRoot = document.createElement("div")
+    this.#legacyRoot.dataset.loaderLegacyRoot = ""
+    this.#legacyRoot.hidden = true
+    this.#reactHost = document.createElement("div")
+    this.#reactHost.dataset.loaderReactRoot = ""
+    this.#reactHost.hidden = true
+    this.root.replaceChildren(this.#legacyRoot, this.#reactHost)
     this.#node = node
     this.#api = api
     this.#changeEvents = changeEvents
@@ -485,6 +529,103 @@ export class ReferenceLoaderController {
     )
   }
 
+  selectItem(id: string): void {
+    if (this.#destroyed || !this.state.items[id]) return
+    this.#selectItem(id)
+  }
+
+  removeItem(id: string): void {
+    if (this.#destroyed || !this.state.items[id]) return
+    if (this.#audioPreview.snapshot.owner === `grid:${id}`) this.#audioPreview.stop()
+    if (this.#videoPreview.snapshot.owner === `grid:${id}`) this.#videoPreview.stop()
+    this.#runtime.delete(id)
+    this.#dispatch({ type: "remove", id })
+  }
+
+  setCaption(id: string, channel: LoaderChannel, caption: string, composing = false): void {
+    if (this.#destroyed) return
+    const changed = this.#dispatch(
+      { type: "set-caption", id, caption, channel },
+      {
+        mergeKey:
+          composing || this.#composing ? `ime:${channel}:${id}` : `caption:${channel}:${id}`,
+        render: false,
+      },
+    )
+    if (!changed) return
+    this.#syncCaptionFields(id)
+    this.#node.setDirtyCanvas(true, true)
+  }
+
+  toggleOutput(id: string, channel: LoaderChannel): void {
+    if (this.#destroyed) return
+    this.#toggleOutput(id, channel)
+  }
+
+  toggleVideoAudio(id: string): void {
+    if (this.#destroyed) return
+    this.#toggleVideoAudio(id)
+  }
+
+  previewAudio(id: string): void {
+    if (this.#destroyed) return
+    void this.#toggleAudioPreview(id)
+  }
+
+  previewVideo(id: string): void {
+    if (this.#destroyed) return
+    void this.#toggleVideoPreview(id)
+  }
+
+  moveItem(id: string, channel: LoaderChannel, delta: -1 | 1): void {
+    if (this.#destroyed) return
+    this.#dispatch({ type: "move", id, channel, delta })
+  }
+
+  reorderItem(id: string, channel: LoaderChannel, toIndex: number): void {
+    if (this.#destroyed) return
+    this.#dispatch({ type: "reorder", id, channel, toIndex })
+  }
+
+  editItem(id: string, channel?: LoaderChannel): void {
+    if (this.#destroyed) return
+    void this.#editItem(id, channel)
+  }
+
+  undo(): void {
+    if (this.#destroyed || !this.#store.canUndo) return
+    this.#recordGraphChange(() => this.#store.undo())
+    this.#changed(true)
+  }
+
+  redo(): void {
+    if (this.#destroyed || !this.#store.canRedo) return
+    this.#recordGraphChange(() => this.#store.redo())
+    this.#changed(true)
+  }
+
+  clear(): void {
+    if (this.#destroyed) return
+    this.#clearAll()
+  }
+
+  saveSnapshot(): void {
+    if (this.#destroyed) return
+    try {
+      this.#changeEvents.saveSnapshot?.()
+      this.#status = "Snapshot saved."
+    } catch (error) {
+      this.#status = error instanceof Error ? error.message : "Snapshot could not be saved."
+    }
+    this.#setSnapshotMenu(false)
+    this.render(true)
+  }
+
+  async loadSnapshot(file: File): Promise<void> {
+    if (this.#destroyed) return
+    await this.#loadSnapshot(file)
+  }
+
   async addDroppedFiles(files: Iterable<File>, replaceId?: string): Promise<boolean> {
     if (this.#destroyed) return false
     const dropped = [...files]
@@ -497,6 +638,13 @@ export class ReferenceLoaderController {
       return false
     await this.#uploadFiles(dropped, replaceId)
     return true
+  }
+
+  async uploadFiles(files: Iterable<File>, replaceId?: string): Promise<boolean> {
+    if (this.#destroyed) return false
+    const uploaded = [...files]
+    await this.#uploadFiles(uploaded, replaceId)
+    return uploaded.length > 0
   }
 
   writeDisplayProxy(values: Partial<LoaderDisplayState>): void {
@@ -599,6 +747,7 @@ export class ReferenceLoaderController {
     const parsed = deserializeLoaderState(serialized)
     this.#store.restore(this.#stateForMode(parsed.state))
     this.#selectedId = undefined
+    this.#deferPreviews = false
     this.#h3Editor = undefined
     this.#h3SummaryExpanded = false
     this.#runtime.clear()
@@ -670,6 +819,7 @@ export class ReferenceLoaderController {
     this.#promptShotSelect = undefined
     this.#promptShotRemove = undefined
     this.#h3Editor = undefined
+    this.#destroyReactMount()
     this.#dropTarget = undefined
     this.#setFileDropTarget(undefined)
     this.root.classList.remove("is-dragging", "is-file-dragging")
@@ -679,6 +829,7 @@ export class ReferenceLoaderController {
 
   render(force = false): void {
     if (this.#destroyed) return
+    if (this.#deferPreviews && !this.#hasFocusedCaption()) this.#deferPreviews = false
     this.#publishView()
     if (this.#h3Axis?.dragging) {
       this.#renderPending = true
@@ -715,9 +866,21 @@ export class ReferenceLoaderController {
     )
     this.root.style.setProperty("--rl-preview-fit", state.ui.previewFit)
     if (this.#mode === "single-image") {
+      this.#destroyReactMount()
+      this.#legacyRoot.hidden = false
       this.#renderSingleImage(state)
       return
     }
+    if (this.#canRenderReact(state)) {
+      this.#h3ReactEditor?.view.destroy()
+      this.#h3ReactEditor = undefined
+      this.#h3Axis?.destroy()
+      this.#h3Axis = undefined
+      this.#renderReact()
+      return
+    }
+    this.#destroyReactMount()
+    this.#legacyRoot.hidden = false
     const reactEditor = this.#h3ReactEditor
     const activeReactField =
       active instanceof HTMLElement &&
@@ -729,7 +892,7 @@ export class ReferenceLoaderController {
       this.#h3ReactEditor = undefined
     }
     this.#h3Axis?.destroy()
-    this.root.innerHTML = `
+    this.#legacyRoot.innerHTML = `
       <div class="rl-media-topbar">
         <header class="rl-media-header">
           <div>
@@ -783,7 +946,7 @@ export class ReferenceLoaderController {
     const loadingOverlay = loading
       ? '<span class="rl-card__loading-overlay" role="status" aria-label="Loading image"><span class="rl-spinner" aria-hidden="true"></span></span>'
       : ""
-    this.root.innerHTML = `
+    this.#legacyRoot.innerHTML = `
       <section class="rl-single-image-panel" aria-label="Reference image">
         <div class="rl-single-image-controls">
           <label class="rl-single-image-select" aria-label="Choose image" title="Choose image">
@@ -839,6 +1002,7 @@ export class ReferenceLoaderController {
       })),
       selectedId: this.#selectedId,
       status: this.#status,
+      deferPreviews: this.#deferPreviews,
       canUndo: this.#store.canUndo,
       canRedo: this.#store.canRedo,
     })
@@ -863,6 +1027,53 @@ export class ReferenceLoaderController {
     this.#promptReferenceSourceKey = nextSourceKey
     if (notify) for (const listener of this.#referenceListeners) listener()
     return true
+  }
+
+  #canRenderReact(state: LoaderState): boolean {
+    const timeline = state.h3Timeline
+    return (
+      this.#mode === "references" &&
+      !this.#h3Editor &&
+      !timeline.enabled &&
+      timeline.startImageId === null &&
+      timeline.endImageId === null &&
+      timeline.guides.length === 0 &&
+      !(timeline.disabledVisualIds?.length ?? 0) &&
+      !(timeline.disabledAudioIds?.length ?? 0)
+    )
+  }
+
+  #hasFocusedCaption(): boolean {
+    const active = document.activeElement
+    return (
+      active instanceof HTMLTextAreaElement &&
+      active.dataset.field === "caption" &&
+      this.root.contains(active)
+    )
+  }
+
+  #destroyReactMount(): void {
+    this.#reactMount?.destroy()
+    this.#reactMount = undefined
+    this.#reactHost.hidden = true
+  }
+
+  #renderReact(): void {
+    this.#legacyRoot.hidden = true
+    this.#reactHost.hidden = false
+    const options = {
+      container: this.#reactHost,
+      surface: this.root,
+      subscribe: (listener: () => void) => this.subscribeView(listener),
+      getSnapshot: () => this.getViewSnapshot(),
+      actions: this.#reactActions,
+      onCommit: () => {
+        this.#drawWaveforms()
+        this.#syncPlaybackUi()
+      },
+    }
+    if (!this.#reactMount) this.#reactMount = createLoaderReact(options)
+    else this.#reactMount.update()
   }
 
   #publishRuntimeUpdate(): void {
@@ -1525,8 +1736,10 @@ export class ReferenceLoaderController {
     }
     if (activeMedia) {
       activeMedia.querySelector("img")?.classList.add("is-video-poster-hidden")
-      if (this.#videoPreview.element.parentElement !== activeMedia)
-        activeMedia.prepend(this.#videoPreview.element)
+      const host =
+        activeMedia.querySelector<HTMLElement>("[data-video-preview-host]") ?? activeMedia
+      if (this.#videoPreview.element.parentElement !== host)
+        host.prepend(this.#videoPreview.element)
     } else {
       this.#videoPreview.element.remove()
       for (const poster of this.root.querySelectorAll("img.is-video-poster-hidden")) {
@@ -1615,7 +1828,8 @@ export class ReferenceLoaderController {
     this.root.addEventListener("dragstart", (event) => this.#onDragStart(event), { signal })
     this.root.addEventListener(
       "dragend",
-      () => {
+      (event) => {
+        if (isLoaderReactEvent(event)) return
         this.#clearDropTarget()
         this.#drag = undefined
         this.#armedDrag = undefined
@@ -1657,6 +1871,7 @@ export class ReferenceLoaderController {
 
   #onClick(event: MouseEvent): void {
     if (isH3ReactEvent(event)) return
+    if (isLoaderReactEvent(event)) return
     const h3Button = (event.target as Element).closest<HTMLElement>("[data-h3-action]")
     if (h3Button && this.root.contains(h3Button)) {
       this.#onH3Click(h3Button)
@@ -2308,6 +2523,7 @@ export class ReferenceLoaderController {
   }
 
   #onDoubleClick(event: MouseEvent): void {
+    if (isLoaderReactEvent(event)) return
     const target = event.target as Element
     if (target.closest("button, textarea, input, select, a, [contenteditable='true']")) return
     if (
@@ -2328,12 +2544,15 @@ export class ReferenceLoaderController {
 
   #selectItem(id: string): void {
     this.#selectedId = id
-    for (const card of this.root.querySelectorAll<HTMLElement>(".rl-card")) {
-      const selected = card.dataset.id === id
-      card.classList.toggle("is-selected", selected)
-      card.setAttribute("aria-selected", String(selected))
+    if (!this.#reactMount) {
+      for (const card of this.root.querySelectorAll<HTMLElement>(".rl-card")) {
+        const selected = card.dataset.id === id
+        card.classList.toggle("is-selected", selected)
+        card.setAttribute("aria-selected", String(selected))
+      }
     }
     this.#publishView()
+    this.#reactMount?.update()
   }
 
   #clearAll(): void {
@@ -2353,6 +2572,7 @@ export class ReferenceLoaderController {
     for (const pending of this.#pending.values()) URL.revokeObjectURL(pending.objectUrl)
     this.#pending.clear()
     this.#selectedId = undefined
+    this.#deferPreviews = false
     this.#h3Editor = undefined
     this.#runtime.clear()
     this.#runtimeSequences.clear()
@@ -2437,6 +2657,7 @@ export class ReferenceLoaderController {
 
   #onInput(event: Event): void {
     if (isH3ReactEvent(event)) return
+    if (isLoaderReactEvent(event)) return
     const h3Input = event.target
     if (h3Input instanceof HTMLInputElement && h3Input.dataset.h3DraftField === "frame") {
       const editor = this.#h3Editor
@@ -2489,6 +2710,7 @@ export class ReferenceLoaderController {
 
   #onChange(event: Event): void {
     if (isH3ReactEvent(event)) return
+    if (isLoaderReactEvent(event)) return
     const input = event.target
     if (
       (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) &&
@@ -2527,6 +2749,7 @@ export class ReferenceLoaderController {
   }
 
   #onKeydown(event: KeyboardEvent): void {
+    if (isLoaderReactEvent(event)) return
     if (event.key === "Escape" && (event.target as Element).closest("[data-h3-editor]")) {
       event.preventDefault()
       this.#closeH3Editor()
@@ -2586,6 +2809,7 @@ export class ReferenceLoaderController {
   }
 
   #onDragStart(event: DragEvent): void {
+    if (isLoaderReactEvent(event)) return
     const card = (event.target as Element).closest<HTMLElement>(".rl-card")
     if (
       !card?.dataset.id ||
@@ -2676,6 +2900,7 @@ export class ReferenceLoaderController {
   }
 
   #onDrop(event: DragEvent): void {
+    if (isLoaderReactEvent(event)) return
     this.#clearDropTarget()
     this.root.classList.remove("is-file-dragging")
     this.#setFileDropGuide(null)
@@ -2934,6 +3159,7 @@ export class ReferenceLoaderController {
         ...(proxy ? { previewUrl: proxy.url } : {}),
         ...(waveform ? { waveform: waveform.pairs } : {}),
       })
+      if (this.#canRenderReact(this.state) && this.#hasFocusedCaption()) this.#deferPreviews = true
       this.#publishRuntimeUpdate()
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return
@@ -2948,6 +3174,7 @@ export class ReferenceLoaderController {
         loading: false,
         error: error instanceof Error ? error.message : "Preview failed.",
       })
+      if (this.#canRenderReact(this.state) && this.#hasFocusedCaption()) this.#deferPreviews = true
       this.#publishRuntimeUpdate()
     } finally {
       release()

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { flushSync } from "react-dom"
 
 import type { ComfyNode } from "../src/comfyui.ts"
@@ -35,10 +36,11 @@ const node: ComfyNode = {
 }
 
 function stateWithImage() {
-  return loaderReducer(createEmptyLoaderState(), {
+  const state = loaderReducer(createEmptyLoaderState(), {
     type: "add",
     item: createMediaItem("image", source("scene.png", "image/png"), "scene"),
   })
+  return loaderReducer(state, { type: "toggle-h3-timeline", enabled: true })
 }
 
 function addGuide(root: HTMLElement, frame: string): void {
@@ -189,7 +191,7 @@ describe("Reference Loader Media Timeline integration", () => {
       [...root.querySelectorAll('.rl-card[data-id="scene"] .rl-h3-card-badge')].map(
         (badge) => badge.textContent,
       ),
-    ).toEqual(["Ref #1", "Guide #1", "0f", "Paused"])
+    ).toEqual(["Ref #1", "Guide #1", "0f"])
     expect(root.querySelector('.rl-card[data-id="scene"] .rl-guide-index')?.textContent).toBe("G#1")
     expect(
       root.querySelector('.rl-card[data-id="scene"] .rl-h3-card-badge.is-reference'),
@@ -616,12 +618,16 @@ describe("Reference Loader Media Timeline integration", () => {
 
   test("does not expose Guide controls or accept video Guide sources", () => {
     const video = createMediaItem("video", source("clip.mp4", "video/mp4"), "clip")
+    const state = loaderReducer(
+      loaderReducer(createEmptyLoaderState(), { type: "add", item: video }),
+      { type: "toggle-h3-timeline", enabled: true },
+    )
     const root = document.createElement("div")
     const controller = new ReferenceLoaderController(
       root,
       node,
       new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(loaderReducer(createEmptyLoaderState(), { type: "add", item: video })),
+      serializeLoaderState(state),
     )
 
     expect(root.querySelector('[data-action="toggle-h3-guide"]')).toBeNull()

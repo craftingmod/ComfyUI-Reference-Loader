@@ -224,21 +224,32 @@ describe("Reference Loader stylesheet", () => {
     expect(css).toContain("cursor: grab;")
   })
 
-  it("keeps Subject and Shot controls styled above a full-width text row", async () => {
+  it("renders Subject and Shot cards with colored toolbars", async () => {
     const css = await Bun.file(
       new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
     ).text()
     const definitionRule = css.match(/\.rl-prompt-definition\s*\{([^}]*)\}/)?.[1]
     const identityRule = css.match(/\.rl-prompt-definition__identity\s*\{([^}]*)\}/)?.[1]
     const tagRule = css.match(/\.rl-prompt-definition__tag\s*\{([^}]*)\}/)?.[1]
+    const promptTagRule = css.match(/\.rl-prompt-tag\s*\{([^}]*)\}/)?.[1]
+    const promptTagHeaderRule = css.match(/\.rl-prompt-tag::before\s*\{([^}]*)\}/)?.[1]
     const frameRule = css.match(/\.rl-prompt-definition__frame\s*\{([^}]*)\}/)?.[1]
+    const actionsRule = css.match(/\.rl-prompt-definition__actions\s*\{([^}]*)\}/)?.[1]
     const bodyRule = css.match(/\.rl-prompt-definition__body\s*\{([^}]*)\}/)?.[1]
+    const dragOverrideRule = css.match(
+      /\.reference-prompt-definitions \.rl-prompt-definition__drag\s*\{([^}]*)\}/,
+    )?.[1]
 
-    expect(definitionRule).toContain("display: flex;")
-    expect(definitionRule).toContain("align-items: flex-start;")
-    expect(definitionRule).toContain("flex-wrap: wrap;")
-    expect(identityRule).toContain("flex: 0 0 auto;")
+    expect(definitionRule).toContain("overflow: hidden;")
+    expect(definitionRule).toContain("border-radius: 7px;")
+    expect(definitionRule).toContain("var(--rl-prompt-definition-color) 32%")
+    expect(css).toContain(".rl-prompt-definition__toolbar")
+    expect(css).toContain("min-height: 27px;")
+    expect(css).toContain("border-bottom: 1px solid")
+    expect(css).toContain("var(--rl-prompt-definition-color) 10%")
+    expect(identityRule).toContain("flex: 1 1 auto;")
     expect(identityRule).toContain("flex-direction: row;")
+    expect(identityRule).toContain("overflow: hidden;")
     expect(tagRule).toContain("field-sizing: content;")
     expect(tagRule).toContain("width: auto;")
     expect(tagRule).toContain("border-radius: 999px;")
@@ -246,16 +257,24 @@ describe("Reference Loader stylesheet", () => {
     expect(frameRule).toContain("width: 58px;")
     expect(frameRule).toContain("border-radius: 999px;")
     expect(frameRule).toContain("background: color-mix(in srgb, #2f8f60 18%, var(--rl-bg));")
-    expect(bodyRule).toContain("flex: 1 0 100%;")
+    expect(actionsRule).toContain("margin-left: auto;")
+    expect(bodyRule).toContain("padding: 7px 9px;")
     expect(bodyRule).toContain("white-space: pre-wrap;")
+    expect(css).toContain(".rl-prompt-definition__drag")
+    expect(css).toContain(".reference-prompt-definitions .rl-prompt-definition__drag")
+    expect(dragOverrideRule).toContain("font-size: 14px;")
+    expect(css).toContain("place-items: center;")
+    expect(css).toContain("cursor: grab;")
+    expect(css).toContain(".rl-prompt-definition.is-drop-before")
+    expect(css).toContain(".rl-prompt-definition.is-drop-after")
     expect(css).toContain(".rl-prompt-definition__ordinal")
     expect(css).toContain(".rl-prompt-tag::before")
     expect(css).toContain("margin: 1px 3px;")
+    expect(promptTagRule).toContain("padding: 0 6px 0 0;")
+    expect(promptTagHeaderRule).toContain("height: 25px;")
+    expect(promptTagHeaderRule).toContain("border-radius: 3px 0 0 3px;")
     expect(css).toContain("content: attr(data-prompt-tag-header);")
     expect(css).toContain("--rl-prompt-tag-color: #2f8f60;")
-    expect(css).toContain("order: 1;")
-    expect(css).toContain("order: 2;")
-    expect(css).toContain("order: 3;")
   })
 
   it("uses the green Shot accent in the Timeline lane", async () => {

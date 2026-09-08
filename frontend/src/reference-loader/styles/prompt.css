@@ -143,36 +143,19 @@
 
 .rl-prompt-definitions {
   display: grid;
-  gap: 6px;
-  padding: 7px;
-  border: 1px solid color-mix(in srgb, var(--rl-accent) 35%, var(--rl-border));
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--rl-panel) 88%, var(--rl-bg));
+  gap: 8px;
+  min-width: 0;
 }
 
-.rl-prompt-definitions__header,
-.rl-prompt-definitions__subheader,
 .rl-prompt-definition__toolbar {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.rl-prompt-definitions__header {
-  justify-content: space-between;
-}
-
-.rl-prompt-definitions__header small,
-.rl-prompt-definitions__subheader small,
 .rl-prompt-definition__toolbar small {
   color: var(--rl-muted);
   font-size: 10px;
-}
-
-.rl-prompt-definitions__subheader {
-  justify-content: space-between;
-  padding-top: 3px;
-  border-top: 1px solid var(--rl-border);
 }
 
 .rl-prompt-definitions__draft {
@@ -205,38 +188,89 @@
 }
 
 .rl-prompt-definition {
-  display: flex;
+  --rl-prompt-definition-color: var(--rl-accent);
+
   min-width: 0;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 5px;
-  border: 1px solid var(--rl-border);
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--rl-bg) 45%, transparent);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--rl-prompt-definition-color) 32%, var(--rl-border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--rl-panel) 88%, var(--rl-bg));
 }
 
 .rl-prompt-definition--shot {
-  border-left: 3px solid #2f8f60;
+  --rl-prompt-definition-color: #2f8f60;
 }
 
 .rl-prompt-definition--subject {
-  border-left: 3px solid #b783e8;
+  --rl-prompt-definition-color: var(--rl-prompt-subject-color, #b783e8);
 }
 
 .rl-prompt-definition__toolbar {
-  display: contents;
+  display: flex;
+  min-height: 27px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 9px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--rl-prompt-definition-color) 24%, var(--rl-border));
+  background: color-mix(
+    in srgb,
+    var(--rl-prompt-definition-color) 10%,
+    color-mix(in srgb, var(--rl-bg) 54%, transparent)
+  );
+}
+
+.rl-prompt-definition:focus-within {
+  border-color: color-mix(in srgb, var(--rl-prompt-definition-color) 70%, var(--rl-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-prompt-definition-color) 38%, transparent);
+}
+
+.rl-prompt-definition__drag {
+  width: 23px;
+  height: 23px;
+  flex: none;
+  padding: 0;
+  border-color: transparent;
+  color: var(--rl-muted);
+  background: transparent;
+  cursor: grab;
+  font-size: 14px;
+  line-height: 1;
+  user-select: none;
+}
+
+.rl-prompt-definition__drag:active {
+  cursor: grabbing;
+}
+
+.rl-prompt-definition__drag:hover {
+  color: var(--rl-prompt-definition-color);
+}
+
+.reference-prompt-definitions .rl-prompt-definition__drag {
+  display: grid;
+  min-height: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 14px;
+}
+
+.reference-prompt-definitions .rl-prompt-definition__drag:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
 }
 
 .rl-prompt-definition__identity {
   display: flex;
   min-width: 0;
   max-width: 100%;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   flex-direction: row;
   align-items: center;
   gap: 6px;
-  order: 1;
+  overflow: hidden;
 }
 
 .rl-prompt-definition__ordinal {
@@ -307,22 +341,34 @@
   display: flex;
   flex: 0 0 auto;
   gap: 3px;
-  order: 2;
+  margin-left: auto;
 }
 
 .rl-prompt-definition__actions button {
   width: 23px;
   height: 23px;
+  border-color: transparent;
   padding: 0;
+  color: var(--rl-muted);
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.rl-prompt-definition__actions button:hover {
+  color: var(--rl-prompt-definition-color);
+}
+
+.rl-prompt-definition__actions button[data-prompt-action="remove-definition"]:hover {
+  color: var(--rl-danger);
 }
 
 .rl-prompt-definition__body {
-  order: 3;
-  flex: 1 0 100%;
   min-width: 0;
   min-height: 28px;
-  padding: 3px 0;
+  padding: 7px 9px;
   outline: none;
+  color: var(--rl-text);
   line-height: 1.5;
   overflow-wrap: anywhere;
   user-select: text;
@@ -330,8 +376,6 @@
 }
 
 .rl-prompt-definition__body-host {
-  order: 3;
-  flex: 1 0 100%;
   min-width: 0;
 }
 
@@ -343,6 +387,18 @@
 .rl-prompt-definition__body:focus {
   border-radius: 4px;
   box-shadow: 0 0 0 1px var(--rl-accent);
+}
+
+.rl-prompt-definition.is-dragging {
+  opacity: 0.55;
+}
+
+.rl-prompt-definition.is-drop-before {
+  box-shadow: inset 0 3px 0 var(--rl-prompt-definition-color);
+}
+
+.rl-prompt-definition.is-drop-after {
+  box-shadow: inset 0 -3px 0 var(--rl-prompt-definition-color);
 }
 
 .rl-prompt-section {
@@ -379,12 +435,17 @@
   justify-content: space-between;
   gap: 8px;
   padding: 2px 4px 2px 9px;
+  cursor: grab;
   border-bottom: 1px solid color-mix(in srgb, var(--rl-prompt-section-color) 24%, var(--rl-border));
   background: color-mix(
     in srgb,
     var(--rl-prompt-section-color) 10%,
     color-mix(in srgb, var(--rl-bg) 54%, transparent)
   );
+}
+
+.rl-prompt-section__header:active {
+  cursor: grabbing;
 }
 
 .rl-prompt-section__header code {
@@ -481,7 +542,7 @@
   display: inline-flex;
   min-height: 25px;
   margin: 1px 3px;
-  padding: 1px 6px 1px 3px;
+  padding: 0 6px 0 0;
   align-items: center;
   gap: 4px;
   border: 1px solid
@@ -498,11 +559,11 @@
 .rl-prompt-tag::before {
   display: inline-grid;
   min-width: 25px;
-  height: 23px;
+  height: 25px;
   padding: 0 3px;
   box-sizing: border-box;
   place-items: center;
-  border-radius: 3px;
+  border-radius: 3px 0 0 3px;
   color: #fff;
   background: var(--rl-prompt-tag-color, var(--rl-accent));
   content: attr(data-prompt-tag-header);

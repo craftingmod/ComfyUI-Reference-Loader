@@ -816,6 +816,66 @@ describe("Reference Prompt section stack", () => {
     controller.destroy()
   })
 
+  test("reorders Subject and Shot definitions by their drag handles", () => {
+    const serialized = serializePromptDocument({
+      ...createEmptyPromptDocument(),
+      subjects: [
+        { tag: "place", parts: [] },
+        { tag: "woman", parts: [] },
+      ],
+      shots: [
+        { tag: "opening", frameIndex: 0, parts: [] },
+        { tag: "closeup", frameIndex: 24, parts: [] },
+      ],
+    })
+    const { definitions, controller, transactions } = makeController([], serialized)
+    const subjectHandle = definitions.querySelector<HTMLElement>(
+      '[data-prompt-definition="subject"] [data-prompt-definition-drag-handle]',
+    )!
+    const subjectTarget = definitions.querySelector<HTMLElement>(
+      '[data-prompt-definition="subject"][data-prompt-definition-tag="woman"]',
+    )!
+    const shotHandle = definitions.querySelector<HTMLElement>(
+      '[data-prompt-definition="shot"] [data-prompt-definition-drag-handle]',
+    )!
+    const shotTarget = definitions.querySelector<HTMLElement>(
+      '[data-prompt-definition="shot"][data-prompt-definition-tag="closeup"]',
+    )!
+
+    expect(subjectHandle.getAttribute("draggable")).toBe("true")
+    expect(shotHandle.getAttribute("draggable")).toBe("true")
+    Object.defineProperty(subjectTarget, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top: 0, height: 100 }),
+    })
+    Object.defineProperty(shotTarget, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ top: 0, height: 100 }),
+    })
+
+    flushSync(() => {
+      subjectHandle.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true }))
+      const subjectDragover = new DragEvent("dragover", { bubbles: true, cancelable: true })
+      Object.defineProperty(subjectDragover, "clientY", { value: 80 })
+      subjectTarget.dispatchEvent(subjectDragover)
+      subjectTarget.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true }))
+    })
+    expect(controller.document.subjects.map((subject) => subject.tag)).toEqual(["woman", "place"])
+    expect(controller.document.shots.map((shot) => shot.tag)).toEqual(["opening", "closeup"])
+
+    flushSync(() => {
+      shotHandle.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true }))
+      const shotDragover = new DragEvent("dragover", { bubbles: true, cancelable: true })
+      Object.defineProperty(shotDragover, "clientY", { value: 80 })
+      shotTarget.dispatchEvent(shotDragover)
+      shotTarget.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true }))
+    })
+    expect(controller.document.shots.map((shot) => shot.tag)).toEqual(["closeup", "opening"])
+    expect(controller.document.subjects.map((subject) => subject.tag)).toEqual(["woman", "place"])
+    expect(transactions).toEqual(["before", "after", "before", "after"])
+    controller.destroy()
+  })
+
   test("creates H3 Reference Subjects only in subject_definitions", () => {
     const { root, controller } = makeController([], undefined, {
       presetId: "minimax_h3_reference",
@@ -903,6 +963,7 @@ describe("Reference Prompt section stack", () => {
     for (const kind of ["subject", "shot"] as const) {
       const card = root.querySelector<HTMLElement>(`[data-prompt-definition="${kind}"]`)
       expect(card?.querySelector(".rl-prompt-definition__toolbar")).not.toBeNull()
+      expect(card?.querySelector(".rl-prompt-definition__drag")?.textContent).toBe("⠿")
       expect(card?.querySelector(".rl-prompt-definition__identity")).not.toBeNull()
       expect(card?.querySelector(".rl-prompt-definition__ordinal")?.textContent).toBe(
         kind === "subject" ? "S1" : "SH1",

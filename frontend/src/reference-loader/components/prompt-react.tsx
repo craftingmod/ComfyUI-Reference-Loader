@@ -241,7 +241,7 @@ function PromptSectionCard({
       onDrop={(event) => actions.dropSection(event.nativeEvent)}
       onDragEnd={actions.endSectionDrag}
     >
-      <header className="rl-prompt-section__header">
+      <header className="rl-prompt-section__header" draggable>
         <button
           type="button"
           className="rl-prompt-section__drag"
@@ -263,6 +263,7 @@ function PromptSectionCard({
           type="button"
           data-prompt-action="remove-section"
           data-prompt-section-title={section.title}
+          draggable={false}
           title={section.removeTitle}
           aria-label={section.removeAria}
           onClick={() => actions.removeSection(section.title)}

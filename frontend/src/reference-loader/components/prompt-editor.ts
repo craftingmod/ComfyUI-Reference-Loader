@@ -167,6 +167,7 @@ export interface PromptPickerSnapshot {
 }
 
 const PROMPT_SECTION_DRAG_MIME = "application/x-reference-loader-prompt-section"
+const PROMPT_DEFINITION_DRAG_MIME = "application/x-reference-loader-prompt-definition"
 
 function findOrderedReference(
   mediaKind: string,
@@ -217,6 +218,9 @@ export class ReferencePromptController {
   #draggedSectionTitle: string | undefined
   #sectionDropTarget: HTMLElement | undefined
   #dropAfter = false
+  #draggedDefinition: { kind: PromptDefinitionKind; tag: string } | undefined
+  #definitionDropTarget: HTMLElement | undefined
+  #definitionDropAfter = false
   #presetCatalog: PromptPresetCatalog
   #preset: PromptPreset
   #locale: PromptLocale
@@ -483,6 +487,26 @@ export class ReferencePromptController {
   endSectionDrag(): void {
     if (this.#destroyed) return
     this.#clearSectionDrag()
+  }
+
+  startDefinitionDrag(kind: PromptDefinitionKind, identity: string, event: DragEvent): void {
+    if (this.#destroyed) return
+    this.#onDefinitionDragStart(kind, identity, event)
+  }
+
+  definitionDragOver(event: DragEvent): void {
+    if (this.#destroyed) return
+    this.#onDefinitionDragOver(event)
+  }
+
+  dropDefinition(event: DragEvent): void {
+    if (this.#destroyed) return
+    this.#onDefinitionDrop(event)
+  }
+
+  endDefinitionDrag(): void {
+    if (this.#destroyed) return
+    this.#clearDefinitionDrag()
   }
 
   removeSection(title: string): void {
@@ -776,6 +800,7 @@ export class ReferencePromptController {
     this.#pickerListeners.clear()
     this.#shotDraft = undefined
     this.#closePicker()
+    this.#clearDefinitionDrag()
     this.#workspaceRoot = undefined
     this.#definitionsRoot = undefined
     this.#pickerElement = undefined
@@ -1546,6 +1571,10 @@ export class ReferencePromptController {
       event.target instanceof Element
         ? event.target.closest<HTMLElement>("[data-prompt-section-drag-handle]")
         : undefined
+    const section =
+      event.target instanceof Element
+        ? event.target.closest<HTMLElement>("[data-prompt-section]")
+        : undefined
     const title = explicitTitle ?? handle?.dataset.promptSectionDragHandle
     if (!title || this.#document.view !== "structured") {
       event.preventDefault()
@@ -1555,8 +1584,115 @@ export class ReferencePromptController {
     this.#draggedSectionTitle = title
     event.dataTransfer?.setData(PROMPT_SECTION_DRAG_MIME, title)
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"
-    handle?.closest<HTMLElement>("[data-prompt-section]")?.classList.add("is-dragging")
+    const dragSection = section ?? handle?.closest<HTMLElement>("[data-prompt-section]")
+    dragSection?.classList.add("is-dragging")
     event.stopPropagation()
+  }
+
+  #onDefinitionDragStart(kind: PromptDefinitionKind, identity: string, event: DragEvent): void {
+    const tag = this.#definitionTag(kind, identity)
+    const card =
+      event.target instanceof Element
+        ? event.target.closest<HTMLElement>("[data-prompt-definition]")
+        : undefined
+    if (!tag || this.#shotDraft) {
+      event.preventDefault()
+      return
+    }
+    this.#syncDocumentFromEditor()
+    this.#draggedDefinition = { kind, tag }
+    event.dataTransfer?.setData(PROMPT_DEFINITION_DRAG_MIME, `${kind}:${tag}`)
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"
+    card?.classList.add("is-dragging")
+    event.stopPropagation()
+  }
+
+  #onDefinitionDragOver(event: DragEvent): void {
+    const source = this.#draggedDefinition
+    if (!source) return
+    const target =
+      event.target instanceof Element
+        ? event.target.closest<HTMLElement>("[data-prompt-definition]")
+        : undefined
+    if (
+      !target ||
+      target.dataset.promptDefinition !== source.kind ||
+      target.dataset.promptDefinitionTag === source.tag
+    ) {
+      this.#setDefinitionDropTarget(undefined)
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move"
+    const bounds = target.getBoundingClientRect()
+    this.#setDefinitionDropTarget(target, event.clientY >= bounds.top + bounds.height / 2)
+  }
+
+  #onDefinitionDrop(event: DragEvent): void {
+    const source = this.#draggedDefinition
+    const target = this.#definitionDropTarget
+    const targetKind = target?.dataset.promptDefinition
+    const targetTag = target?.dataset.promptDefinitionTag
+    const after = this.#definitionDropAfter
+    if (
+      !source ||
+      !target ||
+      targetKind !== source.kind ||
+      !targetTag ||
+      source.tag === targetTag
+    ) {
+      this.#clearDefinitionDrag()
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    this.#syncDocumentFromEditor()
+    const values =
+      source.kind === "subject" ? [...this.#document.subjects] : [...this.#document.shots]
+    const sourceIndex = values.findIndex((definition) => definition.tag === source.tag)
+    if (sourceIndex < 0) {
+      this.#clearDefinitionDrag()
+      return
+    }
+    const [item] = values.splice(sourceIndex, 1)
+    if (!item) {
+      this.#clearDefinitionDrag()
+      return
+    }
+    const targetIndex = values.findIndex((definition) => definition.tag === targetTag)
+    if (targetIndex < 0) {
+      this.#clearDefinitionDrag()
+      return
+    }
+    values.splice(targetIndex + (after ? 1 : 0), 0, item)
+    this.#closePicker()
+    this.#recordGraphChange(() => {
+      this.#document =
+        source.kind === "subject"
+          ? { ...this.#document, subjects: values as PromptDocument["subjects"] }
+          : { ...this.#document, shots: values as PromptDocument["shots"] }
+      this.#renderEditor()
+    })
+    this.#notifyShots()
+    this.#node.setDirtyCanvas(true, true)
+    this.#clearDefinitionDrag()
+  }
+
+  #setDefinitionDropTarget(target: HTMLElement | undefined, after = false): void {
+    if (this.#definitionDropTarget === target && this.#definitionDropAfter === after) return
+    this.#definitionDropTarget?.classList.remove("is-drop-before", "is-drop-after")
+    this.#definitionDropTarget = target
+    this.#definitionDropAfter = after
+    target?.classList.add(after ? "is-drop-after" : "is-drop-before")
+  }
+
+  #clearDefinitionDrag(): void {
+    this.#setDefinitionDropTarget(undefined)
+    this.#definitionsRoot
+      ?.querySelectorAll<HTMLElement>("[data-prompt-definition].is-dragging")
+      ?.forEach((card) => card.classList.remove("is-dragging"))
+    this.#draggedDefinition = undefined
   }
 
   #onSectionDragOver(event: DragEvent): void {

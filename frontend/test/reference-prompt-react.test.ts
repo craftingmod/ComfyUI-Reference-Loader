@@ -103,7 +103,12 @@ describe("Reference Prompt React shell", () => {
     expect(
       workspace?.querySelector("[data-prompt-editor][data-prompt-react-editor]"),
     ).not.toBeNull()
-    expect(workspace?.querySelector('[data-prompt-section-body="scene"]')).not.toBeNull()
+    expect(
+      workspace?.querySelector('[data-prompt-editor][data-capture-wheel="true"]'),
+    ).not.toBeNull()
+    expect(
+      workspace?.querySelector('[data-prompt-section-body="scene"][data-capture-wheel="true"]'),
+    ).not.toBeNull()
 
     flushSync(() => root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')?.click())
     expect(controller.compiledPrompt).toBe("")
@@ -137,6 +142,22 @@ describe("Reference Prompt React shell", () => {
       container: definitions,
       controller,
     })
+    const definitionsHeader = definitions.querySelector<HTMLElement>(".rl-prompt-toolbar")!
+    expect(definitionsHeader.querySelector(".rl-prompt-toolbar__copy strong")?.textContent).toBe(
+      "Subjects & Shots",
+    )
+    expect(definitionsHeader.querySelector(".rl-prompt-toolbar__copy small")?.textContent).toBe(
+      "Definitions keep #tags; indexes are generated only in compiled output.",
+    )
+    expect(definitionsHeader.querySelector('[data-prompt-action="add-subject"]')).not.toBeNull()
+    expect(definitionsHeader.querySelector('[data-prompt-action="add-shot"]')).not.toBeNull()
+    expect(definitions.querySelectorAll(".rl-channel")).toHaveLength(2)
+    expect(
+      definitions.querySelector('[data-prompt-definition-category="subject"] strong')?.textContent,
+    ).toBe("Subjects")
+    expect(
+      definitions.querySelector('[data-prompt-definition-category="shot"] strong')?.textContent,
+    ).toBe("Shots")
     expect(root.querySelector(".rl-prompt-definitions")).toBeNull()
     expect(definitions.querySelector(".rl-prompt-definitions")).not.toBeNull()
     expect(definitions.querySelector("[data-prompt-definition-body-host]")).toBeNull()
@@ -572,13 +593,18 @@ describe("Reference Prompt React shell", () => {
 
     const scene = root.querySelector<HTMLElement>('[data-prompt-section="scene"]')!
     const camera = root.querySelector<HTMLElement>('[data-prompt-section="camera_direction"]')!
-    const sceneHandle = scene.querySelector<HTMLElement>("[data-prompt-section-drag-handle]")!
+    const sceneHeader = scene.querySelector<HTMLElement>(".rl-prompt-section__header")!
+    const removeButton = scene.querySelector<HTMLButtonElement>(
+      '[data-prompt-action="remove-section"]',
+    )!
+    expect(sceneHeader.getAttribute("draggable")).toBe("true")
+    expect(removeButton.getAttribute("draggable")).toBe("false")
     Object.defineProperty(camera, "getBoundingClientRect", {
       configurable: true,
       value: () => ({ top: 0, height: 100 }),
     })
     flushSync(() => {
-      sceneHandle.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true }))
+      sceneHeader.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true }))
       const dragover = new DragEvent("dragover", { bubbles: true, cancelable: true })
       Object.defineProperty(dragover, "clientY", { value: 80 })
       camera.dispatchEvent(dragover)

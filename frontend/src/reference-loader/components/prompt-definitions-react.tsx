@@ -23,6 +23,10 @@ export interface PromptDefinitionsReactActions extends PromptEditorActions {
   addDefinition(kind: PromptDefinitionKind): void
   renameDefinition(kind: PromptDefinitionKind, identity: string, value: string): void
   reorderDefinition(kind: PromptDefinitionKind, identity: string, delta: -1 | 1): void
+  startDefinitionDrag(kind: PromptDefinitionKind, identity: string, event: DragEvent): void
+  definitionDragOver(event: DragEvent): void
+  dropDefinition(event: DragEvent): void
+  endDefinitionDrag(): void
   removeDefinition(kind: PromptDefinitionKind, identity: string): void
   setShotFrame(identity: string, frameIndex: number): void
   applyShotDraft(): void
@@ -92,8 +96,24 @@ function PromptDefinitionCard({
           ? ({ "--rl-prompt-subject-color": subjectAccent } as CSSProperties)
           : undefined
       }
+      onDragOver={(event) => actions.definitionDragOver(event.nativeEvent)}
+      onDrop={(event) => actions.dropDefinition(event.nativeEvent)}
+      onDragEnd={actions.endDefinitionDrag}
     >
-      <div className="rl-prompt-definition__toolbar">
+      <header className="rl-prompt-definition__toolbar">
+        <button
+          type="button"
+          className="rl-prompt-definition__drag"
+          data-prompt-definition-drag-handle=""
+          draggable={!draft}
+          title={`Reorder ${definition.kind}`}
+          aria-label={`Reorder ${definition.kind} ${definition.tag}`}
+          onDragStart={(event) =>
+            actions.startDefinitionDrag(definition.kind, definition.identity, event.nativeEvent)
+          }
+        >
+          ⠿
+        </button>
         <div className="rl-prompt-definition__identity">
           <span className="rl-prompt-definition__ordinal" aria-hidden="true">
             {definition.kind === "subject" ? "S" : "SH"}
@@ -193,7 +213,7 @@ function PromptDefinitionCard({
             ×
           </button>
         </div>
-      </div>
+      </header>
       <PromptEditor
         actions={actions}
         target={target}
@@ -231,9 +251,29 @@ export function PromptDefinitionsReactRoot({
       data-prompt-definitions-react=""
       data-prompt-definitions-mounted={String(snapshot.mounted)}
     >
-      <header className="rl-prompt-definitions__header">
-        <strong>Subjects &amp; Shots</strong>
-        <small>Definitions keep #tags; indexes are generated only in compiled output.</small>
+      <header className="rl-prompt-toolbar">
+        <div className="rl-prompt-toolbar__copy">
+          <strong>Subjects &amp; Shots</strong>
+          <small>Definitions keep #tags; indexes are generated only in compiled output.</small>
+        </div>
+        <div className="rl-prompt-toolbar__actions">
+          <button
+            type="button"
+            data-prompt-action="add-subject"
+            disabled={snapshot.draft}
+            onClick={() => actions.addDefinition("subject")}
+          >
+            + Subject
+          </button>
+          <button
+            type="button"
+            data-prompt-action="add-shot"
+            disabled={snapshot.draft}
+            onClick={() => actions.addDefinition("shot")}
+          >
+            + Shot
+          </button>
+        </div>
       </header>
       {snapshot.draft ? (
         <div className="rl-prompt-definitions__draft" role="status">
@@ -254,50 +294,42 @@ export function PromptDefinitionsReactRoot({
           </button>
         </div>
       ) : null}
-      <div className="rl-prompt-definitions__subheader">
-        <strong>Subjects</strong>
-        <button
-          type="button"
-          data-prompt-action="add-subject"
-          disabled={snapshot.draft}
-          onClick={() => actions.addDefinition("subject")}
-        >
-          + Subject
-        </button>
-      </div>
-      <div className="rl-prompt-definition-stack">
-        {snapshot.subjects.map((definition) => (
-          <PromptDefinitionCard
-            key={definition.identity}
-            definition={definition}
-            draft={snapshot.draft}
-            actions={actions}
-          />
-        ))}
-      </div>
-      <div className="rl-prompt-definitions__subheader">
-        <strong>
-          Shots <small>{snapshot.shots.length}</small>
-        </strong>
-        <button
-          type="button"
-          data-prompt-action="add-shot"
-          disabled={snapshot.draft}
-          onClick={() => actions.addDefinition("shot")}
-        >
-          + Shot
-        </button>
-      </div>
-      <div className="rl-prompt-definition-stack">
-        {snapshot.shots.map((definition) => (
-          <PromptDefinitionCard
-            key={definition.identity}
-            definition={definition}
-            draft={snapshot.draft}
-            actions={actions}
-          />
-        ))}
-      </div>
+      <section className="rl-channel" data-prompt-definition-category="subject">
+        <header>
+          <div>
+            <strong>Subjects</strong>
+            <span>{snapshot.subjects.length}</span>
+          </div>
+        </header>
+        <div className="rl-prompt-definition-stack">
+          {snapshot.subjects.map((definition) => (
+            <PromptDefinitionCard
+              key={definition.identity}
+              definition={definition}
+              draft={snapshot.draft}
+              actions={actions}
+            />
+          ))}
+        </div>
+      </section>
+      <section className="rl-channel" data-prompt-definition-category="shot">
+        <header>
+          <div>
+            <strong>Shots</strong>
+            <span>{snapshot.shots.length}</span>
+          </div>
+        </header>
+        <div className="rl-prompt-definition-stack">
+          {snapshot.shots.map((definition) => (
+            <PromptDefinitionCard
+              key={definition.identity}
+              definition={definition}
+              draft={snapshot.draft}
+              actions={actions}
+            />
+          ))}
+        </div>
+      </section>
     </section>
   )
 }
@@ -311,6 +343,11 @@ export function createPromptDefinitionsReact(
     renameDefinition: (kind, identity, value) => controller.renameDefinition(kind, identity, value),
     reorderDefinition: (kind, identity, delta) =>
       controller.reorderDefinition(kind, identity, delta),
+    startDefinitionDrag: (kind, identity, event) =>
+      controller.startDefinitionDrag(kind, identity, event),
+    definitionDragOver: (event) => controller.definitionDragOver(event),
+    dropDefinition: (event) => controller.dropDefinition(event),
+    endDefinitionDrag: () => controller.endDefinitionDrag(),
     removeDefinition: (kind, identity) => controller.removeDefinition(kind, identity),
     setShotFrame: (identity, frameIndex) => controller.setShotFrameByIdentity(identity, frameIndex),
     applyShotDraft: () => controller.applyShotDraft(),

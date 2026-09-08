@@ -812,7 +812,7 @@ describe("Reference Prompt section stack", () => {
     const subjects = [...root.querySelectorAll<HTMLElement>('[data-prompt-definition="subject"]')]
     expect(
       subjects.map((subject) => subject.style.getPropertyValue("--rl-prompt-subject-color")),
-    ).toEqual(["#6ea8fe", "#8f9cf4"])
+    ).toEqual(["#5b8fdc", "#8f9cf4"])
     controller.destroy()
   })
 
@@ -875,6 +875,9 @@ describe("Reference Prompt section stack", () => {
     subjectTag.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
     expect(subjectTag.size).toBe(subjectTag.value.length + 1)
     subjectTag.value = "renamed"
+    subjectTag.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+    expect(subjectTag.value).toBe("#renamed")
+    subjectTag.value = "#re#named##"
     subjectTag.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
     expect(subjectTag.value).toBe("#renamed")
     subjectTag.value = ""

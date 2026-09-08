@@ -11,7 +11,7 @@ import {
 // Contenteditable primitives: DOM text, atomic tags, selection and visual identity.
 // This module does not own document state or ComfyUI lifecycle.
 const SECTION_COLOR_PALETTE = [
-  "#6ea8fe",
+  "#5b8fdc",
   "#8f9cf4",
   "#aa8ee8",
   "#c787d5",
@@ -26,7 +26,7 @@ const SECTION_COLOR_PALETTE = [
 ] as const
 
 const NATIVE_LINE_BLOCKS = new Set(["DIV", "P"])
-const SHOT_COLOR = "#48bf83"
+export const SHOT_COLOR = "#2f8f60"
 
 export function sectionColor(title: string): { color: string; index: number } {
   let hash = 0x811c9dc5
@@ -42,6 +42,25 @@ export function subjectColor(ordinal: number | undefined): string | undefined {
   return ordinal === undefined
     ? undefined
     : SECTION_COLOR_PALETTE[(ordinal - 1) % SECTION_COLOR_PALETTE.length]
+}
+
+export function normalizeDefinitionTagValue(value: string): string {
+  return `#${value.replace(/#/gu, "")}`
+}
+
+export function normalizeDefinitionTagInput(input: HTMLInputElement): string {
+  const value = input.value
+  const normalized = normalizeDefinitionTagValue(value)
+  if (normalized === value) return value
+  const start = input.selectionStart
+  const end = input.selectionEnd
+  input.value = normalized
+  if (start !== null && end !== null) {
+    const position = (offset: number): number =>
+      1 + value.slice(0, offset).replace(/#/gu, "").length
+    input.setSelectionRange(position(start), position(end))
+  }
+  return normalized
 }
 
 export type PromptTagVisual = {
@@ -124,6 +143,72 @@ function lastPromptNode(node: Node): Node {
     current = current.lastChild
   }
   return current
+}
+
+function firstPromptNode(node: Node): Node {
+  if (isPromptAtomicNode(node)) return node
+  let current = node
+  while (current.firstChild) {
+    if (isPromptAtomicNode(current.firstChild)) return current.firstChild
+    current = current.firstChild
+  }
+  return current
+}
+
+export function previousPromptAtomicAtCaret(
+  root: HTMLElement,
+  container: Node,
+  offset: number,
+): HTMLElement | undefined {
+  let current: Node | undefined
+  if (container.nodeType === Node.TEXT_NODE) {
+    if (offset !== 0) return undefined
+    current = container
+  } else {
+    current = container.childNodes[offset - 1]
+    if (current) {
+      const candidate = lastPromptNode(current)
+      return isPromptAtomicNode(candidate) ? candidate : undefined
+    }
+    current = container
+  }
+  while (current && current !== root) {
+    const previous = current.previousSibling
+    if (previous) {
+      const candidate = lastPromptNode(previous)
+      return isPromptAtomicNode(candidate) ? candidate : undefined
+    }
+    current = current.parentNode ?? undefined
+  }
+  return undefined
+}
+
+export function nextPromptAtomicAtCaret(
+  root: HTMLElement,
+  container: Node,
+  offset: number,
+): HTMLElement | undefined {
+  let current: Node | undefined
+  if (container.nodeType === Node.TEXT_NODE) {
+    if (offset !== (container.textContent?.length ?? 0)) return undefined
+    current = container
+  } else {
+    current = container.childNodes[offset]
+    if (current) {
+      const candidate = firstPromptNode(current)
+      return isPromptAtomicNode(candidate) ? candidate : undefined
+    }
+    current = container
+  }
+  while (current && current !== root) {
+    const next = current.nextSibling
+    if (next) {
+      const candidate = firstPromptNode(next)
+      return isPromptAtomicNode(candidate) ? candidate : undefined
+    }
+    current = current.parentNode ?? undefined
+  }
+  return undefined
 }
 
 export function previousPromptTagAtCaret(
@@ -270,6 +355,15 @@ export function textContentWithBreaks(container: Node): string {
 
 export function referenceKey(mediaKind: string, referenceId: string): string {
   return `${mediaKind}:${referenceId}`
+}
+
+export function promptContentFingerprint(value: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return `${value.length}:${hash >>> 0}`
 }
 
 export function makeReferenceVisual(reference?: PromptReference): HTMLElement {

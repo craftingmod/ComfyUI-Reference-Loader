@@ -5,19 +5,20 @@ import {
   useState,
   useSyncExternalStore,
   type ReactNode,
-  type RefCallback,
 } from "react"
 import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
+import { normalizeDefinitionTagInput } from "./prompt-dom.ts"
 import {
   type PromptDefinitionKind,
   type PromptDefinitionSnapshot,
   type PromptDefinitionsSnapshot,
   type ReferencePromptController,
 } from "./prompt-editor.ts"
+import { PromptEditor, type PromptEditorActions } from "./prompt-react.tsx"
 
-export interface PromptDefinitionsReactActions {
+export interface PromptDefinitionsReactActions extends PromptEditorActions {
   addDefinition(kind: PromptDefinitionKind): void
   renameDefinition(kind: PromptDefinitionKind, identity: string, value: string): void
   reorderDefinition(kind: PromptDefinitionKind, identity: string, delta: -1 | 1): void
@@ -25,6 +26,7 @@ export interface PromptDefinitionsReactActions {
   setShotFrame(identity: string, frameIndex: number): void
   applyShotDraft(): void
   cancelShotDraft(): void
+  renderDefinitionEditor(kind: PromptDefinitionKind, identity: string, editor: HTMLElement): void
 }
 
 export interface PromptDefinitionsReactOptions {
@@ -40,12 +42,10 @@ function PromptDefinitionCard({
   definition,
   draft,
   actions,
-  getBodyHost,
 }: {
   definition: PromptDefinitionSnapshot
   draft: boolean
   actions: PromptDefinitionsReactActions
-  getBodyHost: (identity: string) => RefCallback<HTMLDivElement>
 }): ReactNode {
   const [tagValue, setTagValue] = useState(`#${definition.tag}`)
   const [frameValue, setFrameValue] = useState(String(definition.frameIndex ?? 0))
@@ -60,13 +60,18 @@ function PromptDefinitionCard({
     else setFrameValue(String(definition.frameIndex ?? 0))
   }
   const updateTagValue = (input: HTMLInputElement): void => {
-    if (!input.value.startsWith("#")) {
-      const caret = input.selectionStart
-      input.value = `#${input.value}`
-      if (caret !== null) input.setSelectionRange(caret + 1, caret + 1)
-    }
-    setTagValue(input.value)
+    setTagValue(normalizeDefinitionTagInput(input))
   }
+  const target = {
+    type: "definition" as const,
+    kind: definition.kind,
+    identity: definition.identity,
+  }
+  const renderContent = useCallback(
+    (editor: HTMLElement) =>
+      actions.renderDefinitionEditor(definition.kind, definition.identity, editor),
+    [actions, definition.identity, definition.kind],
+  )
 
   useLayoutEffect(() => {
     if (document.activeElement !== tagInput.current) setTagValue(`#${definition.tag}`)
@@ -101,7 +106,10 @@ function PromptDefinitionCard({
               updateTagValue(event.currentTarget)
               if (event.nativeEvent.type === "change") commitTag(event.currentTarget.value)
             }}
-            onBlur={() => commitTag()}
+            onBlur={(event) => {
+              updateTagValue(event.currentTarget)
+              commitTag(event.currentTarget.value)
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault()
@@ -179,10 +187,15 @@ function PromptDefinitionCard({
           </button>
         </div>
       </div>
-      <div
-        className="rl-prompt-definition__body-host"
-        data-prompt-definition-body-host=""
-        ref={getBodyHost(definition.identity)}
+      <PromptEditor
+        actions={actions}
+        target={target}
+        contentKey={JSON.stringify(definition.parts)}
+        placeholder={definition.placeholder}
+        renderContent={renderContent}
+        className="rl-prompt-definition__body"
+        disabled={draft}
+        ariaLabel={`${definition.kind} ${definition.tag} text`}
       />
     </article>
   )
@@ -204,31 +217,6 @@ export function PromptDefinitionsReactRoot({
     [controller],
   )
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  const hosts = useRef(new Map<string, HTMLElement>())
-  const callbacks = useRef(new Map<string, RefCallback<HTMLDivElement>>())
-  const getBodyHost = useCallback((identity: string): RefCallback<HTMLDivElement> => {
-    const existing = callbacks.current.get(identity)
-    if (existing) return existing
-    const callback: RefCallback<HTMLDivElement> = (host) => {
-      if (host) hosts.current.set(identity, host)
-      else hosts.current.delete(identity)
-    }
-    callbacks.current.set(identity, callback)
-    return callback
-  }, [])
-
-  useLayoutEffect(() => {
-    controller.mountDefinitionHosts(hosts.current)
-  })
-
-  useLayoutEffect(
-    () => () => {
-      controller.unmountDefinitionHosts()
-      hosts.current.clear()
-      callbacks.current.clear()
-    },
-    [controller],
-  )
 
   return (
     <section
@@ -277,7 +265,6 @@ export function PromptDefinitionsReactRoot({
             definition={definition}
             draft={snapshot.draft}
             actions={actions}
-            getBodyHost={getBodyHost}
           />
         ))}
       </div>
@@ -301,7 +288,6 @@ export function PromptDefinitionsReactRoot({
             definition={definition}
             draft={snapshot.draft}
             actions={actions}
-            getBodyHost={getBodyHost}
           />
         ))}
       </div>
@@ -322,6 +308,13 @@ export function createPromptDefinitionsReact(
     setShotFrame: (identity, frameIndex) => controller.setShotFrameByIdentity(identity, frameIndex),
     applyShotDraft: () => controller.applyShotDraft(),
     cancelShotDraft: () => controller.cancelShotDraft(),
+    handleReactEditorInput: (target, editor, input) =>
+      controller.handleReactEditorInput(target, editor, input),
+    handleReactEditorKeydown: (event) => controller.handleReactEditorKeydown(event),
+    handleReactEditorPaste: (event) => controller.handleReactEditorPaste(event),
+    handleReactEditorBlur: () => controller.handleReactEditorBlur(),
+    renderDefinitionEditor: (kind, identity, editor) =>
+      controller.renderReactDefinitionEditor(kind, identity, editor),
   }
   const root: Root = createRoot(options.container)
   let destroyed = false

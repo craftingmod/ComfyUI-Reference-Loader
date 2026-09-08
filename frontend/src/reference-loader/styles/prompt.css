@@ -126,6 +126,10 @@
   box-shadow: none;
 }
 
+[data-prompt-react-picker-slot] {
+  display: contents;
+}
+
 .rl-prompt-stack {
   display: grid;
   min-width: 0;
@@ -213,7 +217,7 @@
 }
 
 .rl-prompt-definition--shot {
-  border-left: 3px solid #48bf83;
+  border-left: 3px solid #2f8f60;
 }
 
 .rl-prompt-definition--subject {
@@ -249,7 +253,7 @@
 }
 
 .rl-prompt-definition--shot .rl-prompt-definition__ordinal {
-  background: #48bf83;
+  background: #2f8f60;
 }
 
 .rl-prompt-definition__tag {
@@ -276,17 +280,17 @@
 }
 
 .rl-prompt-definition--shot .rl-prompt-definition__tag {
-  --rl-prompt-tag-color: #48bf83;
+  --rl-prompt-tag-color: #2f8f60;
 }
 
 .rl-prompt-definition__frame {
   width: 58px;
   box-sizing: border-box;
   padding: 3px 7px;
-  border: 1px solid color-mix(in srgb, #48bf83 72%, var(--rl-border));
+  border: 1px solid color-mix(in srgb, #2f8f60 72%, var(--rl-border));
   border-radius: 999px;
-  color: color-mix(in srgb, #48bf83 72%, #fff);
-  background: color-mix(in srgb, #48bf83 18%, var(--rl-bg));
+  color: color-mix(in srgb, #2f8f60 72%, #fff);
+  background: color-mix(in srgb, #2f8f60 18%, var(--rl-bg));
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
@@ -511,7 +515,7 @@
 }
 
 .rl-prompt-tag.is-shot {
-  --rl-prompt-tag-color: #48bf83;
+  --rl-prompt-tag-color: #2f8f60;
 }
 
 .rl-prompt-tag.is-unresolved {

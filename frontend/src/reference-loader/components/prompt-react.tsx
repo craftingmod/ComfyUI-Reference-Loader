@@ -7,27 +7,52 @@ import {
   type FormEvent,
   type Ref,
   type ReactNode,
-  type RefCallback,
 } from "react"
-import { flushSync } from "react-dom"
+import { createPortal, flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
-import { textContentWithBreaks } from "./prompt-dom.ts"
+import { promptContentFingerprint, sectionColor, SHOT_COLOR, subjectColor } from "./prompt-dom.ts"
 import type {
+  PromptEditorInput,
+  PromptEditorTarget,
+  PromptPickerOption,
+  PromptPickerSnapshot,
   PromptSectionSnapshot,
   PromptSectionsSnapshot,
   PromptViewSnapshot,
   ReferencePromptController,
 } from "./prompt-editor.ts"
 
-export interface PromptReactActions {
+export interface PromptEditorActions {
+  handleReactEditorInput(
+    target: PromptEditorTarget,
+    editor: HTMLElement,
+    input?: PromptEditorInput,
+  ): void
+  handleReactEditorKeydown(event: KeyboardEvent): void
+  handleReactEditorPaste(event: ClipboardEvent): void
+  handleReactEditorBlur(): void
+}
+
+export interface PromptReactActions extends PromptEditorActions {
   clear(): void
   toggleView(): void
   copySource(): Promise<void>
   copyCompiled(): Promise<void>
   setPreset(value: unknown): void
-  setPlainTextSectionText(title: string, text: string): boolean
   removeSection(title: string): void
+  handleReactSectionEntryInput(editor: HTMLElement, input?: PromptEditorInput): void
+  handleReactSectionEntryKeydown(event: KeyboardEvent): void
+  renderSectionEditor(title: string, editor: HTMLElement): void
+  renderRawEditor(editor: HTMLElement): void
+  moveSection(title: string, delta: -1 | 1): void
+  movePicker(delta: -1 | 1): void
+  activatePickerOption(index?: number): void
+  closePicker(): void
+  startSectionDrag(title: string, event: DragEvent): void
+  sectionDragOver(event: DragEvent): void
+  dropSection(event: DragEvent): void
+  endSectionDrag(): void
 }
 
 export interface PromptReactOptions {
@@ -109,67 +134,100 @@ function PromptToolbar({
 
 export function PromptEditor({
   actions,
-  section,
+  target,
+  contentKey,
+  placeholder,
+  renderContent,
+  className = "rl-prompt-editor rl-prompt-editor--plain",
+  disabled = false,
+  ariaLabel,
 }: {
-  actions: PromptReactActions
-  section: PromptSectionSnapshot
+  actions: PromptEditorActions
+  target: PromptEditorTarget
+  contentKey: string
+  placeholder: string
+  renderContent: (editor: HTMLElement) => void
+  className?: string
+  disabled?: boolean
+  ariaLabel?: string
 }): ReactNode {
   const editorRef = useRef<HTMLDivElement>(null)
   const composing = useRef(false)
+  const targetKey =
+    target.type === "section"
+      ? `section:${target.title}`
+      : target.type === "definition"
+        ? `definition:${target.kind}:${target.identity}`
+        : "raw"
 
   useLayoutEffect(() => {
     const editor = editorRef.current
     if (!editor) return
-    if (textContentWithBreaks(editor) === section.text) return
-    if (document.activeElement === editor) return
-    editor.textContent = section.text
-  }, [section.title, section.text])
-
-  const commit = (editor: HTMLDivElement): void => {
-    if (!composing.current)
-      actions.setPlainTextSectionText(section.title, textContentWithBreaks(editor))
-  }
+    if (editor.dataset.promptEditorState === promptContentFingerprint(contentKey)) return
+    renderContent(editor)
+    editor.dataset.promptEditorState = promptContentFingerprint(contentKey)
+  }, [contentKey, renderContent, targetKey])
 
   const handleInput = (event: FormEvent<HTMLDivElement>): void => {
-    commit(event.currentTarget)
+    if (composing.current) return
+    const nativeEvent = event.nativeEvent as Event & Partial<PromptEditorInput>
+    const input =
+      typeof nativeEvent.inputType === "string" || nativeEvent.data !== undefined
+        ? nativeEvent
+        : undefined
+    actions.handleReactEditorInput(target, event.currentTarget, input)
   }
 
   return (
-    <div
-      ref={editorRef}
-      className="rl-prompt-editor rl-prompt-editor--plain"
-      data-prompt-editor=""
-      data-prompt-react-editor=""
-      data-prompt-section-body={section.title}
-      data-prompt-section-title={section.title}
-      contentEditable="true"
-      suppressContentEditableWarning
-      role="textbox"
-      aria-multiline="true"
-      aria-label={`${section.title} text`}
-      spellCheck
-      data-placeholder={section.placeholder}
-      onCompositionStart={() => {
-        composing.current = true
-      }}
-      onCompositionEnd={(event) => {
-        composing.current = false
-        commit(event.currentTarget)
-      }}
-      onInput={handleInput}
-    />
+    <>
+      <div data-prompt-react-picker-slot="" />
+      <div
+        ref={editorRef}
+        className={className}
+        data-prompt-editor=""
+        data-prompt-react-editor=""
+        data-prompt-section-body={target.type === "section" ? target.title : undefined}
+        data-prompt-section-title={target.type === "section" ? target.title : undefined}
+        data-prompt-definition-body={target.type === "definition" ? "" : undefined}
+        data-prompt-definition-identity={target.type === "definition" ? target.identity : undefined}
+        data-prompt-raw-editor={target.type === "raw" ? "" : undefined}
+        suppressContentEditableWarning
+        role="textbox"
+        aria-multiline="true"
+        aria-label={
+          ariaLabel ?? (target.type === "section" ? `${target.title} text` : "Prompt text")
+        }
+        spellCheck
+        data-placeholder={placeholder}
+        contentEditable={disabled ? "false" : "true"}
+        onCompositionStart={() => {
+          composing.current = true
+        }}
+        onCompositionEnd={(event) => {
+          composing.current = false
+          actions.handleReactEditorInput(target, event.currentTarget)
+        }}
+        onInput={handleInput}
+        onKeyDown={(event) => actions.handleReactEditorKeydown(event.nativeEvent)}
+        onPaste={(event) => actions.handleReactEditorPaste(event.nativeEvent)}
+        onBlur={actions.handleReactEditorBlur}
+      />
+    </>
   )
 }
 
 function PromptSectionCard({
   section,
   actions,
-  getBodyHost,
 }: {
   section: PromptSectionSnapshot
   actions: PromptReactActions
-  getBodyHost: (title: string) => RefCallback<HTMLDivElement>
 }): ReactNode {
+  const target: PromptEditorTarget = { type: "section", title: section.title }
+  const renderContent = useCallback(
+    (editor: HTMLElement) => actions.renderSectionEditor(section.title, editor),
+    [actions, section.title],
+  )
   return (
     <section
       className="rl-prompt-section"
@@ -177,6 +235,10 @@ function PromptSectionCard({
       data-prompt-section-color-index={section.colorIndex}
       data-prompt-section-virtual={String(section.isVirtual)}
       style={{ "--rl-prompt-section-color": section.color } as CSSProperties}
+      onDragStart={(event) => actions.startSectionDrag(section.title, event.nativeEvent)}
+      onDragOver={(event) => actions.sectionDragOver(event.nativeEvent)}
+      onDrop={(event) => actions.dropSection(event.nativeEvent)}
+      onDragEnd={actions.endSectionDrag}
     >
       <header className="rl-prompt-section__header">
         <button
@@ -186,6 +248,12 @@ function PromptSectionCard({
           draggable
           title={section.dragTitle}
           aria-label={section.dragAria}
+          onKeyDown={(event) => {
+            if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+              event.preventDefault()
+              actions.moveSection(section.title, event.key === "ArrowUp" ? -1 : 1)
+            }
+          }}
         >
           ⠿
         </button>
@@ -201,16 +269,266 @@ function PromptSectionCard({
           ×
         </button>
       </header>
-      {section.editor === "react-text" ? (
-        <PromptEditor actions={actions} section={section} />
-      ) : (
-        <div
-          className="rl-prompt-section__body-host"
-          data-prompt-section-body-host=""
-          ref={getBodyHost(section.title)}
-        />
-      )}
+      <PromptEditor
+        actions={actions}
+        target={target}
+        contentKey={JSON.stringify(section.parts)}
+        placeholder={section.placeholder}
+        renderContent={renderContent}
+      />
     </section>
+  )
+}
+
+function PromptSectionEntry({
+  actions,
+  placeholder,
+  ariaLabel,
+}: {
+  actions: PromptReactActions
+  placeholder: string
+  ariaLabel: string
+}): ReactNode {
+  const entryRef = useRef<HTMLDivElement>(null)
+  const handleInput = (event: FormEvent<HTMLDivElement>): void => {
+    const nativeEvent = event.nativeEvent as Event & Partial<PromptEditorInput>
+    const input =
+      typeof nativeEvent.inputType === "string" || nativeEvent.data !== undefined
+        ? nativeEvent
+        : undefined
+    actions.handleReactSectionEntryInput(event.currentTarget, input)
+  }
+  return (
+    <>
+      <div data-prompt-react-picker-slot="" />
+      <div
+        ref={entryRef}
+        className="rl-prompt-section-entry"
+        data-prompt-section-entry=""
+        contentEditable="true"
+        suppressContentEditableWarning
+        role="textbox"
+        spellCheck={false}
+        data-placeholder={placeholder}
+        aria-label={ariaLabel}
+        onInput={handleInput}
+        onKeyDown={(event) => actions.handleReactSectionEntryKeydown(event.nativeEvent)}
+        onBlur={actions.handleReactEditorBlur}
+      />
+    </>
+  )
+}
+
+function PromptPickerOptionView({
+  option,
+  index,
+  active,
+  actions,
+  counters,
+}: {
+  option: PromptPickerOption
+  index: number
+  active: boolean
+  actions: PromptReactActions
+  counters: { reference: number; subject: number; shot: number; alias: number }
+}): ReactNode {
+  const data =
+    option.kind === "reference"
+      ? { "data-prompt-reference-index": String(counters.reference++) }
+      : option.kind === "subject"
+        ? { "data-prompt-subject-index": String(counters.subject++) }
+        : option.kind === "shot"
+          ? { "data-prompt-shot-index": String(counters.shot++) }
+          : option.kind === "create-subject"
+            ? { "data-prompt-subject-create": "" }
+            : { "data-prompt-alias-index": String(counters.alias++) }
+  if (option.kind === "reference") {
+    const reference = option.reference
+    return (
+      <button
+        type="button"
+        role="option"
+        {...data}
+        className={active ? "is-active" : undefined}
+        aria-selected={active}
+        onClick={() => actions.activatePickerOption(index)}
+      >
+        {reference.previewUrl && reference.mediaKind !== "audio" ? (
+          <img src={reference.previewUrl} alt="" draggable={false} />
+        ) : (
+          <span className={`rl-prompt-reference-icon is-${reference.mediaKind}`} aria-hidden="true">
+            {reference.mediaKind === "image" ? "I" : reference.mediaKind === "video" ? "V" : "A"}
+          </span>
+        )}
+        <span>
+          <strong>{`@${reference.label}`}</strong>
+          <small>{`${reference.tag} · ${reference.filename}`}</small>
+        </span>
+      </button>
+    )
+  }
+  if (option.kind === "subject") {
+    return (
+      <button
+        type="button"
+        role="option"
+        {...data}
+        className={active ? "is-active" : undefined}
+        aria-selected={active}
+        onClick={() => actions.activatePickerOption(index)}
+      >
+        <span
+          className="rl-prompt-subject-icon"
+          style={{ background: subjectColor(option.ordinal) }}
+        >
+          {`S${option.ordinal}`}
+        </span>
+        <span>
+          <strong>{`#${option.subject.tag}`}</strong>
+          <small>{`<Subject ${option.ordinal}>`}</small>
+        </span>
+      </button>
+    )
+  }
+  if (option.kind === "shot") {
+    return (
+      <button
+        type="button"
+        role="option"
+        {...data}
+        className={active ? "is-active" : undefined}
+        aria-selected={active}
+        onClick={() => actions.activatePickerOption(index)}
+      >
+        <span className="rl-prompt-subject-icon is-shot" style={{ background: SHOT_COLOR }}>
+          {`SH${option.ordinal}`}
+        </span>
+        <span>
+          <strong>{`#${option.shot.tag}`}</strong>
+          <small>{`Shot · ${option.shot.frameIndex}f · ${(option.shot.frameIndex / 24).toFixed(3)}s`}</small>
+        </span>
+      </button>
+    )
+  }
+  if (option.kind === "create-subject") {
+    return (
+      <button
+        type="button"
+        role="option"
+        {...data}
+        className={active ? "is-active" : undefined}
+        aria-selected={active}
+        onClick={() => actions.activatePickerOption(index)}
+      >
+        <span className="rl-prompt-subject-icon is-create" aria-hidden="true">
+          +S
+        </span>
+        <span>
+          <strong>{option.createLabel}</strong>
+          <small>{option.createDetail}</small>
+        </span>
+      </button>
+    )
+  }
+  const alias = option.alias
+  return (
+    <button
+      type="button"
+      role="option"
+      {...data}
+      className={active ? "is-active" : undefined}
+      aria-selected={active}
+      onClick={() => actions.activatePickerOption(index)}
+    >
+      <span
+        className={`rl-prompt-directive-icon is-${alias.command}`}
+        style={{ background: sectionColor(alias.title).color }}
+      >
+        {alias.icon}
+      </span>
+      <span>
+        <strong>{`/${alias.command} → ${alias.title}:`}</strong>
+        <small>{`${option.label} · ${option.description}`}</small>
+      </span>
+    </button>
+  )
+}
+
+function PromptPicker({
+  controller,
+  actions,
+  snapshot,
+}: {
+  controller: ReferencePromptController
+  actions: PromptReactActions
+  snapshot: PromptPickerSnapshot
+}): ReactNode {
+  const elementRef = useRef<HTMLDivElement>(null)
+  const setElement = useCallback(
+    (element: HTMLDivElement | null): void => {
+      elementRef.current = element
+      if (element) controller.mountPickerElement(element)
+      else controller.unmountPickerElement()
+    },
+    [controller],
+  )
+  useLayoutEffect(() => {
+    elementRef.current
+      ?.querySelector<HTMLElement>('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest" })
+  }, [snapshot.activeIndex, snapshot.options])
+  const counters = { reference: 0, subject: 0, shot: 0, alias: 0 }
+  return (
+    <div
+      ref={setElement}
+      className="rl-prompt-picker"
+      data-prompt-picker=""
+      role="listbox"
+      hidden={!snapshot.visible}
+      onPointerDown={(event) => event.preventDefault()}
+    >
+      {snapshot.options.length === 0 ? (
+        <p>{snapshot.emptyMessage}</p>
+      ) : (
+        snapshot.options.map((option, index) => (
+          <PromptPickerOptionView
+            key={`${option.kind}-${index}`}
+            option={option}
+            index={index}
+            active={index === snapshot.activeIndex}
+            actions={actions}
+            counters={counters}
+          />
+        ))
+      )}
+    </div>
+  )
+}
+
+function PromptPickerHost({
+  controller,
+  actions,
+}: {
+  controller: ReferencePromptController
+  actions: PromptReactActions
+}): ReactNode {
+  const hostRef = useRef<HTMLDivElement>(null)
+  const subscribe = useCallback(
+    (listener: () => void): (() => void) => controller.subscribePicker(listener),
+    [controller],
+  )
+  const getSnapshot = useCallback(
+    (): PromptPickerSnapshot => controller.getPickerSnapshot(),
+    [controller],
+  )
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const picker = <PromptPicker controller={controller} actions={actions} snapshot={snapshot} />
+  const target =
+    snapshot.visible && snapshot.target?.isConnected ? snapshot.target : hostRef.current
+  return (
+    <div data-prompt-picker-host="" ref={hostRef}>
+      {target && target !== hostRef.current ? createPortal(picker, target) : picker}
+    </div>
   )
 }
 
@@ -234,59 +552,35 @@ function PromptWorkspaceHost({
     [controller],
   )
   const sections = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  const bodyHosts = useRef(new Map<string, HTMLElement>())
-  const bodyCallbacks = useRef(new Map<string, RefCallback<HTMLDivElement>>())
-  const entryHost = useRef<HTMLElement | undefined>(undefined)
-  const rawEditorHost = useRef<HTMLElement | undefined>(undefined)
-  const getBodyHost = useCallback((title: string): RefCallback<HTMLDivElement> => {
-    const existing = bodyCallbacks.current.get(title)
-    if (existing) return existing
-    const callback: RefCallback<HTMLDivElement> = (host) => {
-      if (host) bodyHosts.current.set(title, host)
-      else bodyHosts.current.delete(title)
-    }
-    bodyCallbacks.current.set(title, callback)
-    return callback
-  }, [])
-  const setEntryHost = useCallback<RefCallback<HTMLDivElement>>((host) => {
-    entryHost.current = host ?? undefined
-  }, [])
-  const setRawEditorHost = useCallback<RefCallback<HTMLDivElement>>((host) => {
-    rawEditorHost.current = host ?? undefined
-  }, [])
-
-  useLayoutEffect(() => {
-    controller.mountSectionHosts(bodyHosts.current, entryHost.current)
-    controller.mountRawEditorHost(rawEditorHost.current)
-  })
-
-  useLayoutEffect(
-    () => () => {
-      controller.unmountSectionHosts()
-      controller.unmountRawEditorHost()
-      bodyHosts.current.clear()
-      bodyCallbacks.current.clear()
-      entryHost.current = undefined
-      rawEditorHost.current = undefined
-    },
-    [controller],
+  const rawTarget: PromptEditorTarget = { type: "raw" }
+  const renderRawEditor = useCallback(
+    (editor: HTMLElement) => actions.renderRawEditor(editor),
+    [actions],
   )
 
   return (
     <div data-prompt-workspace="" ref={workspaceRef}>
       {snapshot.view === "raw" ? (
-        <div key="raw" data-prompt-editor-host="" ref={setRawEditorHost} />
+        <PromptEditor
+          key="raw"
+          actions={actions}
+          target={rawTarget}
+          contentKey={snapshot.sourceText}
+          placeholder={snapshot.rawPlaceholder}
+          renderContent={renderRawEditor}
+          className="rl-prompt-editor is-raw"
+          ariaLabel="Raw prompt editor"
+        />
       ) : (
         <div key="structured" className="rl-prompt-stack" data-prompt-stack="">
           {sections.sections.map((section) => (
-            <PromptSectionCard
-              key={section.title}
-              section={section}
-              actions={actions}
-              getBodyHost={getBodyHost}
-            />
+            <PromptSectionCard key={section.title} section={section} actions={actions} />
           ))}
-          <div data-prompt-section-entry-host="" ref={setEntryHost} />
+          <PromptSectionEntry
+            actions={actions}
+            placeholder={snapshot.sectionEntryPlaceholder}
+            ariaLabel={snapshot.sectionEntryAria}
+          />
         </div>
       )}
     </div>
@@ -301,13 +595,12 @@ export function ReferencePromptReactRoot({
   actions: PromptReactActions
 }): ReactNode {
   const workspaceRef = useRef<HTMLDivElement>(null)
-  const pickerRef = useRef<HTMLDivElement>(null)
   const subscribe = (listener: () => void): (() => void) => controller.subscribeView(listener)
   const getSnapshot = (): PromptViewSnapshot => controller.getViewSnapshot()
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 
   useLayoutEffect(() => {
-    controller.mountNativeHosts(workspaceRef.current ?? undefined, pickerRef.current ?? undefined)
+    controller.mountNativeHosts(workspaceRef.current ?? undefined, undefined)
     return () => controller.unmountNativeHosts()
   }, [controller])
 
@@ -327,7 +620,7 @@ export function ReferencePromptReactRoot({
         actions={actions}
         workspaceRef={workspaceRef}
       />
-      <div data-prompt-picker-host="" ref={pickerRef} />
+      <PromptPickerHost controller={controller} actions={actions} />
       <p className="rl-prompt-hint" data-prompt-hint="" hidden={!snapshot.hint}>
         {snapshot.hint}
       </p>
@@ -343,8 +636,25 @@ export function createPromptReact(options: PromptReactOptions): PromptReactMount
     copySource: () => controller.copySource(),
     copyCompiled: () => controller.copyCompiled(),
     setPreset: (value) => controller.setPreset(value),
-    setPlainTextSectionText: (title, text) => controller.setPlainTextSectionText(title, text),
+    handleReactEditorInput: (title, editor, input) =>
+      controller.handleReactEditorInput(title, editor, input),
+    handleReactEditorKeydown: (event) => controller.handleReactEditorKeydown(event),
+    handleReactEditorPaste: (event) => controller.handleReactEditorPaste(event),
+    handleReactEditorBlur: () => controller.handleReactEditorBlur(),
     removeSection: (title) => controller.removeSection(title),
+    handleReactSectionEntryInput: (editor, input) =>
+      controller.handleReactSectionEntryInput(editor, input),
+    handleReactSectionEntryKeydown: (event) => controller.handleReactSectionEntryKeydown(event),
+    renderSectionEditor: (title, editor) => controller.renderReactSectionEditor(title, editor),
+    renderRawEditor: (editor) => controller.renderReactRawEditor(editor),
+    moveSection: (title, delta) => controller.moveSection(title, delta),
+    movePicker: (delta) => controller.movePicker(delta),
+    activatePickerOption: (index) => controller.activatePickerOption(index),
+    closePicker: () => controller.closePicker(),
+    startSectionDrag: (title, event) => controller.startSectionDrag(title, event),
+    sectionDragOver: (event) => controller.sectionDragOver(event),
+    dropSection: (event) => controller.dropSection(event),
+    endSectionDrag: () => controller.endSectionDrag(),
   }
   const root: Root = createRoot(options.container)
   let destroyed = false

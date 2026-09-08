@@ -38,6 +38,10 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json && tsc --noEmit -p ./frontend/src/tsconfig.json && tsc --noEmit -p ./frontend/test/tsconfig.json",
     "version:bump": "bun scripts/bump-version.ts"
   },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
   "devDependencies": {
     "@comfyorg/comfyui-frontend-types": "1.47.12",
     "@happy-dom/global-registrator": "^20.11.2",
@@ -61,9 +65,5 @@
       "uv run ruff format"
     ]
   },
-  "packageManager": "bun@1.4.2",
-  "dependencies": {
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
-  }
+  "packageManager": "bun@1.4.2"
 }

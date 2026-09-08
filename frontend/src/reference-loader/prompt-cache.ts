@@ -73,9 +73,7 @@ function setCacheWidgetsReadOnly(node: ComfyNode): void {
     setWidgetElementState(prompt, false)
   }
 
-  const refHash = node.widgets?.find(
-    (candidate) => candidate.name === "cached_ref_hash",
-  )
+  const refHash = node.widgets?.find((candidate) => candidate.name === "cached_ref_hash")
   const invalidateKey = node.widgets?.find(
     (candidate) => candidate.name === "cached_invalidate_key",
   )
@@ -92,8 +90,7 @@ function setCacheWidgetsReadOnly(node: ComfyNode): void {
 function isPromptCacheNode(node: ComfyNode): boolean {
   return [node.type, node.comfyClass].some(
     (nodeType) =>
-      nodeType === REFERENCE_PROMPT_CACHE_NODE_TYPE ||
-      nodeType === PROMPT_LIVE_CACHE_NODE_TYPE,
+      nodeType === REFERENCE_PROMPT_CACHE_NODE_TYPE || nodeType === PROMPT_LIVE_CACHE_NODE_TYPE,
   )
 }
 

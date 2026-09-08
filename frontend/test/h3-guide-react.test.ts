@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+
 import { flushSync } from "react-dom"
 
 import { ReferenceLoaderApi } from "../src/reference-loader/api.ts"
@@ -20,9 +21,7 @@ function mount() {
   )
   state.imageOrder = ["scene"]
   state.h3Timeline.enabled = true
-  state.h3Timeline.guides = [
-    { id: "guide", frameIndex: 48, visualId: "scene", audioId: null },
-  ]
+  state.h3Timeline.guides = [{ id: "guide", frameIndex: 48, visualId: "scene", audioId: null }]
   const root = document.createElement("div")
   document.body.append(root)
   const controller = new ReferenceLoaderController(
@@ -31,8 +30,7 @@ function mount() {
     new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
     serializeLoaderState(state),
   )
-  const open = () =>
-    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"]')!.click()
+  const open = () => root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"]')!.click()
   open()
   cleanups.push(() => {
     controller.destroy()
@@ -98,21 +96,31 @@ describe("React Guide card boundary", () => {
     const media = first.root.querySelector("[data-h3-card-editor]")!
     const footer = first.root.querySelector(".rl-card__body[data-h3-react-surface]")!
     const frame = first.root.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')!
-    const secondFrame = second.root.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')!
-    expect(frame.getAttribute("aria-describedby")).not.toBe(secondFrame.getAttribute("aria-describedby"))
+    const secondFrame = second.root.querySelector<HTMLInputElement>(
+      '[data-h3-draft-field="frame"]',
+    )!
+    expect(frame.getAttribute("aria-describedby")).not.toBe(
+      secondFrame.getAttribute("aria-describedby"),
+    )
     const add = first.root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')!
     enter(add, "144")
-    expect(second.root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')!.value).toBe("")
+    expect(second.root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')!.value).toBe(
+      "",
+    )
     first.root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')!.click()
     expect(media.childNodes.length).toBe(0)
     expect(footer.childNodes.length).toBe(0)
 
     first.open()
     expect(first.root.querySelector("[data-h3-card-editor]")).not.toBe(media)
-    expect(first.root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')!.value).toBe("")
+    expect(first.root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')!.value).toBe(
+      "",
+    )
     frame.value = "999"
     frame.dispatchEvent(new Event("change", { bubbles: true }))
-    expect(first.root.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')!.value).toBe("48")
+    expect(first.root.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')!.value).toBe(
+      "48",
+    )
 
     const restoredMedia = first.root.querySelector("[data-h3-card-editor]")!
     first.controller.restore(first.controller.serialize())

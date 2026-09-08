@@ -263,9 +263,9 @@
 .rl-card--has-caption textarea[data-field="caption"] {
   flex: 1 1 auto;
 }
-.rl-card--has-caption .rl-card__body>.rl-h3-card-badges,
-.rl-card--has-caption .rl-card__body>.rl-card__actions,
-.rl-card--has-caption .rl-card__body>.rl-card__error {
+.rl-card--has-caption .rl-card__body > .rl-h3-card-badges,
+.rl-card--has-caption .rl-card__body > .rl-card__actions,
+.rl-card--has-caption .rl-card__body > .rl-card__error {
   flex: 0 0 auto;
 }
 .rl-card button,

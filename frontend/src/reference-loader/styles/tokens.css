@@ -28,6 +28,7 @@
 .reference-prompt,
 .reference-prompt-definitions {
   box-sizing: border-box;
+  cursor: default;
   min-width: 360px;
   height: 100%;
   min-height: 360px;

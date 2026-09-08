@@ -8,6 +8,10 @@ import type {
 } from "../comfyui.ts"
 import { ReferenceLoaderApi } from "./api.ts"
 import { promptByOrderProperty, ReferenceLoaderController } from "./components/loader.ts"
+import {
+  createPromptDefinitionsReact,
+  type PromptDefinitionsReactMount,
+} from "./components/prompt-definitions-react.tsx"
 import { ReferencePromptController } from "./components/prompt-editor.ts"
 import { createPromptReact, type PromptReactMount } from "./components/prompt-react.tsx"
 import {
@@ -26,6 +30,7 @@ export const REFERENCE_PROMPT_WIDGET_TYPE = "REFERENCE_PROMPT"
 const controllers = new WeakMap<ComfyNode, ReferenceLoaderController>()
 const promptControllers = new WeakMap<ComfyNode, ReferencePromptController>()
 const promptReactMounts = new WeakMap<ComfyNode, PromptReactMount>()
+const promptDefinitionsReactMounts = new WeakMap<ComfyNode, PromptDefinitionsReactMount>()
 const promptRoots = new WeakMap<ComfyNode, HTMLElement>()
 const promptDefinitionRoots = new WeakMap<ComfyNode, HTMLElement>()
 const promptSubscriptions = new WeakMap<ComfyNode, () => void>()
@@ -173,6 +178,8 @@ export function registerReferenceLoader(
         [REFERENCE_IMAGE_LOADER_WIDGET_TYPE]: (node, inputName, inputData) =>
           createLoaderWidget(node, inputName, inputData, true),
         [REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE]: (node, inputName) => {
+          promptDefinitionsReactMounts.get(node)?.destroy()
+          promptDefinitionsReactMounts.delete(node)
           const root = document.createElement("div")
           root.className = "reference-prompt-definitions"
           root.dataset.input = inputName
@@ -198,15 +205,24 @@ export function registerReferenceLoader(
           )
           widget.serialize = false
           promptDefinitionRoots.set(node, root)
-          promptControllers.get(node)?.mountDefinitions(root)
+          const controller = promptControllers.get(node)
+          controller?.mountDefinitions(root)
+          const reactMount = controller
+            ? createPromptDefinitionsReact({ container: root, controller })
+            : undefined
+          if (reactMount) promptDefinitionsReactMounts.set(node, reactMount)
           let removed = false
           const originalWidgetRemove = widget.onRemove
           widget.onRemove = () => {
             if (removed) return
             removed = true
             releaseRenderedRoot()
-            if (promptDefinitionRoots.get(node) === root) promptDefinitionRoots.delete(node)
-            promptControllers.get(node)?.mountDefinitions(undefined)
+            if (promptDefinitionRoots.get(node) === root) {
+              promptDefinitionsReactMounts.get(node)?.destroy()
+              promptDefinitionsReactMounts.delete(node)
+              promptDefinitionRoots.delete(node)
+              promptControllers.get(node)?.mountDefinitions(undefined)
+            }
             originalWidgetRemove?.call(widget)
           }
           installNodeRemovalHook(node)
@@ -219,6 +235,8 @@ export function registerReferenceLoader(
           promptPresetBindings.delete(node)
           promptReactMounts.get(node)?.destroy()
           promptReactMounts.delete(node)
+          promptDefinitionsReactMounts.get(node)?.destroy()
+          promptDefinitionsReactMounts.delete(node)
           promptControllers.get(node)?.destroy()
           promptRoots.delete(node)
           const root = document.createElement("div")
@@ -239,7 +257,15 @@ export function registerReferenceLoader(
             },
           )
           const definitionsRoot = promptDefinitionRoots.get(node)
-          if (definitionsRoot) controller.mountDefinitions(definitionsRoot)
+          let definitionsReactMount: PromptDefinitionsReactMount | undefined
+          if (definitionsRoot) {
+            controller.mountDefinitions(definitionsRoot)
+            definitionsReactMount = createPromptDefinitionsReact({
+              container: definitionsRoot,
+              controller,
+            })
+            promptDefinitionsReactMounts.set(node, definitionsReactMount)
+          }
           const reactMount = createPromptReact({ container: root, controller })
           let removed = false
           const widget = node.addDOMWidget(inputName, REFERENCE_PROMPT_WIDGET_TYPE, root, {
@@ -271,6 +297,10 @@ export function registerReferenceLoader(
             promptPresetBindings.delete(node)
             if (promptControllers.get(node) === controller) promptControllers.delete(node)
             if (promptReactMounts.get(node) === reactMount) promptReactMounts.delete(node)
+            if (promptDefinitionsReactMounts.get(node) === definitionsReactMount) {
+              definitionsReactMount?.destroy()
+              promptDefinitionsReactMounts.delete(node)
+            }
             promptRoots.delete(node)
             reactMount.destroy()
             controller.destroy()
@@ -450,6 +480,8 @@ function installNodeRemovalHook(node: ComfyNode): void {
     promptPresetBindings.delete(this)
     promptReactMounts.get(this)?.destroy()
     promptReactMounts.delete(this)
+    promptDefinitionsReactMounts.get(this)?.destroy()
+    promptDefinitionsReactMounts.delete(this)
     promptControllers.get(this)?.destroy()
     promptControllers.delete(this)
     promptRoots.delete(this)

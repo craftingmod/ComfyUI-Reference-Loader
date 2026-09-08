@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 
 import type { ComfyNode } from "../src/comfyui.ts"
+import { createPromptDefinitionsReact } from "../src/reference-loader/components/prompt-definitions-react.tsx"
 import { ReferencePromptController } from "../src/reference-loader/components/prompt-editor.ts"
 import { createPromptReact } from "../src/reference-loader/components/prompt-react.tsx"
 import {
@@ -118,6 +119,69 @@ describe("Reference Prompt React shell", () => {
       definitions: false,
     })
     unsubscribe()
+    controller.destroy()
+  })
+
+  test("moves definition cards to React while preserving native body hosts and identity", () => {
+    const promptRoot = document.createElement("div")
+    const definitionsRoot = document.createElement("div")
+    document.body.append(promptRoot, definitionsRoot)
+    const initial = {
+      ...createEmptyPromptDocument(),
+      subjects: [{ tag: "hero", parts: [{ type: "text" as const, text: "red coat" }] }],
+      shots: [
+        { tag: "opening", frameIndex: 0, parts: [{ type: "text" as const, text: "enters" }] },
+      ],
+    }
+    const controller = new ReferencePromptController(
+      promptRoot,
+      node,
+      () => [],
+      serializePromptDocument(initial),
+      { legacyShell: false },
+    )
+    const promptMount = createPromptReact({ container: promptRoot, controller })
+    controller.mountDefinitions(definitionsRoot)
+    const definitionsMount = createPromptDefinitionsReact({
+      container: definitionsRoot,
+      controller,
+    })
+
+    const subject = definitionsRoot.querySelector<HTMLElement>('[data-prompt-definition="subject"]')
+    const subjectIdentity = subject?.dataset.promptDefinitionIdentity
+    const subjectBody = subject?.querySelector<HTMLElement>("[data-prompt-definition-body]")
+    expect(definitionsRoot.querySelector("[data-prompt-definitions-react]")).not.toBeNull()
+    expect(subjectBody?.contentEditable).toBe("true")
+
+    flushSync(() => controller.renameDefinition("subject", subjectIdentity ?? "", "#lead"))
+    const renamed = definitionsRoot.querySelector<HTMLElement>('[data-prompt-definition="subject"]')
+    expect(renamed?.dataset.promptDefinitionTag).toBe("lead")
+    expect(renamed?.dataset.promptDefinitionIdentity).toBe(subjectIdentity)
+    expect(renamed?.querySelector("[data-prompt-definition-body]")).toBe(subjectBody)
+    expect(renamed?.querySelector("[data-prompt-definition-body]")?.textContent).toBe("red coat")
+
+    const shotIdentity =
+      definitionsRoot.querySelector<HTMLElement>('[data-prompt-definition="shot"]')?.dataset
+        .promptDefinitionIdentity ?? ""
+    flushSync(() => controller.setShotFrameByIdentity(shotIdentity, 49))
+    expect(controller.getDefinitionsSnapshot().shots[0]?.frameIndex).toBe(49)
+    expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(49)
+
+    flushSync(() => controller.setShotFrameDraft("opening", 72))
+    expect(definitionsRoot.querySelector('[data-prompt-action="apply-shot-draft"]')).not.toBeNull()
+    expect(
+      definitionsRoot.querySelector<HTMLInputElement>("[data-prompt-shot-frame]")?.disabled,
+    ).toBe(true)
+    flushSync(() =>
+      definitionsRoot
+        .querySelector<HTMLButtonElement>('[data-prompt-action="cancel-shot-draft"]')
+        ?.click(),
+    )
+    expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(49)
+
+    definitionsMount.destroy()
+    expect(definitionsRoot.childElementCount).toBe(0)
+    promptMount.destroy()
     controller.destroy()
   })
 })

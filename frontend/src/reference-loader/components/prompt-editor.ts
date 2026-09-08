@@ -26,6 +26,7 @@ import {
 import {
   makePromptDefinitions,
   makePromptSectionCard,
+  makePromptDefinitionBody,
   type PromptCardContext,
 } from "./prompt-cards.ts"
 import {
@@ -81,6 +82,23 @@ export interface PromptViewSnapshot {
   }
 }
 
+export type PromptDefinitionKind = "subject" | "shot"
+
+export interface PromptDefinitionSnapshot {
+  readonly identity: string
+  readonly kind: PromptDefinitionKind
+  readonly tag: string
+  readonly ordinal: number
+  readonly frameIndex?: number
+}
+
+export interface PromptDefinitionsSnapshot {
+  readonly subjects: readonly PromptDefinitionSnapshot[]
+  readonly shots: readonly PromptDefinitionSnapshot[]
+  readonly draft: boolean
+  readonly mounted: boolean
+}
+
 const PROMPT_SECTION_DRAG_MIME = "application/x-reference-loader-prompt-section"
 
 function findOrderedReference(
@@ -108,6 +126,7 @@ export class ReferencePromptController {
   #legacyShell: boolean
   #workspaceRoot: HTMLElement | undefined
   #definitionsRoot: HTMLElement | undefined
+  #definitionHosts = new Map<string, HTMLElement>()
   #pickerHost: HTMLElement | undefined
   #node: ComfyNode
   #references: ReferenceProvider
@@ -139,7 +158,14 @@ export class ReferencePromptController {
   #destroyed = false
   #shotListeners = new Set<() => void>()
   #viewListeners = new Set<() => void>()
+  #definitionsListeners = new Set<() => void>()
   #viewSnapshot: PromptViewSnapshot | undefined
+  #definitionsSnapshot: PromptDefinitionsSnapshot | undefined
+  #definitionIdentityCounter = 0
+  #definitionIdentities: Record<PromptDefinitionKind, Map<string, string>> = {
+    subject: new Map(),
+    shot: new Map(),
+  }
   #shotDraft:
     | {
         initial: PromptDocument
@@ -177,13 +203,53 @@ export class ReferencePromptController {
     this.#definitionsController?.abort()
     this.#definitionsController = undefined
     this.#definitionsRoot?.replaceChildren()
+    this.#definitionHosts.clear()
     this.#definitionsRoot = root
     if (root) {
       root.classList.add("reference-prompt-definitions")
       this.#definitionsController = new AbortController()
-      this.#installEditableRootEvents(root, this.#definitionsController.signal)
+      this.#installEditableRootEvents(root, this.#definitionsController.signal, this.#legacyShell)
     }
     this.#renderEditor()
+    if (root && !this.#legacyShell) {
+      const cardContext: PromptCardContext = {
+        prompt: this.#document,
+        references: this.#references(),
+        preset: this.#preset,
+        locale: this.#locale,
+      }
+      root.append(makePromptDefinitions(cardContext, this.#shotDraft?.document))
+    }
+    this.#publishDefinitions()
+  }
+
+  mountDefinitionHosts(hosts: ReadonlyMap<string, HTMLElement>): void {
+    if (this.#destroyed) return
+    if (
+      hosts.size === this.#definitionHosts.size &&
+      [...hosts].every(([identity, host]) => this.#definitionHosts.get(identity) === host)
+    )
+      return
+    this.#definitionHosts = new Map(hosts)
+    this.#renderDefinitionBodies()
+  }
+
+  unmountDefinitionHosts(): void {
+    if (this.#definitionHosts.size === 0) return
+    for (const host of this.#definitionHosts.values()) host.replaceChildren()
+    this.#definitionHosts.clear()
+  }
+
+  getDefinitionsSnapshot(): PromptDefinitionsSnapshot {
+    if (!this.#definitionsSnapshot) this.#definitionsSnapshot = this.#buildDefinitionsSnapshot()
+    return this.#definitionsSnapshot
+  }
+
+  subscribeDefinitions(listener: () => void): () => void {
+    if (this.#destroyed) return () => undefined
+    this.#definitionsListeners.add(listener)
+    listener()
+    return () => this.#definitionsListeners.delete(listener)
   }
 
   mountNativeHosts(workspace: HTMLElement | undefined, pickerHost: HTMLElement | undefined): void {
@@ -239,6 +305,36 @@ export class ReferencePromptController {
     this.#viewListeners.add(listener)
     listener()
     return () => this.#viewListeners.delete(listener)
+  }
+
+  addDefinition(kind: PromptDefinitionKind): void {
+    this.#addDefinition(kind)
+  }
+
+  renameDefinition(kind: PromptDefinitionKind, identity: string, value: string): boolean {
+    const tag = this.#definitionTag(kind, identity)
+    const next = normalizePromptTag(value.trim().replace(/^#/u, ""))
+    if (!tag) return false
+    if (!next || tag === next) {
+      this.#publishDefinitions(true)
+      return tag === next
+    }
+    return this.#renameDefinition(kind, tag, next)
+  }
+
+  reorderDefinition(kind: PromptDefinitionKind, identity: string, delta: -1 | 1): void {
+    const tag = this.#definitionTag(kind, identity)
+    if (tag) this.#moveDefinition(kind, tag, delta)
+  }
+
+  removeDefinition(kind: PromptDefinitionKind, identity: string): void {
+    const tag = this.#definitionTag(kind, identity)
+    if (tag) this.#removeDefinition(kind, tag)
+  }
+
+  setShotFrameByIdentity(identity: string, frameIndex: number): boolean {
+    const tag = this.#definitionTag("shot", identity)
+    return tag ? this.setShotFrame(tag, frameIndex) : false
   }
 
   clear(): void {
@@ -459,8 +555,10 @@ export class ReferencePromptController {
     this.#definitionsController?.abort()
     this.#shotListeners.clear()
     this.#viewListeners.clear()
+    this.#definitionsListeners.clear()
     this.#shotDraft = undefined
     this.#closePicker()
+    this.unmountDefinitionHosts()
     this.#definitionsRoot?.replaceChildren()
     this.#workspaceRoot?.replaceChildren()
     this.#pickerHost?.replaceChildren()
@@ -475,6 +573,165 @@ export class ReferencePromptController {
 
   get #definitionsHost(): HTMLElement {
     return this.#definitionsRoot ?? this.#workspaceRoot ?? this.root
+  }
+
+  #definitionIdentity(kind: PromptDefinitionKind, tag: string): string {
+    const identities = this.#definitionIdentities[kind]
+    const existing = identities.get(tag)
+    if (existing) return existing
+    const identity = `${kind}-${++this.#definitionIdentityCounter}`
+    identities.set(tag, identity)
+    return identity
+  }
+
+  #definitionTag(kind: PromptDefinitionKind, identity: string): string | undefined {
+    for (const [tag, candidate] of this.#definitionIdentities[kind])
+      if (candidate === identity) return tag
+    return undefined
+  }
+
+  #moveDefinitionIdentity(kind: PromptDefinitionKind, from: string, to: string): void {
+    const identities = this.#definitionIdentities[kind]
+    const identity = identities.get(from)
+    if (!identity) return
+    identities.delete(from)
+    identities.set(to, identity)
+  }
+
+  #pruneDefinitionIdentities(document: PromptDocument): void {
+    const current = {
+      subject: new Set(
+        document.subjects.map((subject) => subject.tag ?? subject.label ?? subject.subjectId ?? ""),
+      ),
+      shot: new Set(document.shots.map((shot) => shot.tag)),
+    }
+    for (const kind of ["subject", "shot"] as const)
+      for (const tag of this.#definitionIdentities[kind].keys())
+        if (!current[kind].has(tag)) this.#definitionIdentities[kind].delete(tag)
+  }
+
+  #definitionRecords(): {
+    kind: PromptDefinitionKind
+    tag: string
+    identity: string
+    ordinal: number
+    frameIndex?: number
+  }[] {
+    this.#pruneDefinitionIdentities(this.#document)
+    const subjects = this.#document.subjects.flatMap((subject, index) => {
+      const tag = subject.tag ?? subject.label ?? subject.subjectId
+      return tag
+        ? [
+            {
+              kind: "subject" as const,
+              tag,
+              identity: this.#definitionIdentity("subject", tag),
+              ordinal: index + 1,
+            },
+          ]
+        : []
+    })
+    const shots = (this.#shotDraft?.document.shots ?? this.#document.shots).map((shot, index) => ({
+      kind: "shot" as const,
+      tag: shot.tag,
+      identity: this.#definitionIdentity("shot", shot.tag),
+      ordinal: index + 1,
+      frameIndex: shot.frameIndex,
+    }))
+    return [...subjects, ...shots]
+  }
+
+  #buildDefinitionsSnapshot(): PromptDefinitionsSnapshot {
+    const records = this.#definitionRecords()
+    return {
+      subjects: records.filter((record) => record.kind === "subject"),
+      shots: records.filter((record) => record.kind === "shot"),
+      draft: this.#shotDraft !== undefined,
+      mounted: this.#definitionsRoot !== undefined,
+    }
+  }
+
+  #publishDefinitions(force = false): void {
+    const next = this.#buildDefinitionsSnapshot()
+    const previous = this.#definitionsSnapshot
+    const sameRecords = (
+      left: readonly PromptDefinitionSnapshot[],
+      right: readonly PromptDefinitionSnapshot[],
+    ): boolean =>
+      left.length === right.length &&
+      left.every(
+        (record, index) =>
+          record.identity === right[index]?.identity &&
+          record.kind === right[index]?.kind &&
+          record.tag === right[index]?.tag &&
+          record.ordinal === right[index]?.ordinal &&
+          record.frameIndex === right[index]?.frameIndex,
+      )
+    if (
+      !force &&
+      previous &&
+      previous.draft === next.draft &&
+      previous.mounted === next.mounted &&
+      sameRecords(previous.subjects, next.subjects) &&
+      sameRecords(previous.shots, next.shots)
+    )
+      return
+    this.#definitionsSnapshot = next
+    for (const listener of this.#definitionsListeners) listener()
+  }
+
+  #renderDefinitionBodies(): void {
+    if (!this.#definitionsRoot || this.#legacyShell) return
+    const records = this.#definitionRecords()
+    const cardContext: PromptCardContext = {
+      prompt: this.#shotDraft?.document ?? this.#document,
+      references: this.#references(),
+      preset: this.#preset,
+      locale: this.#locale,
+    }
+    const definitions = new Map<
+      string,
+      PromptDocument["subjects"][number] | PromptDocument["shots"][number]
+    >()
+    for (const subject of this.#document.subjects) {
+      const tag = subject.tag ?? subject.label ?? subject.subjectId
+      if (tag) definitions.set(this.#definitionIdentity("subject", tag), subject)
+    }
+    for (const shot of this.#shotDraft?.document.shots ?? this.#document.shots)
+      definitions.set(this.#definitionIdentity("shot", shot.tag), shot)
+    const active = new Set<string>()
+    for (const record of records) {
+      const host = this.#definitionHosts.get(record.identity)
+      const definition = definitions.get(record.identity)
+      if (!host || !definition) continue
+      active.add(record.identity)
+      const body = host.querySelector<HTMLElement>("[data-prompt-definition-body]")
+      const bodyState = JSON.stringify(definition.parts ?? [])
+      if (!body) {
+        host.append(
+          makePromptDefinitionBody(cardContext, record.kind, definition, Boolean(this.#shotDraft)),
+        )
+      } else {
+        body.dataset.promptDefinitionTag = record.tag
+        body.contentEditable = this.#shotDraft ? "false" : "true"
+        if (body.dataset.promptDefinitionBodyState !== bodyState) {
+          body.replaceChildren()
+          body.append(
+            ...makePromptDefinitionBody(
+              cardContext,
+              record.kind,
+              definition,
+              Boolean(this.#shotDraft),
+            ).childNodes,
+          )
+        }
+      }
+      host.querySelector<HTMLElement>(
+        "[data-prompt-definition-body]",
+      )!.dataset.promptDefinitionBodyState = bodyState
+    }
+    for (const [identity, host] of this.#definitionHosts)
+      if (!active.has(identity)) host.replaceChildren()
   }
 
   get #picker(): HTMLElement {
@@ -542,6 +799,14 @@ export class ReferencePromptController {
 
   #installPickerEvents(picker: HTMLElement, signal: AbortSignal): void {
     picker.addEventListener("pointerdown", (event) => event.preventDefault(), { signal })
+    picker.addEventListener(
+      "click",
+      (event) => {
+        this.#onClick(event)
+        event.stopPropagation()
+      },
+      { signal },
+    )
   }
 
   #installEditableRootEvents(root: HTMLElement, signal: AbortSignal, includeClick = true): void {
@@ -702,14 +967,19 @@ export class ReferencePromptController {
       preset: this.#preset,
       locale: this.#locale,
     }
-    const definitions = makePromptDefinitions(cardContext, this.#shotDraft?.document)
-    if (this.#definitionsRoot) this.#definitionsRoot.replaceChildren(definitions)
+    const definitions = this.#legacyShell
+      ? makePromptDefinitions(cardContext, this.#shotDraft?.document)
+      : undefined
+    if (this.#legacyShell && this.#definitionsRoot && definitions)
+      this.#definitionsRoot.replaceChildren(definitions)
     if (!workspace) {
+      this.#renderDefinitionBodies()
+      this.#publishDefinitions()
       this.#setHint(renderHint)
       return
     }
     if (this.#document.view === "raw") {
-      if (!this.#definitionsRoot) workspace.append(definitions)
+      if (!this.#definitionsRoot && definitions) workspace.append(definitions)
       const editor = document.createElement("div")
       editor.className = "rl-prompt-editor is-raw"
       editor.dataset.promptEditor = ""
@@ -724,7 +994,7 @@ export class ReferencePromptController {
       const stack = document.createElement("div")
       stack.className = "rl-prompt-stack"
       stack.dataset.promptStack = ""
-      if (!this.#definitionsRoot) stack.append(definitions)
+      if (!this.#definitionsRoot && definitions) stack.append(definitions)
       const sections =
         this.#document.sections.length > 0
           ? this.#document.sections
@@ -754,6 +1024,8 @@ export class ReferencePromptController {
       stack.append(entry)
       workspace.append(stack)
     }
+    this.#renderDefinitionBodies()
+    this.#publishDefinitions()
     if (this.#legacyShell) {
       const button = this.root.querySelector<HTMLButtonElement>(
         '[data-prompt-action="toggle-view"]',
@@ -850,7 +1122,10 @@ export class ReferencePromptController {
         `[data-prompt-definition="subject"][data-prompt-definition-tag="${CSS.escape(tag)}"]`,
       )
       const body = card?.querySelector<HTMLElement>("[data-prompt-definition-body]")
-      return body ? { ...subject, parts: sectionPartsFromContainer(body) } : subject
+      if (!body) return subject
+      const parts = sectionPartsFromContainer(body)
+      body.dataset.promptDefinitionBodyState = JSON.stringify(parts)
+      return { ...subject, parts }
     })
     if (this.#shotDraft) {
       this.#document = { ...this.#document, subjects }
@@ -863,13 +1138,14 @@ export class ReferencePromptController {
       const body = card?.querySelector<HTMLElement>("[data-prompt-definition-body]")
       const frame = card?.querySelector<HTMLInputElement>("[data-prompt-shot-frame]")
       const value = frame ? Number(frame.value) : shot.frameIndex
-      return body && Number.isSafeInteger(value) && value >= 0
-        ? {
-            ...shot,
-            ...(syncShotFrames ? { frameIndex: value } : {}),
-            parts: sectionPartsFromContainer(body),
-          }
-        : shot
+      if (!body || !Number.isSafeInteger(value) || value < 0) return shot
+      const parts = sectionPartsFromContainer(body)
+      body.dataset.promptDefinitionBodyState = JSON.stringify(parts)
+      return {
+        ...shot,
+        ...(syncShotFrames ? { frameIndex: value } : {}),
+        parts,
+      }
     })
     this.#document = { ...this.#document, subjects, shots }
   }
@@ -881,6 +1157,12 @@ export class ReferencePromptController {
     )
       return
     if (this.#composing) return
+    if (
+      !this.#legacyShell &&
+      event.target instanceof Element &&
+      event.target.closest("[data-prompt-definition-tag-input], [data-prompt-shot-frame]")
+    )
+      return
     const tagInput =
       event.target instanceof Element
         ? event.target.closest<HTMLInputElement>("[data-prompt-definition-tag-input]")
@@ -922,6 +1204,11 @@ export class ReferencePromptController {
       !this.#editorRoots.some((root) => root.contains(event.target as Node))
     )
       return
+    if (
+      !this.#legacyShell &&
+      event.target.closest("[data-prompt-definition-tag-input], [data-prompt-shot-frame]")
+    )
+      return
     const tagInput = event.target.closest<HTMLInputElement>("[data-prompt-definition-tag-input]")
     if (tagInput) {
       if (this.#shotDraft) return
@@ -930,7 +1217,7 @@ export class ReferencePromptController {
       const oldTag = card?.dataset.promptDefinitionTag
       const next = normalizePromptTag(tagInput.value.replace(/^#/u, ""))
       const kind = card?.dataset.promptDefinition as "subject" | "shot" | undefined
-      if (oldTag && next && kind && next !== oldTag) this.#renameDefinition(oldTag, next)
+      if (oldTag && next && kind && next !== oldTag) this.#renameDefinition(kind, oldTag, next)
       else if (!next) tagInput.value = `#${oldTag ?? ""}`
       tagInput.size = Math.max(8, tagInput.value.length + 1)
       return
@@ -950,7 +1237,7 @@ export class ReferencePromptController {
     for (const listener of this.#shotListeners) listener()
   }
 
-  #renameDefinition(from: string, to: string): void {
+  #renameDefinition(kind: PromptDefinitionKind, from: string, to: string): boolean {
     this.#syncDocumentFromEditor()
     if (
       [...this.#document.subjects, ...this.#document.shots].some(
@@ -959,14 +1246,18 @@ export class ReferencePromptController {
     ) {
       this.#setHint("Subject and Shot tags must be unique.")
       this.#renderEditor()
-      return
+      this.#publishDefinitions(true)
+      return false
     }
+    this.#closePicker()
     this.#recordGraphChange(() => {
+      this.#moveDefinitionIdentity(kind, from, to)
       this.#document = renamePromptTag(this.#document, from, to)
       this.#renderEditor()
     })
     this.#notifyShots()
     this.#node.setDirtyCanvas(true, true)
+    return true
   }
 
   #addDefinition(kind: "subject" | "shot"): void {
@@ -983,6 +1274,7 @@ export class ReferencePromptController {
       )
     )
       tag = `${kind}_${++index}`
+    this.#closePicker()
     this.#recordGraphChange(() => {
       this.#document =
         kind === "subject"
@@ -1003,6 +1295,7 @@ export class ReferencePromptController {
       return
     }
     this.#syncDocumentFromEditor()
+    this.#closePicker()
     this.#recordGraphChange(() => {
       this.#document =
         kind === "subject"
@@ -1030,6 +1323,7 @@ export class ReferencePromptController {
     const [item] = values.splice(index, 1)
     if (!item) return
     values.splice(target, 0, item)
+    this.#closePicker()
     this.#recordGraphChange(() => {
       this.#document =
         kind === "subject"
@@ -1690,7 +1984,7 @@ export class ReferencePromptController {
       ? anchor
       : anchor.closest<HTMLElement>("[data-prompt-definition]")
     const definitionBody = definition?.querySelector<HTMLElement>(
-      ":scope > .rl-prompt-definition__body",
+      ":scope > .rl-prompt-definition__body, :scope > .rl-prompt-definition__body-host > .rl-prompt-definition__body",
     )
     if (definitionBody) {
       definitionBody.before(picker)

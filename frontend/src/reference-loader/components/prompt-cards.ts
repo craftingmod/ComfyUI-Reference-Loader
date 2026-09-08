@@ -92,6 +92,42 @@ export function makePromptDefinitions(
   return section
 }
 
+export function makePromptDefinitionBody(
+  context: PromptCardContext,
+  kind: "subject" | "shot",
+  definition: PromptSubject | PromptDocument["shots"][number],
+  disabled = false,
+): HTMLElement {
+  const definitionTag =
+    definition.tag ??
+    ("label" in definition ? definition.label : undefined) ??
+    ("subjectId" in definition ? definition.subjectId : undefined) ??
+    `${kind}_unknown`
+  const body = document.createElement("div")
+  body.className = "rl-prompt-definition__body"
+  body.contentEditable = disabled ? "false" : "true"
+  body.role = "textbox"
+  body.ariaMultiLine = "true"
+  body.dataset.promptDefinitionBody = ""
+  body.dataset.promptDefinitionTag = definitionTag
+  const references = new Map(
+    context.references.map((reference) => [
+      referenceKey(reference.mediaKind, reference.referenceId),
+      reference,
+    ]),
+  )
+  for (const part of definition.parts ?? []) {
+    if (part.type === "text")
+      appendPromptText(body, part.text, createPromptTagVisuals(context.prompt))
+    else if (part.type === "mention")
+      body.append(
+        makeMentionChip(part, references.get(referenceKey(part.mediaKind, part.referenceId))),
+      )
+    else body.append(makeSubjectChip(part, undefined, undefined))
+  }
+  return body
+}
+
 function makeDefinitionCard(
   context: PromptCardContext,
   draftDocument: PromptDocument | undefined,
@@ -174,28 +210,7 @@ function makeDefinitionCard(
     actions.append(button)
   }
   toolbar.append(identity, actions)
-  const body = document.createElement("div")
-  body.className = "rl-prompt-definition__body"
-  body.contentEditable = draftDocument ? "false" : "true"
-  body.role = "textbox"
-  body.ariaMultiLine = "true"
-  body.dataset.promptDefinitionBody = ""
-  body.dataset.promptDefinitionTag = definitionTag
-  const references = new Map(
-    context.references.map((reference) => [
-      referenceKey(reference.mediaKind, reference.referenceId),
-      reference,
-    ]),
-  )
-  for (const part of definition.parts ?? []) {
-    if (part.type === "text")
-      appendPromptText(body, part.text, createPromptTagVisuals(context.prompt))
-    else if (part.type === "mention")
-      body.append(
-        makeMentionChip(part, references.get(referenceKey(part.mediaKind, part.referenceId))),
-      )
-    else body.append(makeSubjectChip(part, undefined, undefined))
-  }
+  const body = makePromptDefinitionBody(context, kind, definition, Boolean(draftDocument))
   card.append(toolbar, body)
   return card
 }

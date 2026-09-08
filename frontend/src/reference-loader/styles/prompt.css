@@ -312,6 +312,17 @@
   white-space: pre-wrap;
 }
 
+.rl-prompt-definition__body-host {
+  order: 3;
+  flex: 1 0 100%;
+  min-width: 0;
+}
+
+.rl-prompt-definition__body-host > .rl-prompt-definition__body {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .rl-prompt-definition__body:focus {
   border-radius: 4px;
   box-shadow: 0 0 0 1px var(--rl-accent);

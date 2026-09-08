@@ -75,7 +75,6 @@ export function registerReferenceLoader(
           : "reference-loader"
         root.dataset.input = inputName
         root.addEventListener("pointerdown", (event) => event.stopPropagation())
-        root.addEventListener("wheel", (event) => event.stopPropagation())
 
         const initial = initialValue(inputData)
         let controller: ReferenceLoaderController
@@ -183,7 +182,6 @@ export function registerReferenceLoader(
           root.className = "reference-prompt-definitions"
           root.dataset.input = inputName
           root.addEventListener("pointerdown", (event) => event.stopPropagation())
-          root.addEventListener("wheel", (event) => event.stopPropagation())
           const widget = node.addDOMWidget(
             inputName,
             REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE,
@@ -244,7 +242,6 @@ export function registerReferenceLoader(
           root.className = "reference-prompt"
           root.dataset.input = inputName
           root.addEventListener("pointerdown", (event) => event.stopPropagation())
-          root.addEventListener("wheel", (event) => event.stopPropagation())
           const controller = new ReferencePromptController(
             node,
             () => controllers.get(node)?.promptReferences ?? [],

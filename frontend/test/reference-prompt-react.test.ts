@@ -152,7 +152,7 @@ describe("Reference Prompt React shell", () => {
     controller.destroy()
   })
 
-  test("publishes stable snapshots and removes host listeners on replacement", () => {
+  test("publishes stable snapshots and clears workspace and picker mounts on replacement", () => {
     const root = document.createElement("div")
     document.body.append(root)
     const controller = new ReferencePromptController(

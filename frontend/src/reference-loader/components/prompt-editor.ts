@@ -203,8 +203,6 @@ export class ReferencePromptController {
   #node: ComfyNode
   #references: ReferenceProvider
   #document: PromptDocument
-  #destroyController = new AbortController()
-  #nativeHostController: AbortController | undefined
   #pickerRange: Range | undefined
   #pickerMode: "reference" | "subject" | "alias" | undefined
   #pickerReferences: PromptReference[] = []
@@ -286,25 +284,15 @@ export class ReferencePromptController {
   }
 
   mountNativeHosts(workspace: HTMLElement | undefined): void {
-    if (
-      this.#destroyed ||
-      (this.#workspaceRoot === workspace && this.#nativeHostController !== undefined)
-    )
-      return
-    if (this.#workspaceRoot !== undefined || this.#nativeHostController !== undefined)
-      this.unmountNativeHosts()
+    if (this.#destroyed || this.#workspaceRoot === workspace) return
+    if (this.#workspaceRoot !== undefined) this.unmountNativeHosts()
     this.#workspaceRoot = workspace
-    this.#nativeHostController = new AbortController()
-    const signal = this.#nativeHostController.signal
-    this.#installPickerWheelListener(signal)
     this.#renderEditor()
     this.#publishView()
   }
 
   unmountNativeHosts(): void {
     this.#closePicker()
-    this.#nativeHostController?.abort()
-    this.#nativeHostController = undefined
     this.#workspaceRoot = undefined
     this.#pickerElement = undefined
     this.#publishView()
@@ -781,8 +769,6 @@ export class ReferencePromptController {
   destroy(): void {
     if (this.#destroyed) return
     this.#destroyed = true
-    this.#destroyController.abort()
-    this.#nativeHostController?.abort()
     this.#shotListeners.clear()
     this.#viewListeners.clear()
     this.#definitionsListeners.clear()
@@ -1088,14 +1074,6 @@ export class ReferencePromptController {
       return
     this.#definitionsSnapshot = next
     for (const listener of this.#definitionsListeners) listener()
-  }
-
-  #installPickerWheelListener(signal: AbortSignal): void {
-    document.addEventListener("wheel", (event) => this.#onPickerWheel(event), {
-      capture: true,
-      passive: false,
-      signal,
-    })
   }
 
   #setHint(issue = ""): void {
@@ -1891,20 +1869,6 @@ export class ReferencePromptController {
         this.#insertShot(this.#pickerShots[this.#pickerIndex - this.#pickerSubjects.length])
       else this.#createAndInsertSubject(this.#pickerCreateSubject)
     } else this.#insertMention(this.#pickerReferences[this.#pickerIndex])
-  }
-
-  #onPickerWheel(event: WheelEvent): void {
-    const picker = this.#pickerElement
-    if (
-      event.deltaY === 0 ||
-      !(event.target instanceof Node) ||
-      !picker?.contains(event.target) ||
-      picker.hidden
-    )
-      return
-    event.preventDefault()
-    event.stopPropagation()
-    picker.scrollTop += event.deltaY
   }
 
   #closePicker(): void {

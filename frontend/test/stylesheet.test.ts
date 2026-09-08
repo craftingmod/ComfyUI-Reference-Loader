@@ -174,7 +174,7 @@ describe("Reference Loader stylesheet", () => {
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
     expect(first.href).toBe(
-      "https://example.test/extensions/comfyui-reference-loader/index.css?v=19",
+      "https://example.test/extensions/comfyui-reference-loader/index.css?v=20",
     )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })
@@ -245,14 +245,14 @@ describe("Reference Loader stylesheet", () => {
     expect(tagRule).toContain("font-weight: 700;")
     expect(frameRule).toContain("width: 58px;")
     expect(frameRule).toContain("border-radius: 999px;")
-    expect(frameRule).toContain("background: color-mix(in srgb, #48bf83 18%, var(--rl-bg));")
+    expect(frameRule).toContain("background: color-mix(in srgb, #2f8f60 18%, var(--rl-bg));")
     expect(bodyRule).toContain("flex: 1 0 100%;")
     expect(bodyRule).toContain("white-space: pre-wrap;")
     expect(css).toContain(".rl-prompt-definition__ordinal")
     expect(css).toContain(".rl-prompt-tag::before")
     expect(css).toContain("margin: 1px 3px;")
     expect(css).toContain("content: attr(data-prompt-tag-header);")
-    expect(css).toContain("--rl-prompt-tag-color: #48bf83;")
+    expect(css).toContain("--rl-prompt-tag-color: #2f8f60;")
     expect(css).toContain("order: 1;")
     expect(css).toContain("order: 2;")
     expect(css).toContain("order: 3;")
@@ -264,7 +264,7 @@ describe("Reference Loader stylesheet", () => {
     ).text()
     const shotRule = css.match(/\.rl-time-axis \.rl-time-axis__mark\.is-shot\s*\{([^}]*)\}/)?.[1]
 
-    expect(shotRule).toContain("border-color: #48bf83;")
+    expect(shotRule).toContain("border-color: #2f8f60;")
     expect(shotRule).toContain("color: #b9f3d1;")
   })
 

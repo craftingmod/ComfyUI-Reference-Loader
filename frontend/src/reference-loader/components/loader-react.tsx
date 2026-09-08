@@ -58,6 +58,7 @@ export interface LoaderReactMount {
 export interface LoaderReactOptions {
   container: HTMLElement
   surface: HTMLElement
+  mode?: "references" | "single-image"
   subscribe(listener: () => void): () => void
   getSnapshot(): LoaderViewSnapshot
   actions: LoaderReactActions
@@ -100,6 +101,16 @@ function hasFilePayload(dataTransfer: DataTransfer | null): boolean {
 
 function transferFiles(dataTransfer: DataTransfer | null): File[] {
   return dataTransfer ? [...dataTransfer.files] : []
+}
+
+function clearFileDropFeedback(target: HTMLElement): void {
+  const surface = target.closest<HTMLElement>("[data-loader-react-surface]")
+  if (!surface) return
+  surface.classList.remove("is-file-dragging")
+  delete surface.dataset.fileDropKinds
+  delete surface.dataset.fileDropTarget
+  for (const element of surface.querySelectorAll<HTMLElement>(".is-file-drop-target"))
+    element.classList.remove("is-file-drop-target")
 }
 
 function stop(event: { stopPropagation(): void }): void {
@@ -770,8 +781,156 @@ function PendingUploads({ snapshot }: { snapshot: LoaderViewSnapshot }): ReactNo
   )
 }
 
+function SingleImagePanel({
+  snapshot,
+  actions,
+}: {
+  snapshot: LoaderViewSnapshot
+  actions: LoaderReactActions
+}): ReactNode {
+  const imageChannel = projectLoaderChannels(snapshot).find(
+    (channel) => channel.channel === "image",
+  )
+  const card = imageChannel?.cards[0]
+  const pending = snapshot.pending[0]
+  const filename = card?.filename ?? pending?.filename
+  const previewUrl = card?.previewUrl && !snapshot.deferPreviews ? card.previewUrl : undefined
+  const loading = Boolean(pending || card?.loading || card?.applyingEdit)
+  const hasImage = card !== undefined
+  const error = card?.error
+  const chooseFile = (event: ChangeEvent<HTMLInputElement>): void => {
+    stop(event)
+    const input = event.currentTarget
+    const files = [...(input.files ?? [])]
+    input.value = ""
+    if (files.length > 0) void actions.addFiles(files, card?.id)
+  }
+  const dropFiles = (event: DragEvent<HTMLElement>): void => {
+    if (!hasFilePayload(event.dataTransfer)) return
+    if (!actions.acceptsFileDrop(event.dataTransfer)) return
+    event.preventDefault()
+    stop(event)
+    clearFileDropFeedback(event.currentTarget)
+    const files = transferFiles(event.dataTransfer)
+    if (files.length > 0) void actions.addFiles(files, card?.id)
+  }
+  const preview = (
+    <>
+      {previewUrl ? (
+        <img src={previewUrl} alt="" draggable={false} />
+      ) : (
+        <span className="rl-single-image-placeholder">
+          {loading ? "Uploading…" : "No image selected"}
+        </span>
+      )}
+      {loading ? (
+        <span className="rl-card__loading-overlay" role="status" aria-label="Loading image">
+          <span className="rl-spinner" aria-hidden="true" />
+        </span>
+      ) : null}
+    </>
+  )
+  const edit = (event: MouseEvent<HTMLButtonElement>): void => {
+    stop(event)
+    if (card) actions.edit(card.id, "image")
+  }
+  const doubleClick = (event: MouseEvent<HTMLDivElement>): void => {
+    stop(event)
+    if (
+      event.target instanceof Element &&
+      event.target.closest("button, textarea, input, select, a")
+    )
+      return
+    if (card) actions.edit(card.id, "image")
+    else
+      event.currentTarget
+        .closest<HTMLElement>(".rl-single-image-panel")
+        ?.querySelector<HTMLInputElement>("input[data-upload-kind='image']")
+        ?.click()
+  }
+
+  return (
+    <section
+      className="rl-single-image-panel"
+      aria-label="Reference image"
+      onDragOver={(event) => {
+        if (!hasFilePayload(event.dataTransfer) || !actions.acceptsFileDrop(event.dataTransfer))
+          return
+        event.preventDefault()
+      }}
+      onDrop={dropFiles}
+    >
+      <div className="rl-single-image-controls">
+        <label className="rl-single-image-select" aria-label="Choose image" title="Choose image">
+          <span className="rl-single-image-select__value" title={filename ?? "Choose image"}>
+            {filename ?? "Choose image"}
+          </span>
+          <span className="rl-single-image-select__arrow" aria-hidden="true">
+            ▾
+          </span>
+          <input
+            type="file"
+            data-upload-kind="image"
+            aria-label="Choose image"
+            onChange={chooseFile}
+          />
+        </label>
+        <button
+          type="button"
+          className="rl-single-image-edit"
+          data-action="edit"
+          data-id={card?.id ?? ""}
+          data-channel="image"
+          disabled={!hasImage || card?.applyingEdit}
+          onClick={edit}
+        >
+          Edit
+        </button>
+      </div>
+      {card ? (
+        <article
+          className={`rl-card rl-single-image-card${error ? " has-error" : ""}`}
+          data-id={card.id}
+          data-channel="image"
+          data-media-kind="image"
+          data-replace-index="1"
+          tabIndex={0}
+        >
+          <div
+            className="rl-card__media rl-single-image-preview is-transparent-preview"
+            title="Double-click to edit"
+            onDoubleClick={doubleClick}
+          >
+            {preview}
+          </div>
+          {error ? (
+            <p className="rl-card__error" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </article>
+      ) : (
+        <div
+          className={`rl-single-image-preview${loading ? " is-loading" : " is-empty"}`}
+          data-drop-zone="image"
+          title="Double-click to choose an image"
+          onDoubleClick={doubleClick}
+        >
+          {preview}
+        </div>
+      )}
+      {snapshot.status ? (
+        <p className="rl-status rl-single-image-status" role="status">
+          {snapshot.status}
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
 function ReferenceLoaderReactRoot({
   surface,
+  mode = "references",
   subscribe,
   getSnapshot,
   actions,
@@ -971,23 +1130,29 @@ function ReferenceLoaderReactRoot({
       onDragLeave={onSurfaceDragLeave}
       onDrop={onSurfaceDrop}
     >
-      <LoaderToolbar snapshot={snapshot} actions={actions} />
-      <p className="rl-status" role="status">
-        {snapshot.status}
-      </p>
-      <PendingUploads snapshot={snapshot} />
-      <div className="rl-channels">
-        {channels.map((channel) => (
-          <MediaChannel
-            key={channel.channel}
-            channel={channel}
-            showCaptions={snapshot.display.showCaptions}
-            deferPreview={snapshot.deferPreviews}
-            actions={actions}
-            dragHandlers={dragHandlers}
-          />
-        ))}
-      </div>
+      {mode === "single-image" ? (
+        <SingleImagePanel snapshot={snapshot} actions={actions} />
+      ) : (
+        <>
+          <LoaderToolbar snapshot={snapshot} actions={actions} />
+          <p className="rl-status" role="status">
+            {snapshot.status}
+          </p>
+          <PendingUploads snapshot={snapshot} />
+          <div className="rl-channels">
+            {channels.map((channel) => (
+              <MediaChannel
+                key={channel.channel}
+                channel={channel}
+                showCaptions={snapshot.display.showCaptions}
+                deferPreview={snapshot.deferPreviews}
+                actions={actions}
+                dragHandlers={dragHandlers}
+              />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -1009,4 +1174,4 @@ export function createLoaderReact(options: LoaderReactOptions): LoaderReactMount
 
 export const mountLoaderReact = createLoaderReact
 
-export { LoaderToolbar, MediaChannel, MediaCard, ReferenceLoaderReactRoot }
+export { LoaderToolbar, MediaChannel, MediaCard, ReferenceLoaderReactRoot, SingleImagePanel }

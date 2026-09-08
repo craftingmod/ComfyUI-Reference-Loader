@@ -865,12 +865,6 @@ export class ReferenceLoaderController {
       String(this.#mode === "single-image" ? 1 : state.ui.gridColumns),
     )
     this.root.style.setProperty("--rl-preview-fit", state.ui.previewFit)
-    if (this.#mode === "single-image") {
-      this.#destroyReactMount()
-      this.#legacyRoot.hidden = false
-      this.#renderSingleImage(state)
-      return
-    }
     if (this.#canRenderReact(state)) {
       this.#h3ReactEditor?.view.destroy()
       this.#h3ReactEditor = undefined
@@ -923,49 +917,6 @@ export class ReferenceLoaderController {
     this.#mountH3Timeline()
     this.#drawWaveforms()
     this.#syncPlaybackUi()
-  }
-
-  #renderSingleImage(state: LoaderState): void {
-    const id = state.imageOrder[0]
-    const item = id ? state.items[id] : undefined
-    const hasImage = Boolean(id && item?.kind === "image")
-    const runtime = id ? this.#runtime.get(id) : undefined
-    const pending = this.#pending.values().next().value as PendingUpload | undefined
-    const filename = item?.kind === "image" ? itemFilename(item) : pending?.file.name
-    const previewUrl = runtime?.previewUrl ?? pending?.objectUrl
-    const loading = Boolean(pending || runtime?.loading || runtime?.applyingEdit)
-    const error = runtime?.error
-      ? `<p class="rl-card__error" role="alert">${escapeHtml(runtime.error)}</p>`
-      : ""
-    const status = this.#status
-      ? `<p class="rl-status rl-single-image-status" role="status">${escapeHtml(this.#status)}</p>`
-      : ""
-    const preview = previewUrl
-      ? `<img src="${escapeHtml(previewUrl)}" alt="" draggable="false">`
-      : '<span class="rl-single-image-placeholder">No image selected</span>'
-    const loadingOverlay = loading
-      ? '<span class="rl-card__loading-overlay" role="status" aria-label="Loading image"><span class="rl-spinner" aria-hidden="true"></span></span>'
-      : ""
-    this.#legacyRoot.innerHTML = `
-      <section class="rl-single-image-panel" aria-label="Reference image">
-        <div class="rl-single-image-controls">
-          <label class="rl-single-image-select" aria-label="Choose image" title="Choose image">
-            <span class="rl-single-image-select__value" title="${escapeHtml(filename ?? "Choose image")}">${escapeHtml(filename ?? "Choose image")}</span>
-            <span class="rl-single-image-select__arrow" aria-hidden="true">▾</span>
-            <input type="file" data-upload-kind="image" aria-label="Choose image">
-          </label>
-          <button type="button" class="rl-single-image-edit" data-action="edit" data-id="${escapeHtml(id ?? "")}" data-channel="image"${!hasImage || runtime?.applyingEdit ? " disabled" : ""}>Edit</button>
-        </div>
-        ${
-          hasImage && id
-            ? `<article class="rl-card rl-single-image-card${error ? " has-error" : ""}" data-id="${escapeHtml(id)}" data-channel="image" data-media-kind="image" data-replace-index="1" tabindex="0">
-                <div class="rl-card__media rl-single-image-preview is-transparent-preview" title="Double-click to edit">${preview}${loadingOverlay}</div>
-                ${error}
-              </article>`
-            : `<div class="rl-single-image-preview${loading ? " is-loading" : " is-empty"}" data-drop-zone="image" title="Double-click to choose an image">${preview}${loadingOverlay}</div>${error}`
-        }
-        ${status}
-      </section>`
   }
 
   #hydrateRestoredRuntime(force = false): void {
@@ -1031,8 +982,8 @@ export class ReferenceLoaderController {
 
   #canRenderReact(state: LoaderState): boolean {
     const timeline = state.h3Timeline
+    if (this.#mode === "single-image") return this.#h3Editor === undefined
     return (
-      this.#mode === "references" &&
       !this.#h3Editor &&
       !timeline.enabled &&
       timeline.startImageId === null &&
@@ -1064,6 +1015,7 @@ export class ReferenceLoaderController {
     const options = {
       container: this.#reactHost,
       surface: this.root,
+      mode: this.#mode,
       subscribe: (listener: () => void) => this.subscribeView(listener),
       getSnapshot: () => this.getViewSnapshot(),
       actions: this.#reactActions,
@@ -2962,7 +2914,7 @@ export class ReferenceLoaderController {
       }
       if (images.length > 1)
         this.#status = `${images.length - 1} additional image${images.length === 2 ? " was" : "s were"} skipped.`
-      await this.#uploadFile(images[0] as File, replaceId)
+      await this.#uploadFile(images[0] as File, replaceId ?? this.state.imageOrder[0])
       return
     }
     if (replaceId && files.length === 1) {

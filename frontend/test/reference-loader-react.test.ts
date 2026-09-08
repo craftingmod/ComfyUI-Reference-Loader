@@ -120,4 +120,67 @@ describe("Reference Loader React Media surface", () => {
     controller.destroy()
     root.remove()
   })
+
+  test("keeps a single-image root and reference identity while replacing its source", async () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    let uploadCount = 0
+    const image = createMediaItem("image", source("original.png", "image/png"), "single")
+    image.caption = "keep this caption"
+    const initialState = loaderReducer(createEmptyLoaderState(), { type: "add", item: image })
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi({
+        async fetchApi(route, options) {
+          if (route.endsWith("/upload")) {
+            const form = options?.body
+            const file = form instanceof FormData ? form.get("file") : undefined
+            uploadCount += 1
+            return new Response(
+              JSON.stringify({
+                kind: "image",
+                source: {
+                  path: `reference_loader/sources/${file instanceof File ? file.name : "replacement.png"}`,
+                  mime: "image/png",
+                  sha256: String(uploadCount).repeat(64),
+                },
+                metadata: { width: 800, height: 600 },
+              }),
+              { status: 201 },
+            )
+          }
+          if (route.endsWith("/metadata"))
+            return new Response(JSON.stringify({ metadata: { width: 800, height: 600 } }))
+          if (route.endsWith("/image_proxy"))
+            return new Response(JSON.stringify({ url: "/single-image-preview.webp" }))
+          throw new Error(`Unexpected route: ${route}`)
+        },
+      }),
+      serializeLoaderState(initialState),
+      {},
+      { mode: "single-image" },
+    )
+    const surface = root.querySelector<HTMLElement>("[data-loader-react-surface]")
+    expect(surface).not.toBeNull()
+    expect(root.querySelector(".rl-toolbar")).toBeNull()
+    expect(root.querySelectorAll(".rl-channel")).toHaveLength(0)
+    expect(root.querySelector('.rl-single-image-card[data-id="single"]')).not.toBeNull()
+
+    await controller.uploadFiles([
+      new File(["replacement"], "replacement.png", { type: "image/png" }),
+    ])
+
+    expect(root.querySelector<HTMLElement>("[data-loader-react-surface]")).toBe(surface)
+    expect(controller.state.imageOrder).toEqual(["single"])
+    expect(controller.state.items.single?.sourceFilename).toBe("replacement.png")
+    expect(controller.state.items.single?.caption).toBe("keep this caption")
+    expect(root.querySelector('.rl-single-image-card[data-id="single"]')).not.toBeNull()
+    expect(root.querySelector(".rl-single-image-select__value")?.textContent).toBe(
+      "replacement.png",
+    )
+
+    controller.destroy()
+    root.remove()
+  })
 })

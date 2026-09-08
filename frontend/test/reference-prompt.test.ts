@@ -64,13 +64,7 @@ function makeController(
       dirtyCount += 1
     },
   }
-  const controller = new ReferencePromptController(
-    promptRoot,
-    node,
-    () => references,
-    serialized,
-    options,
-  )
+  const controller = new ReferencePromptController(node, () => references, serialized, options)
   const promptMount = createPromptReact({ container: promptRoot, controller })
   controller.mountDefinitions(definitions)
   const definitionsMount = createPromptDefinitionsReact({

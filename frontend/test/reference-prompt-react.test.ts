@@ -73,7 +73,7 @@ describe("Reference Prompt React shell", () => {
       ...createEmptyPromptDocument(),
       sections: [{ title: "scene", parts: [{ type: "text", text: "Keep this" }] }],
     })
-    const controller = new ReferencePromptController(root, node, () => [], serialized)
+    const controller = new ReferencePromptController(node, () => [], serialized)
     const mount = createPromptReact({ container: root, controller })
     const panel = root.querySelector<HTMLElement>("[data-prompt-panel]")
     const workspace = root.querySelector<HTMLElement>("[data-prompt-workspace]")
@@ -122,7 +122,6 @@ describe("Reference Prompt React shell", () => {
     const definitions = document.createElement("div")
     document.body.append(root, definitions)
     const controller = new ReferencePromptController(
-      root,
       node,
       () => [],
       serializePromptDocument({
@@ -157,7 +156,6 @@ describe("Reference Prompt React shell", () => {
     const root = document.createElement("div")
     document.body.append(root)
     const controller = new ReferencePromptController(
-      root,
       node,
       () => [],
       serializePromptDocument(createEmptyPromptDocument()),
@@ -195,7 +193,6 @@ describe("Reference Prompt React shell", () => {
       ],
     }
     const controller = new ReferencePromptController(
-      root,
       node,
       () => [],
       serializePromptDocument(initial),
@@ -265,7 +262,6 @@ describe("Reference Prompt React shell", () => {
       ],
     }
     const controller = new ReferencePromptController(
-      root,
       node,
       () => [],
       serializePromptDocument(initial),
@@ -318,7 +314,6 @@ describe("Reference Prompt React shell", () => {
     const root = document.createElement("div")
     document.body.append(root)
     const controller = new ReferencePromptController(
-      root,
       node,
       () => [],
       serializePromptDocument({
@@ -371,7 +366,6 @@ describe("Reference Prompt React shell", () => {
     const root = document.createElement("div")
     document.body.append(root)
     const controller = new ReferencePromptController(
-      root,
       node,
       () => [imageReference()],
       serializePromptDocument({
@@ -403,7 +397,6 @@ describe("Reference Prompt React shell", () => {
     const root = document.createElement("div")
     document.body.append(root)
     const controller = new ReferencePromptController(
-      root,
       node,
       () => [],
       serializePromptDocument({
@@ -433,7 +426,6 @@ describe("Reference Prompt React shell", () => {
     const root = document.createElement("div")
     document.body.append(root)
     const controller = new ReferencePromptController(
-      root,
       node,
       () => [imageReference()],
       serializePromptDocument({
@@ -476,7 +468,6 @@ describe("Reference Prompt React shell", () => {
     const root = document.createElement("div")
     document.body.append(root)
     const controller = new ReferencePromptController(
-      root,
       node,
       () => [],
       serializePromptDocument({
@@ -518,7 +509,6 @@ describe("Reference Prompt React shell", () => {
     const secondRoot = document.createElement("div")
     document.body.append(firstRoot, secondRoot)
     const first = new ReferencePromptController(
-      firstRoot,
       node,
       () => [],
       serializePromptDocument({
@@ -528,7 +518,6 @@ describe("Reference Prompt React shell", () => {
       {},
     )
     const second = new ReferencePromptController(
-      secondRoot,
       node,
       () => [],
       serializePromptDocument({
@@ -562,7 +551,6 @@ describe("Reference Prompt React shell", () => {
     const root = document.createElement("div")
     document.body.append(root)
     const controller = new ReferencePromptController(
-      root,
       node,
       () => [],
       serializePromptDocument({
@@ -635,7 +623,6 @@ describe("Reference Prompt React shell", () => {
       ],
     }
     const controller = new ReferencePromptController(
-      promptRoot,
       node,
       () => [],
       serializePromptDocument(initial),
@@ -713,7 +700,6 @@ describe("Reference Prompt React shell", () => {
       subjects: [{ tag: "hero", parts: [{ type: "text" as const, text: "old subject" }] }],
     }
     const controller = new ReferencePromptController(
-      promptRoot,
       node,
       () => [],
       serializePromptDocument(initial),
@@ -725,6 +711,9 @@ describe("Reference Prompt React shell", () => {
       container: definitionsRoot,
       controller,
     })
+    let definitionNotifications = 0
+    const unsubscribeDefinitions = controller.subscribeDefinitions(() => definitionNotifications++)
+    definitionNotifications = 0
 
     flushSync(() =>
       promptRoot.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click(),
@@ -743,7 +732,15 @@ describe("Reference Prompt React shell", () => {
       sections: [{ title: "scene", parts: [{ type: "text", text: "new scene" }] }],
       subjects: [{ tag: "hero", parts: [{ type: "text", text: "new subject" }] }],
     })
+    expect(definitionNotifications).toBe(1)
+    expect(controller.getDefinitionsSnapshot().subjects[0]?.parts).toEqual([
+      { type: "text", text: "new subject" },
+    ])
+    expect(definitionsRoot.querySelector<HTMLElement>("[data-prompt-definition-body]")).toBe(
+      subjectBody,
+    )
 
+    unsubscribeDefinitions()
     definitionsMount.destroy()
     promptMount.destroy()
     controller.destroy()

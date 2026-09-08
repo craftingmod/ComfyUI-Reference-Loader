@@ -89,6 +89,45 @@ describe("Reference Loader custom widget", () => {
     widgets.get("prompt")?.onRemove?.()
   })
 
+  test("cleans a definitions mount created after Prompt", () => {
+    let extension: ComfyExtension | undefined
+    const app: ComfyAppLike = {
+      registerExtension(candidate) {
+        extension = candidate
+      },
+    }
+    registerReferenceLoader(app, { fetchApi: async () => new Response("{}") })
+    const factories = extension?.getCustomWidgets?.()
+    const promptFactory = factories?.[REFERENCE_PROMPT_WIDGET_TYPE]
+    const definitionsFactory = factories?.[REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE]
+    const roots = new Map<string, HTMLElement>()
+    const widgets = new Map<string, ComfyWidget>()
+    const node: ComfyNode = {
+      addDOMWidget(name, _type, element, options) {
+        roots.set(name, element)
+        const widget = { name, value: "", options } as ComfyWidget
+        widgets.set(name, widget)
+        return widget
+      },
+      setDirtyCanvas: () => undefined,
+    }
+
+    promptFactory?.(
+      node,
+      "prompt",
+      ["STRING", { default: serializePromptDocument(createEmptyPromptDocument()) }],
+      app,
+    )
+    definitionsFactory?.(node, "prompt_definitions", ["STRING", { default: "" }], app)
+
+    const definitionsRoot = roots.get("prompt_definitions")
+    expect(definitionsRoot?.querySelector(".rl-prompt-definitions")).not.toBeNull()
+
+    widgets.get("prompt")?.onRemove?.()
+    expect(definitionsRoot?.childElementCount).toBe(0)
+    widgets.get("prompt_definitions")?.onRemove?.()
+  })
+
   test("exposes getValue/setValue so workflow restoration replaces controller state", () => {
     let extension: ComfyExtension | undefined
     const app: ComfyAppLike = {

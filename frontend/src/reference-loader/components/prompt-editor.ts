@@ -198,7 +198,6 @@ function plainTextSectionValue(parts: readonly PromptSectionPart[]): string | un
 }
 
 export class ReferencePromptController {
-  readonly root: HTMLElement
   #workspaceRoot: HTMLElement | undefined
   #definitionsRoot: HTMLElement | undefined
   #node: ComfyNode
@@ -249,13 +248,11 @@ export class ReferencePromptController {
     | undefined
 
   constructor(
-    root: HTMLElement,
     node: ComfyNode,
     references: ReferenceProvider,
     serialized: unknown,
     options: ReferencePromptControllerOptions = {},
   ) {
-    this.root = root
     this.#node = node
     this.#references = references
     this.#presetCatalog = normalizePromptPresetCatalog(options.presetCatalog)
@@ -504,41 +501,13 @@ export class ReferencePromptController {
     this.#removeSection(title)
   }
 
-  setPlainTextSectionText(title: string, text: string): boolean {
-    if (this.#destroyed) return false
-    const sectionIndex = this.#document.sections.findIndex((section) => section.title === title)
-    if (sectionIndex < 0) {
-      if (
-        this.#document.sections.length > 0 ||
-        title !== this.#preset.defaultSectionTitle ||
-        text.trim().length === 0
-      )
-        return false
-      this.#document = {
-        ...this.#document,
-        sections: [{ title, parts: [{ type: "text", text }] }],
-      }
-    } else {
-      const section = this.#document.sections[sectionIndex]
-      const currentText = section && plainTextSectionValue(section.parts)
-      if (currentText === undefined) return false
-      if (currentText === text) return true
-      const sections = [...this.#document.sections]
-      sections[sectionIndex] = { ...section, parts: text ? [{ type: "text", text }] : [] }
-      this.#document = { ...this.#document, sections }
-    }
-    this.#closePicker()
-    this.#publishView()
-    this.#node.setDirtyCanvas(true, true)
-    return true
-  }
-
   handleReactEditorInput(
     _target: PromptEditorTarget | string,
     editor: HTMLElement,
     input?: PromptEditorInput,
   ): void {
     if (this.#destroyed || !this.#isReactTextEditor(editor)) return
+    const isDefinitionEditor = editor.matches("[data-prompt-definition-body]")
     const subjectPickerWasOpen = this.#pickerMode === "subject"
     this.#syncDocumentFromEditor()
     this.#highlightTags(editor)
@@ -549,6 +518,7 @@ export class ReferencePromptController {
       this.#updatePickerQuery(!input || input.data === "#" || subjectPickerWasOpen)
     }
     this.#notifyShots()
+    if (isDefinitionEditor) this.#publishDefinitions()
     this.#publishView()
     this.#node.setDirtyCanvas(true, true)
   }

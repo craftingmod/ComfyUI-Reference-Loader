@@ -107,7 +107,6 @@ describe("Reference Prompt v5 authoring", () => {
       sections: [{ title: "scene", parts: [{ type: "text" as const, text: "#opening" }] }],
     }
     const controller = new ReferencePromptController(
-      promptRoot,
       node(transactions),
       () => [],
       serializePromptDocument(initial),
@@ -148,7 +147,6 @@ describe("Reference Prompt v5 authoring", () => {
       shots: [{ tag: "opening", frameIndex: 0, parts: [] }],
     }
     const controller = new ReferencePromptController(
-      promptRoot,
       node([]),
       () => [],
       serializePromptDocument(initial),

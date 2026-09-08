@@ -60,6 +60,7 @@ export interface LoaderReactOptions {
   container: HTMLElement
   surface: HTMLElement
   mode?: "references" | "single-image"
+  dragScope: string
   subscribe(listener: () => void): () => void
   getSnapshot(): LoaderViewSnapshot
   actions: LoaderReactActions
@@ -144,6 +145,22 @@ function clearFileDropFeedback(surface: HTMLElement): void {
 
 function stop(event: { stopPropagation(): void }): void {
   event.stopPropagation()
+}
+
+function dragBelongsToScope(dataTransfer: DataTransfer | null, scope: string): boolean {
+  let raw: string | undefined
+  try {
+    raw = dataTransfer?.getData(DRAG_MIME) || undefined
+  } catch {
+    return false
+  }
+  if (!raw) return true
+  try {
+    const payload = JSON.parse(raw) as { scope?: unknown }
+    return payload.scope === scope
+  } catch {
+    return false
+  }
 }
 
 function fileInputHandler(
@@ -972,6 +989,7 @@ function SingleImagePanel({
 function ReferenceLoaderReactRoot({
   surface,
   mode = "references",
+  dragScope,
   subscribe,
   getSnapshot,
   actions,
@@ -1032,7 +1050,7 @@ function ReferenceLoaderReactRoot({
     }
     stop(event)
     try {
-      event.dataTransfer?.setData(DRAG_MIME, JSON.stringify(info))
+      event.dataTransfer?.setData(DRAG_MIME, JSON.stringify({ scope: dragScope, ...info }))
       if (event.dataTransfer) event.dataTransfer.effectAllowed = "copyMove"
     } catch {
       // A browser may expose a read-only DataTransfer in synthetic events.
@@ -1057,6 +1075,10 @@ function ReferenceLoaderReactRoot({
           ? (event.currentTarget.closest<HTMLElement>(".rl-card") ?? undefined)
           : undefined
       setFileDropFeedback(surface, target, kinds)
+      return
+    }
+    if (!dragBelongsToScope(event.dataTransfer, dragScope)) {
+      clearDropTarget()
       return
     }
     const activeDrag = dragRef.current
@@ -1099,6 +1121,10 @@ function ReferenceLoaderReactRoot({
       if (files.length > 0) void actions.addFiles(files, replaceId)
       return
     }
+    if (!dragBelongsToScope(event.dataTransfer, dragScope)) {
+      clearDrag()
+      return
+    }
     const activeDrag = dragRef.current
     if (!info || !activeDrag || info.channel !== activeDrag.channel || info.id === activeDrag.id)
       return
@@ -1131,6 +1157,7 @@ function ReferenceLoaderReactRoot({
       setFileDropFeedback(surface, target, kinds)
       return
     }
+    if (!dragBelongsToScope(event.dataTransfer, dragScope)) return
     const activeDrag = dragRef.current
     if (!activeDrag || activeDrag.channel !== channel) return
     event.preventDefault()
@@ -1146,6 +1173,10 @@ function ReferenceLoaderReactRoot({
       clearFileDrop()
       clearDrag()
       if (files.length > 0) void actions.addFiles(files)
+      return
+    }
+    if (!dragBelongsToScope(event.dataTransfer, dragScope)) {
+      clearDrag()
       return
     }
     const activeDrag = dragRef.current

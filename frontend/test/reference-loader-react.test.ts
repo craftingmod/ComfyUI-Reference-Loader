@@ -75,6 +75,35 @@ describe("Reference Loader React Media surface", () => {
     root.remove()
   })
 
+  test("does not reorder a loader from a foreign drag scope", () => {
+    const source = mount()
+    const target = mount()
+    const startDrag = (card: HTMLElement, transfer: DataTransfer): void => {
+      card.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }))
+      const event = new DragEvent("dragstart", { bubbles: true, cancelable: true })
+      Object.defineProperty(event, "dataTransfer", { value: transfer })
+      card.dispatchEvent(event)
+    }
+
+    const sourceCard = source.root.querySelector<HTMLElement>('.rl-card[data-id="scene"]')!
+    const targetSource = target.root.querySelector<HTMLElement>('.rl-card[data-id="scene"]')!
+    const targetCard = target.root.querySelector<HTMLElement>('.rl-card[data-id="second"]')!
+    const sourceTransfer = new DataTransfer()
+    startDrag(sourceCard, sourceTransfer)
+    startDrag(targetSource, new DataTransfer())
+
+    const drop = new DragEvent("drop", { bubbles: true, cancelable: true })
+    Object.defineProperty(drop, "dataTransfer", { value: sourceTransfer })
+    targetCard.dispatchEvent(drop)
+
+    expect(target.controller.state.imageOrder).toEqual(["scene", "second"])
+
+    source.controller.destroy()
+    target.controller.destroy()
+    source.root.remove()
+    target.root.remove()
+  })
+
   test("routes output, caption, reorder, and undo through Controller commands once", () => {
     const { root, controller } = mount()
     const scene = root.querySelector<HTMLElement>('.rl-card[data-id="scene"][data-channel="image"]')

@@ -113,6 +113,51 @@ const MEDIA_EXTENSIONS = {
 const MEDIA_LIMITS = { image: 32, audio: 8, video: 4 } as const
 type MediaDropKind = keyof typeof MEDIA_EXTENSIONS
 
+interface LoaderDragPayload {
+  scope: string
+  id: string
+  channel: LoaderChannel
+}
+
+function isLoaderChannel(value: unknown): value is LoaderChannel {
+  return value === "image" || value === "video" || value === "audio"
+}
+
+function loaderDragRaw(dataTransfer: DataTransfer | null): string | undefined {
+  try {
+    const raw = dataTransfer?.getData(DRAG_MIME)
+    return raw || undefined
+  } catch {
+    return undefined
+  }
+}
+
+function readLoaderDragPayload(dataTransfer: DataTransfer | null): LoaderDragPayload | undefined {
+  const raw = loaderDragRaw(dataTransfer)
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw) as {
+      scope?: unknown
+      id?: unknown
+      channel?: unknown
+    }
+    if (
+      typeof parsed.scope !== "string" ||
+      typeof parsed.id !== "string" ||
+      !isLoaderChannel(parsed.channel)
+    )
+      return undefined
+    return { scope: parsed.scope, id: parsed.id, channel: parsed.channel }
+  } catch {
+    return undefined
+  }
+}
+
+function loaderDragBelongsTo(scope: string, dataTransfer: DataTransfer | null): boolean {
+  const raw = loaderDragRaw(dataTransfer)
+  return !raw || readLoaderDragPayload(dataTransfer)?.scope === scope
+}
+
 function mimeMediaKind(mime: string): MediaDropKind | undefined {
   const match = /^(image|audio|video)\//.exec(mime)
   return match?.[1] as MediaDropKind | undefined
@@ -384,7 +429,9 @@ export class ReferenceLoaderController {
   #destroyController = new AbortController()
   #stateController = new AbortController()
   #modalController: AbortController | undefined
-  #drag: { id: string; channel: LoaderChannel } | undefined
+  #dragScope =
+    globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  #drag: LoaderDragPayload | undefined
   #armedDrag: { id: string; channel: LoaderChannel } | undefined
   #dropTarget: HTMLElement | undefined
   #fileDropTarget: HTMLElement | undefined
@@ -1020,6 +1067,7 @@ export class ReferenceLoaderController {
       container: this.#reactHost,
       surface: this.root,
       mode: this.#mode,
+      dragScope: this.#dragScope,
       subscribe: (listener: () => void) => this.subscribeView(listener),
       getSnapshot: () => this.getViewSnapshot(),
       actions: this.#reactActions,
@@ -1162,21 +1210,10 @@ export class ReferenceLoaderController {
     channel: H3GuideChannel,
     dataTransfer: DataTransfer | null,
   ): { id: string; item: MediaItem } | undefined {
-    const source =
-      this.#drag ??
-      (() => {
-        const raw = dataTransfer?.getData(DRAG_MIME)
-        if (!raw) return undefined
-        try {
-          const parsed = JSON.parse(raw) as { id?: unknown; channel?: unknown }
-          return typeof parsed.id === "string" && typeof parsed.channel === "string"
-            ? { id: parsed.id, channel: parsed.channel as LoaderChannel }
-            : undefined
-        } catch {
-          return undefined
-        }
-      })()
+    if (!loaderDragBelongsTo(this.#dragScope, dataTransfer)) return undefined
+    const source = this.#drag ?? readLoaderDragPayload(dataTransfer)
     if (!source) return undefined
+    if (source.scope !== this.#dragScope) return undefined
     const item = this.state.items[source.id]
     const expectedChannel =
       source.channel === "image" ? "visual" : source.channel === "audio" ? "audio" : undefined
@@ -2773,7 +2810,11 @@ export class ReferenceLoaderController {
       event.preventDefault()
       return
     }
-    this.#drag = { id: card.dataset.id, channel: card.dataset.channel as LoaderChannel }
+    this.#drag = {
+      scope: this.#dragScope,
+      id: card.dataset.id,
+      channel: card.dataset.channel as LoaderChannel,
+    }
     event.dataTransfer?.setData(DRAG_MIME, JSON.stringify(this.#drag))
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "copyMove"
     this.root.classList.add("is-dragging")
@@ -2784,6 +2825,7 @@ export class ReferenceLoaderController {
     if (
       !(target instanceof Element) ||
       !this.#drag ||
+      !loaderDragBelongsTo(this.#dragScope, event.dataTransfer) ||
       (event.dataTransfer?.files.length ?? 0) > 0
     ) {
       this.#clearDropTarget()
@@ -2893,6 +2935,7 @@ export class ReferenceLoaderController {
       void this.addDroppedFiles(files, replaceId)
       return
     }
+    if (!loaderDragBelongsTo(this.#dragScope, event.dataTransfer)) return
     const zone = (event.target as Element).closest<HTMLElement>("[data-drop-zone]")
     const channel = zone?.dataset.dropZone as LoaderChannel | undefined
     if (!channel || !this.#drag || this.#drag.channel !== channel) return

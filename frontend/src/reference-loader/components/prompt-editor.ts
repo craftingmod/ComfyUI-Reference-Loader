@@ -51,6 +51,34 @@ export interface ReferencePromptControllerOptions {
   presetId?: unknown
   presetCatalog?: unknown
   locale?: PromptLocale
+  legacyShell?: boolean
+}
+
+export interface PromptViewSnapshot {
+  readonly view: PromptDocument["view"]
+  readonly presetId: string
+  readonly presetLabel: string
+  readonly presetDescription: string
+  readonly editorAria: string
+  readonly clearLabel: string
+  readonly clearTitle: string
+  readonly clearAria: string
+  readonly toggleAria: string
+  readonly structuredLabel: string
+  readonly rawLabel: string
+  readonly backToStructuredTitle: string
+  readonly showRawTitle: string
+  readonly title: string
+  readonly subtitle: string
+  readonly sourceText: string
+  readonly compiledText: string
+  readonly canClear: boolean
+  readonly hint: string
+  readonly nativeHosts: {
+    readonly workspace: boolean
+    readonly picker: boolean
+    readonly definitions: boolean
+  }
 }
 
 const PROMPT_SECTION_DRAG_MIME = "application/x-reference-loader-prompt-section"
@@ -77,11 +105,17 @@ function normalizeSubjectLabel(value: string): string | undefined {
 
 export class ReferencePromptController {
   readonly root: HTMLElement
+  #legacyShell: boolean
+  #workspaceRoot: HTMLElement | undefined
   #definitionsRoot: HTMLElement | undefined
+  #pickerHost: HTMLElement | undefined
   #node: ComfyNode
   #references: ReferenceProvider
   #document: PromptDocument
   #destroyController = new AbortController()
+  #nativeHostController: AbortController | undefined
+  #definitionsController: AbortController | undefined
+  #hintElement: HTMLElement | undefined
   #pickerRange: Range | undefined
   #pickerMode: "reference" | "subject" | "alias" | undefined
   #pickerReferences: PromptReference[] = []
@@ -99,9 +133,13 @@ export class ReferencePromptController {
   #preset: PromptPreset
   #locale: PromptLocale
   #recoveredFromVersion: number | undefined
+  #hintText = ""
+  #pendingRenderHint: string | undefined
   #composing = false
   #destroyed = false
   #shotListeners = new Set<() => void>()
+  #viewListeners = new Set<() => void>()
+  #viewSnapshot: PromptViewSnapshot | undefined
   #shotDraft:
     | {
         initial: PromptDocument
@@ -117,6 +155,7 @@ export class ReferencePromptController {
     options: ReferencePromptControllerOptions = {},
   ) {
     this.root = root
+    this.#legacyShell = options.legacyShell !== false
     this.#node = node
     this.#references = references
     this.#presetCatalog = normalizePromptPresetCatalog(options.presetCatalog)
@@ -125,18 +164,97 @@ export class ReferencePromptController {
     const parsed = deserializePromptDocument(serialized)
     this.#document = parsed.document
     this.#recoveredFromVersion = parsed.recoveredFromVersion
-    this.#mount(parsed.issues.join(" "))
+    this.#viewSnapshot = this.#buildViewSnapshot()
+    if (this.#legacyShell) this.#mount(parsed.issues.join(" "))
+    else {
+      this.#pendingRenderHint = parsed.issues.join(" ")
+      this.#setHint(this.#pendingRenderHint)
+    }
   }
 
   mountDefinitions(root: HTMLElement | undefined): void {
     if (this.#destroyed || this.#definitionsRoot === root) return
+    this.#definitionsController?.abort()
+    this.#definitionsController = undefined
     this.#definitionsRoot?.replaceChildren()
     this.#definitionsRoot = root
     if (root) {
       root.classList.add("reference-prompt-definitions")
-      this.#installEditableRootEvents(root)
+      this.#definitionsController = new AbortController()
+      this.#installEditableRootEvents(root, this.#definitionsController.signal)
     }
     this.#renderEditor()
+  }
+
+  mountNativeHosts(workspace: HTMLElement | undefined, pickerHost: HTMLElement | undefined): void {
+    if (
+      this.#destroyed ||
+      (this.#workspaceRoot === workspace &&
+        this.#pickerHost === pickerHost &&
+        (pickerHost === undefined) === (this.#pickerElement === undefined))
+    )
+      return
+    this.unmountNativeHosts()
+    this.#workspaceRoot = workspace
+    this.#pickerHost = pickerHost
+    this.#nativeHostController = new AbortController()
+    const signal = this.#nativeHostController.signal
+    if (workspace) {
+      this.#installEditableRootEvents(workspace, signal)
+      this.#installWorkspaceEvents(workspace, signal)
+    }
+    if (pickerHost) {
+      const picker = document.createElement("div")
+      picker.className = "rl-prompt-picker"
+      picker.dataset.promptPicker = ""
+      picker.setAttribute("role", "listbox")
+      picker.hidden = true
+      pickerHost.replaceChildren(picker)
+      this.#pickerElement = picker
+      this.#installPickerEvents(picker, signal)
+    }
+    this.#renderEditor()
+    this.#publishView()
+  }
+
+  unmountNativeHosts(): void {
+    this.#closePicker()
+    this.#nativeHostController?.abort()
+    this.#nativeHostController = undefined
+    this.#workspaceRoot?.replaceChildren()
+    if (this.#pickerHost) this.#pickerHost.replaceChildren()
+    this.#workspaceRoot = undefined
+    this.#pickerHost = undefined
+    this.#pickerElement = undefined
+    this.#publishView()
+  }
+
+  getViewSnapshot(): PromptViewSnapshot {
+    if (!this.#viewSnapshot) this.#viewSnapshot = this.#buildViewSnapshot()
+    return this.#viewSnapshot
+  }
+
+  subscribeView(listener: () => void): () => void {
+    if (this.#destroyed) return () => undefined
+    this.#viewListeners.add(listener)
+    listener()
+    return () => this.#viewListeners.delete(listener)
+  }
+
+  clear(): void {
+    this.#clearPrompt()
+  }
+
+  toggleView(): void {
+    this.#toggleView()
+  }
+
+  copySource(): Promise<void> {
+    return this.#copyPrompt(false)
+  }
+
+  copyCompiled(): Promise<void> {
+    return this.#copyPrompt(true)
   }
 
   get presetId(): string {
@@ -272,6 +390,7 @@ export class ReferencePromptController {
     this.#shotDraft = undefined
     this.#document = parsed.document
     this.#recoveredFromVersion = parsed.recoveredFromVersion
+    this.#pendingRenderHint = parsed.issues.join(" ")
     this.#closePicker()
     this.#renderEditor()
     this.#setHint(parsed.issues.join(" "))
@@ -293,7 +412,7 @@ export class ReferencePromptController {
     if (bindByOrder) {
       this.#document = rebindPromptMentionsByOrder(this.#document, currentReferences)
     }
-    const raw = this.root.querySelector<HTMLElement>("[data-prompt-editor]")
+    const raw = this.#workspaceRoot?.querySelector<HTMLElement>("[data-prompt-editor]")
     if (this.#document.view === "raw") {
       if (raw && document.activeElement !== raw) {
         raw.replaceChildren()
@@ -336,19 +455,26 @@ export class ReferencePromptController {
     if (this.#destroyed) return
     this.#destroyed = true
     this.#destroyController.abort()
+    this.#nativeHostController?.abort()
+    this.#definitionsController?.abort()
     this.#shotListeners.clear()
+    this.#viewListeners.clear()
     this.#shotDraft = undefined
     this.#closePicker()
     this.#definitionsRoot?.replaceChildren()
-    this.root.replaceChildren()
+    this.#workspaceRoot?.replaceChildren()
+    this.#pickerHost?.replaceChildren()
+    if (this.#legacyShell) this.root.replaceChildren()
   }
 
   get #editorRoots(): readonly HTMLElement[] {
-    return this.#definitionsRoot ? [this.root, this.#definitionsRoot] : [this.root]
+    const roots = this.#workspaceRoot ? [this.#workspaceRoot] : []
+    if (this.#definitionsRoot) roots.push(this.#definitionsRoot)
+    return roots
   }
 
   get #definitionsHost(): HTMLElement {
-    return this.#definitionsRoot ?? this.root
+    return this.#definitionsRoot ?? this.#workspaceRoot ?? this.root
   }
 
   get #picker(): HTMLElement {
@@ -358,7 +484,9 @@ export class ReferencePromptController {
   }
 
   get #entry(): HTMLElement | undefined {
-    return this.root.querySelector<HTMLElement>("[data-prompt-section-entry]") ?? undefined
+    return (
+      this.#workspaceRoot?.querySelector<HTMLElement>("[data-prompt-section-entry]") ?? undefined
+    )
   }
 
   #mount(issue: string): void {
@@ -378,26 +506,33 @@ export class ReferencePromptController {
         <div class="rl-prompt-picker" data-prompt-picker role="listbox" hidden></div>
         <p class="rl-prompt-hint" data-prompt-hint></p>
       </section>`
+    this.#workspaceRoot =
+      this.root.querySelector<HTMLElement>("[data-prompt-workspace]") ?? undefined
     this.#pickerElement = this.root.querySelector<HTMLElement>("[data-prompt-picker]") ?? undefined
-    this.#installEvents()
+    this.#hintElement = this.root.querySelector<HTMLElement>("[data-prompt-hint]") ?? undefined
+    this.#nativeHostController = new AbortController()
+    const signal = this.#nativeHostController.signal
+    if (this.#workspaceRoot) {
+      this.#installEditableRootEvents(this.#workspaceRoot, signal, false)
+      this.#installWorkspaceEvents(this.#workspaceRoot, signal)
+    }
+    if (this.#pickerElement) this.#installPickerEvents(this.#pickerElement, signal)
+    this.root.addEventListener("click", (event) => this.#onClick(event), { signal })
     this.#renderEditor()
     this.#setHint(issue)
   }
 
-  #installEvents(): void {
-    const signal = this.#destroyController.signal
-    this.#installEditableRootEvents(this.root)
-    this.root.addEventListener("dragstart", (event) => this.#onSectionDragStart(event), { signal })
-    this.root.addEventListener("dragover", (event) => this.#onSectionDragOver(event), { signal })
-    this.root.addEventListener("drop", (event) => this.#onSectionDrop(event), { signal })
-    this.root.addEventListener(
+  #installWorkspaceEvents(root: HTMLElement, signal: AbortSignal): void {
+    root.addEventListener("dragstart", (event) => this.#onSectionDragStart(event), { signal })
+    root.addEventListener("dragover", (event) => this.#onSectionDragOver(event), { signal })
+    root.addEventListener("drop", (event) => this.#onSectionDrop(event), { signal })
+    root.addEventListener(
       "dragend",
       () => {
         this.#clearSectionDrag()
       },
       { signal },
     )
-    this.#picker.addEventListener("pointerdown", (event) => event.preventDefault(), { signal })
     document.addEventListener("wheel", (event) => this.#onPickerWheel(event), {
       capture: true,
       passive: false,
@@ -405,8 +540,11 @@ export class ReferencePromptController {
     })
   }
 
-  #installEditableRootEvents(root: HTMLElement): void {
-    const signal = this.#destroyController.signal
+  #installPickerEvents(picker: HTMLElement, signal: AbortSignal): void {
+    picker.addEventListener("pointerdown", (event) => event.preventDefault(), { signal })
+  }
+
+  #installEditableRootEvents(root: HTMLElement, signal: AbortSignal, includeClick = true): void {
     root.addEventListener("input", (event) => this.#onInput(event), { signal })
     root.addEventListener("change", (event) => this.#onChange(event), { signal })
     root.addEventListener("paste", (event) => event.stopPropagation(), { signal })
@@ -414,7 +552,7 @@ export class ReferencePromptController {
       capture: true,
       signal,
     })
-    root.addEventListener("click", (event) => this.#onClick(event), { signal })
+    if (includeClick) root.addEventListener("click", (event) => this.#onClick(event), { signal })
     root.addEventListener("compositionstart", () => (this.#composing = true), { signal })
     root.addEventListener(
       "compositionend",
@@ -422,6 +560,7 @@ export class ReferencePromptController {
         this.#composing = false
         this.#syncDocumentFromEditor()
         this.#updatePickerQuery()
+        this.#publishView()
       },
       { signal },
     )
@@ -438,17 +577,90 @@ export class ReferencePromptController {
   }
 
   #setHint(issue = ""): void {
-    const hint = this.root.querySelector<HTMLElement>("[data-prompt-hint]")
-    if (!hint) return
-    const stale = this.root.querySelectorAll(".rl-prompt-mention.is-stale").length
+    const stale = this.#editorRoots.reduce(
+      (count, root) => count + root.querySelectorAll(".rl-prompt-mention.is-stale").length,
+      0,
+    )
     const recovery = this.#recoveredFromVersion
       ? localize(PROMPT_MESSAGES.legacyRecovered, this.#locale).replace(
           "{version}",
           String(this.#recoveredFromVersion),
         )
       : ""
-    hint.textContent = issue || recovery || (stale ? `${stale} unavailable reference mention.` : "")
-    hint.hidden = !hint.textContent
+    this.#hintText = issue || recovery || (stale ? `${stale} unavailable reference mention.` : "")
+    if (this.#hintElement) {
+      this.#hintElement.textContent = this.#hintText
+      this.#hintElement.hidden = !this.#hintText
+    }
+    this.#publishView()
+  }
+
+  #buildViewSnapshot(): PromptViewSnapshot {
+    const presetLabel = localize(this.#preset.label, this.#locale)
+    return {
+      view: this.#document.view,
+      presetId: this.#preset.id,
+      presetLabel,
+      presetDescription: localize(this.#preset.description, this.#locale),
+      editorAria: localize(PROMPT_MESSAGES.editorAria, this.#locale),
+      clearLabel: localize(PROMPT_MESSAGES.clear, this.#locale),
+      clearTitle: localize(PROMPT_MESSAGES.clearTitle, this.#locale),
+      clearAria: localize(PROMPT_MESSAGES.clearAria, this.#locale),
+      toggleAria: localize(PROMPT_MESSAGES.toggleAria, this.#locale),
+      structuredLabel: localize(PROMPT_MESSAGES.structured, this.#locale),
+      rawLabel: localize(PROMPT_MESSAGES.raw, this.#locale),
+      backToStructuredTitle: localize(PROMPT_MESSAGES.backToStructured, this.#locale),
+      showRawTitle: localize(PROMPT_MESSAGES.showRaw, this.#locale),
+      title: localize(PROMPT_MESSAGES.prompt, this.#locale),
+      subtitle: localize(
+        this.#preset.subjectMode === "disabled"
+          ? PROMPT_MESSAGES.subtitle
+          : PROMPT_MESSAGES.subtitleWithSubjects,
+        this.#locale,
+      ),
+      sourceText: renderAuthoringPrompt(this.#document, this.#references()),
+      compiledText: compilePromptDocument(this.#document, this.#references()),
+      canClear: this.#document.sections.length > 0,
+      hint: this.#hintText,
+      nativeHosts: {
+        workspace: this.#workspaceRoot !== undefined,
+        picker: this.#pickerElement !== undefined,
+        definitions: this.#definitionsRoot !== undefined,
+      },
+    }
+  }
+
+  #publishView(): void {
+    const next = this.#buildViewSnapshot()
+    const previous = this.#viewSnapshot
+    if (
+      previous &&
+      previous.view === next.view &&
+      previous.presetId === next.presetId &&
+      previous.presetLabel === next.presetLabel &&
+      previous.presetDescription === next.presetDescription &&
+      previous.editorAria === next.editorAria &&
+      previous.clearLabel === next.clearLabel &&
+      previous.clearTitle === next.clearTitle &&
+      previous.clearAria === next.clearAria &&
+      previous.toggleAria === next.toggleAria &&
+      previous.structuredLabel === next.structuredLabel &&
+      previous.rawLabel === next.rawLabel &&
+      previous.backToStructuredTitle === next.backToStructuredTitle &&
+      previous.showRawTitle === next.showRawTitle &&
+      previous.title === next.title &&
+      previous.subtitle === next.subtitle &&
+      previous.sourceText === next.sourceText &&
+      previous.compiledText === next.compiledText &&
+      previous.canClear === next.canClear &&
+      previous.hint === next.hint &&
+      previous.nativeHosts.workspace === next.nativeHosts.workspace &&
+      previous.nativeHosts.picker === next.nativeHosts.picker &&
+      previous.nativeHosts.definitions === next.nativeHosts.definitions
+    )
+      return
+    this.#viewSnapshot = next
+    for (const listener of this.#viewListeners) listener()
   }
 
   #appendPromptText(container: HTMLElement, value: string): void {
@@ -460,27 +672,30 @@ export class ReferencePromptController {
   }
 
   #renderEditor(): void {
-    const panel = this.root.querySelector<HTMLElement>("[data-prompt-panel]")
-    panel?.setAttribute("aria-label", localize(PROMPT_MESSAGES.editorAria, this.#locale))
-    const title = this.root.querySelector<HTMLElement>("[data-prompt-title]")
-    if (title) title.textContent = localize(PROMPT_MESSAGES.prompt, this.#locale)
-    const subtitle = this.root.querySelector<HTMLElement>("[data-prompt-subtitle]")
-    if (subtitle)
-      subtitle.textContent = localize(
-        this.#preset.subjectMode === "disabled"
-          ? PROMPT_MESSAGES.subtitle
-          : PROMPT_MESSAGES.subtitleWithSubjects,
-        this.#locale,
-      )
-    const preset = this.root.querySelector<HTMLElement>("[data-prompt-preset]")
-    if (preset) {
-      const presetLabel = localize(this.#preset.label, this.#locale)
-      preset.textContent = presetLabel
-      preset.title = `${localize(PROMPT_MESSAGES.preset, this.#locale)}: ${presetLabel} · ${localize(this.#preset.description, this.#locale)}`
+    const renderHint = this.#pendingRenderHint
+    this.#pendingRenderHint = undefined
+    if (this.#legacyShell) {
+      const panel = this.root.querySelector<HTMLElement>("[data-prompt-panel]")
+      panel?.setAttribute("aria-label", localize(PROMPT_MESSAGES.editorAria, this.#locale))
+      const title = this.root.querySelector<HTMLElement>("[data-prompt-title]")
+      if (title) title.textContent = localize(PROMPT_MESSAGES.prompt, this.#locale)
+      const subtitle = this.root.querySelector<HTMLElement>("[data-prompt-subtitle]")
+      if (subtitle)
+        subtitle.textContent = localize(
+          this.#preset.subjectMode === "disabled"
+            ? PROMPT_MESSAGES.subtitle
+            : PROMPT_MESSAGES.subtitleWithSubjects,
+          this.#locale,
+        )
+      const preset = this.root.querySelector<HTMLElement>("[data-prompt-preset]")
+      if (preset) {
+        const presetLabel = localize(this.#preset.label, this.#locale)
+        preset.textContent = presetLabel
+        preset.title = `${localize(PROMPT_MESSAGES.preset, this.#locale)}: ${presetLabel} · ${localize(this.#preset.description, this.#locale)}`
+      }
     }
-    const workspace = this.root.querySelector<HTMLElement>("[data-prompt-workspace]")
-    if (!workspace) return
-    workspace.replaceChildren()
+    const workspace = this.#workspaceRoot
+    workspace?.replaceChildren()
     const cardContext: PromptCardContext = {
       prompt: this.#document,
       references: this.#references(),
@@ -489,6 +704,10 @@ export class ReferencePromptController {
     }
     const definitions = makePromptDefinitions(cardContext, this.#shotDraft?.document)
     if (this.#definitionsRoot) this.#definitionsRoot.replaceChildren(definitions)
+    if (!workspace) {
+      this.#setHint(renderHint)
+      return
+    }
     if (this.#document.view === "raw") {
       if (!this.#definitionsRoot) workspace.append(definitions)
       const editor = document.createElement("div")
@@ -535,26 +754,31 @@ export class ReferencePromptController {
       stack.append(entry)
       workspace.append(stack)
     }
-    const button = this.root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')
-    if (button) {
-      const raw = this.#document.view === "raw"
-      button.textContent = localize(
-        raw ? PROMPT_MESSAGES.structured : PROMPT_MESSAGES.raw,
-        this.#locale,
+    if (this.#legacyShell) {
+      const button = this.root.querySelector<HTMLButtonElement>(
+        '[data-prompt-action="toggle-view"]',
       )
-      button.title = localize(
-        raw ? PROMPT_MESSAGES.backToStructured : PROMPT_MESSAGES.showRaw,
-        this.#locale,
-      )
-      button.setAttribute("aria-label", localize(PROMPT_MESSAGES.toggleAria, this.#locale))
-      button.setAttribute("aria-pressed", String(raw))
+      if (button) {
+        const raw = this.#document.view === "raw"
+        button.textContent = localize(
+          raw ? PROMPT_MESSAGES.structured : PROMPT_MESSAGES.raw,
+          this.#locale,
+        )
+        button.title = localize(
+          raw ? PROMPT_MESSAGES.backToStructured : PROMPT_MESSAGES.showRaw,
+          this.#locale,
+        )
+        button.setAttribute("aria-label", localize(PROMPT_MESSAGES.toggleAria, this.#locale))
+        button.setAttribute("aria-pressed", String(raw))
+      }
+      this.#syncClearButton()
+      this.#syncCopyButton()
     }
-    this.#syncClearButton()
-    this.#syncCopyButton()
-    this.#setHint()
+    this.#setHint(renderHint)
   }
 
   #syncClearButton(): void {
+    if (!this.#legacyShell) return
     const button = this.root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')
     if (!button) return
     button.textContent = localize(PROMPT_MESSAGES.clear, this.#locale)
@@ -564,6 +788,7 @@ export class ReferencePromptController {
   }
 
   #syncCopyButton(): void {
+    if (!this.#legacyShell) return
     const source = this.root.querySelector<HTMLButtonElement>('[data-prompt-action="copy-source"]')
     const compiled = this.root.querySelector<HTMLButtonElement>(
       '[data-prompt-action="copy-compiled"]',
@@ -584,8 +809,9 @@ export class ReferencePromptController {
 
   #syncDocumentFromEditor(syncShotFrames = true): void {
     if (this.#destroyed) return
+    const workspace = this.#workspaceRoot
     if (this.#document.view === "raw") {
-      const editor = this.root.querySelector<HTMLElement>("[data-prompt-editor]")
+      const editor = workspace?.querySelector<HTMLElement>("[data-prompt-editor]")
       if (editor) {
         const parsed = parseRawPrompt(
           textContentWithBreaks(editor),
@@ -599,7 +825,7 @@ export class ReferencePromptController {
       return
     }
     const sections = Array.from(
-      this.root.querySelectorAll<HTMLElement>("[data-prompt-section-body]"),
+      workspace?.querySelectorAll<HTMLElement>("[data-prompt-section-body]") ?? [],
     ).flatMap((body) => {
       const title = normalizePromptSectionTitle(body.dataset.promptSectionBody ?? "")
       if (!title) return []
@@ -677,6 +903,7 @@ export class ReferencePromptController {
     this.#notifyShots()
     this.#syncClearButton()
     this.#syncCopyButton()
+    this.#publishView()
     const input = event instanceof InputEvent ? event : undefined
     const isDeletion = input?.inputType.startsWith("delete") ?? false
     if (isDeletion && this.#pickerMode === "subject") {
@@ -938,6 +1165,7 @@ export class ReferencePromptController {
           this.#notifyShots()
           this.#syncClearButton()
           this.#syncCopyButton()
+          this.#publishView()
           this.#node.setDirtyCanvas(true, true)
           return
         }
@@ -1044,7 +1272,7 @@ export class ReferencePromptController {
 
   #addOrFocusSection(title: string): void {
     this.#syncDocumentFromEditor()
-    const existing = this.root.querySelector<HTMLElement>(
+    const existing = this.#workspaceRoot?.querySelector<HTMLElement>(
       `[data-prompt-section-body="${CSS.escape(title)}"]`,
     )
     if (existing) {
@@ -1056,7 +1284,7 @@ export class ReferencePromptController {
     this.#document.sections.push({ title, parts: [] })
     this.#closePicker()
     this.#renderEditor()
-    const body = this.root.querySelector<HTMLElement>(
+    const body = this.#workspaceRoot?.querySelector<HTMLElement>(
       `[data-prompt-section-body="${CSS.escape(title)}"]`,
     )
     if (body) placeCaretAtEnd(body)
@@ -1093,8 +1321,8 @@ export class ReferencePromptController {
       this.#closePicker()
       this.#renderEditor()
       this.#node.setDirtyCanvas(true, true)
-      this.root
-        .querySelector<HTMLElement>(`[data-prompt-section-drag-handle="${CSS.escape(title)}"]`)
+      this.#workspaceRoot
+        ?.querySelector<HTMLElement>(`[data-prompt-section-drag-handle="${CSS.escape(title)}"]`)
         ?.focus()
     })
   }
@@ -1175,9 +1403,9 @@ export class ReferencePromptController {
 
   #clearSectionDrag(): void {
     this.#setSectionDropTarget(undefined)
-    this.root
-      .querySelectorAll<HTMLElement>("[data-prompt-section].is-dragging")
-      .forEach((section) => section.classList.remove("is-dragging"))
+    this.#workspaceRoot
+      ?.querySelectorAll<HTMLElement>("[data-prompt-section].is-dragging")
+      ?.forEach((section) => section.classList.remove("is-dragging"))
     this.#draggedSectionTitle = undefined
   }
 
@@ -1496,6 +1724,7 @@ export class ReferencePromptController {
     selection?.addRange(range)
     this.#closePicker()
     this.#syncDocumentFromEditor()
+    this.#publishView()
     this.#node.setDirtyCanvas(true, true)
   }
 
@@ -1516,6 +1745,7 @@ export class ReferencePromptController {
       "[data-prompt-section-body], [data-prompt-definition-body], [data-prompt-editor]",
     )
     if (body) this.#highlightTags(body)
+    this.#publishView()
     this.#node.setDirtyCanvas(true, true)
   }
 
@@ -1536,6 +1766,7 @@ export class ReferencePromptController {
       "[data-prompt-section-body], [data-prompt-definition-body], [data-prompt-editor]",
     )
     if (body) this.#highlightTags(body)
+    this.#publishView()
     this.#node.setDirtyCanvas(true, true)
   }
 
@@ -1597,8 +1828,9 @@ export class ReferencePromptController {
     if (picker) {
       picker.hidden = true
       picker.replaceChildren()
-      const hint = this.root.querySelector<HTMLElement>("[data-prompt-hint]")
-      if (hint) hint.before(picker)
+      if (this.#legacyShell) this.#hintElement?.before(picker)
+      else if (this.#pickerHost && !this.#pickerHost.contains(picker))
+        this.#pickerHost.append(picker)
     }
   }
 }

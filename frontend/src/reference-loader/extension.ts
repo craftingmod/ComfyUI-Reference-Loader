@@ -9,6 +9,7 @@ import type {
 import { ReferenceLoaderApi } from "./api.ts"
 import { promptByOrderProperty, ReferenceLoaderController } from "./components/loader.ts"
 import { ReferencePromptController } from "./components/prompt-editor.ts"
+import { createPromptReact, type PromptReactMount } from "./components/prompt-react.tsx"
 import {
   applyReferenceLoaderSnapshotSettings,
   captureReferenceLoaderSnapshotSettings,
@@ -24,6 +25,7 @@ export const REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE = "REFERENCE_PROMPT_DEFINI
 export const REFERENCE_PROMPT_WIDGET_TYPE = "REFERENCE_PROMPT"
 const controllers = new WeakMap<ComfyNode, ReferenceLoaderController>()
 const promptControllers = new WeakMap<ComfyNode, ReferencePromptController>()
+const promptReactMounts = new WeakMap<ComfyNode, PromptReactMount>()
 const promptRoots = new WeakMap<ComfyNode, HTMLElement>()
 const promptDefinitionRoots = new WeakMap<ComfyNode, HTMLElement>()
 const promptSubscriptions = new WeakMap<ComfyNode, () => void>()
@@ -215,6 +217,8 @@ export function registerReferenceLoader(
           promptSubscriptions.delete(node)
           promptPresetBindings.get(node)?.dispose()
           promptPresetBindings.delete(node)
+          promptReactMounts.get(node)?.destroy()
+          promptReactMounts.delete(node)
           promptControllers.get(node)?.destroy()
           promptRoots.delete(node)
           const root = document.createElement("div")
@@ -231,10 +235,12 @@ export function registerReferenceLoader(
               presetId: node.widgets?.find((candidate) => candidate.name === "prompt_schema_preset")
                 ?.value,
               presetCatalog: promptPresetCatalog(inputData),
+              legacyShell: false,
             },
           )
           const definitionsRoot = promptDefinitionRoots.get(node)
           if (definitionsRoot) controller.mountDefinitions(definitionsRoot)
+          const reactMount = createPromptReact({ container: root, controller })
           let removed = false
           const widget = node.addDOMWidget(inputName, REFERENCE_PROMPT_WIDGET_TYPE, root, {
             serialize: true,
@@ -264,11 +270,14 @@ export function registerReferenceLoader(
             promptPresetBindings.get(node)?.dispose()
             promptPresetBindings.delete(node)
             if (promptControllers.get(node) === controller) promptControllers.delete(node)
+            if (promptReactMounts.get(node) === reactMount) promptReactMounts.delete(node)
             promptRoots.delete(node)
+            reactMount.destroy()
             controller.destroy()
             originalWidgetRemove?.call(widget)
           }
           promptControllers.set(node, controller)
+          promptReactMounts.set(node, reactMount)
           promptRoots.set(node, root)
           bindPromptReferences(node)
           installNodeRemovalHook(node)
@@ -434,6 +443,8 @@ function installNodeRemovalHook(node: ComfyNode): void {
     promptSubscriptions.delete(this)
     promptPresetBindings.get(this)?.dispose()
     promptPresetBindings.delete(this)
+    promptReactMounts.get(this)?.destroy()
+    promptReactMounts.delete(this)
     promptControllers.get(this)?.destroy()
     promptControllers.delete(this)
     promptRoots.delete(this)

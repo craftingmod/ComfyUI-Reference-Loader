@@ -39,6 +39,8 @@
     "version:bump": "bun scripts/bump-version.ts"
   },
   "dependencies": {
+    "@lexical/react": "^0.50.0",
+    "lexical": "^0.50.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

@@ -541,6 +541,10 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
     module.EMPTY_LOADER_STATE_JSON,
     prompt=json.dumps({"version": 4, "view": "raw", "subjects": [], "sections": []}),
   )
+  legacy_empty_fingerprint = module.ReferenceLoaderNode.fingerprint_inputs(
+    module.EMPTY_LOADER_STATE_JSON,
+    prompt=json.dumps({"version": 5, "subjects": [], "shots": [], "sections": []}),
+  )
 
   assert len(fingerprint) == 64
   assert display_only_fingerprint == fingerprint
@@ -552,5 +556,6 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
   assert opaque_fingerprint != fingerprint
   assert opaque_alpha_fingerprint == opaque_fingerprint
   assert prompt_fingerprint != fingerprint
-  assert raw_view_fingerprint == fingerprint
-  assert len(calls) == 11
+  assert raw_view_fingerprint == legacy_empty_fingerprint
+  assert raw_view_fingerprint != fingerprint
+  assert len(calls) == 12

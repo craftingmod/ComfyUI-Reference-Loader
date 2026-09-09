@@ -64,7 +64,8 @@ def _bundle(module):
     manifest_json=json.dumps(manifest.build_reference_manifest(state)),
     prompt_state_json=(
       '{"sections":[{"parts":[{"text":"Keep this prompt",'
-      '"type":"text"}],"title":"scene"}],"subjects":[],"version":4}'
+      '"type":"text"}],"title":"scene","id":"scene-section"}],'
+      '"subjects":[],"shots":[],"version":6,"view":"structured"}'
     ),
     compiled_prompt="scene:\nKeep this prompt",
   )
@@ -166,7 +167,8 @@ def test_options_override_reloads_guide_only_images_and_preserves_other_guides(
     manifest_json=json.dumps(manifest.build_reference_manifest(state)),
     prompt_state_json=(
       '{"sections":[{"parts":[{"text":"Keep this prompt",'
-      '"type":"text"}],"title":"scene"}],"subjects":[],"version":4}'
+      '"type":"text"}],"title":"scene","id":"scene-section"}],'
+      '"subjects":[],"shots":[],"version":6,"view":"structured"}'
     ),
     compiled_prompt="scene:\nKeep this prompt",
   )
@@ -234,7 +236,8 @@ def test_options_override_fingerprint_includes_prompt_snapshot(monkeypatch):
     manifest_json=bundle.manifest_json,
     prompt_state_json=(
       '{"sections":[{"parts":[{"text":"Changed prompt",'
-      '"type":"text"}],"title":"scene"}],"subjects":[],"version":4}'
+      '"type":"text"}],"title":"scene","id":"scene-section"}],'
+      '"subjects":[],"shots":[],"version":6,"view":"structured"}'
     ),
     compiled_prompt="scene:\nChanged prompt",
   )

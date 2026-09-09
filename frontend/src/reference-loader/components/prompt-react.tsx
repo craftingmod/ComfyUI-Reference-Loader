@@ -13,6 +13,14 @@ import { createRoot, type Root } from "react-dom/client"
 
 import { promptContentFingerprint, sectionColor, SHOT_COLOR, subjectColor } from "./prompt-dom.ts"
 import type {
+  PromptBodyEdit,
+  PromptBodyEditResult,
+  PromptBodySnapshot,
+  PromptBodyTrigger,
+  PromptEditorTargetV6,
+  PromptRichEditorHandle,
+} from "./prompt-editor-contract.ts"
+import type {
   PromptEditorInput,
   PromptEditorTarget,
   PromptPickerOption,
@@ -22,8 +30,10 @@ import type {
   PromptViewSnapshot,
   ReferencePromptController,
 } from "./prompt-editor.ts"
+import { PromptRichEditor } from "./prompt-rich-editor.tsx"
 
 export interface PromptEditorActions {
+  sessionScope: string
   handleReactEditorInput(
     target: PromptEditorTarget,
     editor: HTMLElement,
@@ -32,6 +42,18 @@ export interface PromptEditorActions {
   handleReactEditorKeydown(event: KeyboardEvent): void
   handleReactEditorPaste(event: ClipboardEvent): void
   handleReactEditorBlur(): void
+  applyPromptBodyEdit(edit: PromptBodyEdit): PromptBodyEditResult
+  registerPromptBodyEditor(
+    target: PromptEditorTargetV6,
+    handle: PromptRichEditorHandle | undefined,
+  ): () => void
+  resolvePromptPartLabel(part: PromptBodySnapshot["parts"][number]): string | undefined
+  handlePromptBodyTrigger(
+    target: PromptEditorTargetV6,
+    trigger: PromptBodyTrigger | undefined,
+  ): void
+  validatePromptBodyParts(target: PromptEditorTargetV6, parts: PromptBodySnapshot["parts"]): boolean
+  parsePromptBodyText(value: string): PromptBodySnapshot["parts"]
 }
 
 export interface PromptReactActions extends PromptEditorActions {
@@ -53,6 +75,8 @@ export interface PromptReactActions extends PromptEditorActions {
   sectionDragOver(event: DragEvent): void
   dropSection(event: DragEvent): void
   endSectionDrag(): void
+  rawDraftText(): string | undefined
+  updateRawDraftText(value: string): void
 }
 
 export interface PromptReactOptions {
@@ -62,6 +86,67 @@ export interface PromptReactOptions {
 
 export interface PromptReactMount {
   destroy(): void
+}
+
+function PromptV6Editor({
+  actions,
+  target,
+  snapshot,
+  placeholder,
+  className,
+  disabled,
+  ariaLabel,
+  sessionScope,
+}: {
+  actions: PromptEditorActions
+  target: PromptEditorTarget
+  snapshot: PromptBodySnapshot
+  placeholder: string
+  className: string
+  disabled: boolean
+  ariaLabel?: string
+  sessionScope: string
+}): ReactNode {
+  const releaseRef = useRef<(() => void) | undefined>(undefined)
+  const onReady = useCallback(
+    (handle: PromptRichEditorHandle | undefined): void => {
+      releaseRef.current?.()
+      releaseRef.current = handle
+        ? actions.registerPromptBodyEditor(snapshot.target, handle)
+        : undefined
+    },
+    [actions, snapshot.target],
+  )
+  return (
+    <>
+      <div data-prompt-react-picker-slot="" />
+      <PromptRichEditor
+        value={snapshot}
+        onChange={actions.applyPromptBodyEdit}
+        readOnly={disabled}
+        ariaLabel={
+          ariaLabel ?? (target.type === "section" ? `${target.title} text` : "Prompt text")
+        }
+        placeholder={placeholder}
+        className={className}
+        dataAttributes={{
+          "data-prompt-section-body": target.type === "section" ? target.title : undefined,
+          "data-prompt-section-title": target.type === "section" ? target.title : undefined,
+          "data-prompt-definition-body": target.type === "definition" ? "" : undefined,
+          "data-prompt-definition-identity":
+            target.type === "definition" ? target.identity : undefined,
+        }}
+        resolveLabel={actions.resolvePromptPartLabel}
+        sessionScope={sessionScope}
+        validateParts={(parts) => actions.validatePromptBodyParts(snapshot.target, parts)}
+        parseText={actions.parsePromptBodyText}
+        onReady={onReady}
+        onTriggerChange={(trigger) => actions.handlePromptBodyTrigger(snapshot.target, trigger)}
+        onKeyDown={actions.handleReactEditorKeydown}
+        onBlur={actions.handleReactEditorBlur}
+      />
+    </>
+  )
 }
 
 function PromptToolbar({
@@ -132,25 +217,67 @@ function PromptToolbar({
   )
 }
 
+function PromptV6RawEditor({
+  snapshot,
+  actions,
+}: {
+  snapshot: PromptViewSnapshot
+  actions: PromptReactActions
+}): ReactNode {
+  return (
+    <textarea
+      className="rl-prompt-editor rl-prompt-editor--plain is-raw"
+      data-prompt-editor=""
+      data-prompt-react-editor=""
+      data-prompt-raw-editor=""
+      data-capture-wheel="true"
+      data-placeholder={snapshot.rawPlaceholder}
+      aria-label="Raw prompt editor"
+      aria-multiline="true"
+      placeholder={snapshot.rawPlaceholder}
+      value={actions.rawDraftText() ?? snapshot.sourceText}
+      onChange={(event) => actions.updateRawDraftText(event.currentTarget.value)}
+      onBlur={actions.handleReactEditorBlur}
+      spellCheck
+    />
+  )
+}
+
 export function PromptEditor({
   actions,
   target,
   contentKey,
   placeholder,
   renderContent,
+  bodySnapshot,
   className = "rl-prompt-editor rl-prompt-editor--plain",
   disabled = false,
   ariaLabel,
 }: {
   actions: PromptEditorActions
   target: PromptEditorTarget
-  contentKey: string
+  contentKey?: string
   placeholder: string
-  renderContent: (editor: HTMLElement) => void
+  renderContent?: (editor: HTMLElement) => void
+  bodySnapshot?: PromptBodySnapshot
   className?: string
   disabled?: boolean
   ariaLabel?: string
 }): ReactNode {
+  if (bodySnapshot) {
+    return (
+      <PromptV6Editor
+        actions={actions}
+        target={target}
+        snapshot={bodySnapshot}
+        placeholder={placeholder}
+        className={className}
+        disabled={disabled}
+        ariaLabel={ariaLabel}
+        sessionScope={actions.sessionScope}
+      />
+    )
+  }
   const editorRef = useRef<HTMLDivElement>(null)
   const composing = useRef(false)
   const targetKey =
@@ -163,6 +290,7 @@ export function PromptEditor({
   useLayoutEffect(() => {
     const editor = editorRef.current
     if (!editor) return
+    if (!renderContent || contentKey === undefined) return
     if (editor.dataset.promptEditorState === promptContentFingerprint(contentKey)) return
     renderContent(editor)
     editor.dataset.promptEditorState = promptContentFingerprint(contentKey)
@@ -277,6 +405,7 @@ function PromptSectionCard({
         contentKey={JSON.stringify(section.parts)}
         placeholder={section.placeholder}
         renderContent={renderContent}
+        bodySnapshot={section.bodySnapshot}
       />
     </section>
   )
@@ -354,6 +483,7 @@ function PromptPickerOptionView({
         {...data}
         className={active ? "is-active" : undefined}
         aria-selected={active}
+        onPointerDown={(event) => event.preventDefault()}
         onClick={() => actions.activatePickerOption(index)}
       >
         {reference.previewUrl && reference.mediaKind !== "audio" ? (
@@ -378,6 +508,7 @@ function PromptPickerOptionView({
         {...data}
         className={active ? "is-active" : undefined}
         aria-selected={active}
+        onPointerDown={(event) => event.preventDefault()}
         onClick={() => actions.activatePickerOption(index)}
       >
         <span
@@ -401,6 +532,7 @@ function PromptPickerOptionView({
         {...data}
         className={active ? "is-active" : undefined}
         aria-selected={active}
+        onPointerDown={(event) => event.preventDefault()}
         onClick={() => actions.activatePickerOption(index)}
       >
         <span className="rl-prompt-subject-icon is-shot" style={{ background: SHOT_COLOR }}>
@@ -421,6 +553,7 @@ function PromptPickerOptionView({
         {...data}
         className={active ? "is-active" : undefined}
         aria-selected={active}
+        onPointerDown={(event) => event.preventDefault()}
         onClick={() => actions.activatePickerOption(index)}
       >
         <span className="rl-prompt-subject-icon is-create" aria-hidden="true">
@@ -564,20 +697,28 @@ function PromptWorkspaceHost({
   return (
     <div data-prompt-workspace="" ref={workspaceRef}>
       {snapshot.view === "raw" ? (
-        <PromptEditor
-          key="raw"
-          actions={actions}
-          target={rawTarget}
-          contentKey={snapshot.sourceText}
-          placeholder={snapshot.rawPlaceholder}
-          renderContent={renderRawEditor}
-          className="rl-prompt-editor is-raw"
-          ariaLabel="Raw prompt editor"
-        />
+        controller.usesPromptDocumentV6 ? (
+          <PromptV6RawEditor snapshot={snapshot} actions={actions} />
+        ) : (
+          <PromptEditor
+            key="raw"
+            actions={actions}
+            target={rawTarget}
+            contentKey={snapshot.sourceText}
+            placeholder={snapshot.rawPlaceholder}
+            renderContent={renderRawEditor}
+            className="rl-prompt-editor is-raw"
+            ariaLabel="Raw prompt editor"
+          />
+        )
       ) : (
         <div key="structured" className="rl-prompt-stack" data-prompt-stack="">
           {sections.sections.map((section) => (
-            <PromptSectionCard key={section.title} section={section} actions={actions} />
+            <PromptSectionCard
+              key={section.id ?? section.title}
+              section={section}
+              actions={actions}
+            />
           ))}
           <PromptSectionEntry
             actions={actions}
@@ -644,6 +785,17 @@ export function createPromptReact(options: PromptReactOptions): PromptReactMount
     handleReactEditorKeydown: (event) => controller.handleReactEditorKeydown(event),
     handleReactEditorPaste: (event) => controller.handleReactEditorPaste(event),
     handleReactEditorBlur: () => controller.handleReactEditorBlur(),
+    applyPromptBodyEdit: (edit) => controller.applyPromptBodyEdit(edit),
+    sessionScope: controller.promptSessionScope,
+    registerPromptBodyEditor: (target, handle) =>
+      controller.registerPromptBodyEditor(target, handle),
+    resolvePromptPartLabel: (part) => controller.resolvePromptPartLabel(part),
+    handlePromptBodyTrigger: (target, trigger) =>
+      controller.handlePromptBodyTrigger(target, trigger),
+    validatePromptBodyParts: (target, parts) => controller.validatePromptBodyParts(target, parts),
+    parsePromptBodyText: (value) => controller.parsePromptBodyText(value),
+    rawDraftText: () => controller.rawDraftText,
+    updateRawDraftText: (value) => controller.updateRawDraftText(value),
     removeSection: (title) => controller.removeSection(title),
     handleReactSectionEntryInput: (editor, input) =>
       controller.handleReactSectionEntryInput(editor, input),

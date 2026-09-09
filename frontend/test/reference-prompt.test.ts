@@ -14,6 +14,7 @@ import {
   createEmptyPromptDocument,
   deserializePromptDocument,
   parseRawPrompt,
+  renderAuthoringPrompt,
   serializePromptDocument,
   type PromptReference,
 } from "../src/reference-loader/prompt-state.ts"
@@ -64,7 +65,12 @@ function makeController(
       dirtyCount += 1
     },
   }
-  const controller = new ReferencePromptController(node, () => references, serialized, options)
+  const controller = new ReferencePromptController(
+    node,
+    () => references,
+    serialized ?? serializePromptDocument(createEmptyPromptDocument()),
+    options,
+  )
   const promptMount = createPromptReact({ container: promptRoot, controller })
   controller.mountDefinitions(definitions)
   const definitionsMount = createPromptDefinitionsReact({
@@ -172,6 +178,32 @@ describe("Reference Prompt state", () => {
     expect(compilePromptDocument(prompt, [imageReference()])).toBe(
       "integrated_multimodal_description:\nLook at <Picture 1>안녕하세요\n\nvisual_style:\nSoft 3D",
     )
+  })
+
+  test("keeps legacy Raw media mentions in authoring form", () => {
+    const prompt = {
+      ...createEmptyPromptDocument(),
+      sections: [
+        {
+          title: "scene",
+          parts: [
+            { type: "text" as const, text: "Use " },
+            {
+              type: "mention" as const,
+              referenceId: "image-a",
+              mediaKind: "image" as const,
+              label: "image1",
+            },
+          ],
+        },
+      ],
+    }
+    expect(renderAuthoringPrompt(prompt, [imageReference()])).toBe("scene:\nUse @image1")
+    expect(compilePromptDocument(prompt, [imageReference()])).toBe("scene:\nUse <Picture 1>")
+    expect(
+      parseRawPrompt(renderAuthoringPrompt(prompt, [imageReference()]), [imageReference()])
+        .sections[0]?.parts,
+    ).toEqual(prompt.sections[0]?.parts)
   })
 
   test("parses arbitrary pseudo-YAML title tags in source order", () => {
@@ -595,6 +627,18 @@ describe("Reference Prompt section stack", () => {
     click(root.querySelector<HTMLButtonElement>('[data-prompt-action="clear"]')!)
     expect(JSON.parse(controller.serialize()).subjects).toHaveLength(1)
     expect(controller.compiledPrompt).toBe("subject_definitions:\n<Subject 1>:")
+    controller.destroy()
+  })
+
+  test("publishes a newly created Subject card when # creation is activated", () => {
+    const { root, controller } = makeController()
+    const scene = sectionBody(root, "scene")
+    inputText(scene, "Meet #woman")
+    expect(press(scene, "Enter")).toBe(false)
+    expect(
+      root.querySelector('[data-prompt-definition="subject"][data-prompt-definition-tag="woman"]'),
+    ).not.toBeNull()
+    expect(JSON.parse(controller.serialize()).subjects).toHaveLength(1)
     controller.destroy()
   })
 

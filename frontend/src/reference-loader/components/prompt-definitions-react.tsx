@@ -220,6 +220,7 @@ function PromptDefinitionCard({
         contentKey={JSON.stringify(definition.parts)}
         placeholder={definition.placeholder}
         renderContent={renderContent}
+        bodySnapshot={definition.bodySnapshot}
         className="rl-prompt-definition__body"
         disabled={draft}
         ariaLabel={`${definition.kind} ${definition.tag} text`}
@@ -339,6 +340,7 @@ export function createPromptDefinitionsReact(
 ): PromptDefinitionsReactMount {
   const { controller } = options
   const actions: PromptDefinitionsReactActions = {
+    sessionScope: controller.promptSessionScope,
     addDefinition: (kind) => controller.addDefinition(kind),
     renameDefinition: (kind, identity, value) => controller.renameDefinition(kind, identity, value),
     reorderDefinition: (kind, identity, delta) =>
@@ -357,6 +359,14 @@ export function createPromptDefinitionsReact(
     handleReactEditorKeydown: (event) => controller.handleReactEditorKeydown(event),
     handleReactEditorPaste: (event) => controller.handleReactEditorPaste(event),
     handleReactEditorBlur: () => controller.handleReactEditorBlur(),
+    applyPromptBodyEdit: (edit) => controller.applyPromptBodyEdit(edit),
+    registerPromptBodyEditor: (target, handle) =>
+      controller.registerPromptBodyEditor(target, handle),
+    resolvePromptPartLabel: (part) => controller.resolvePromptPartLabel(part),
+    handlePromptBodyTrigger: (target, trigger) =>
+      controller.handlePromptBodyTrigger(target, trigger),
+    validatePromptBodyParts: (target, parts) => controller.validatePromptBodyParts(target, parts),
+    parsePromptBodyText: (value) => controller.parsePromptBodyText(value),
     renderDefinitionEditor: (kind, identity, editor) =>
       controller.renderReactDefinitionEditor(kind, identity, editor),
   }

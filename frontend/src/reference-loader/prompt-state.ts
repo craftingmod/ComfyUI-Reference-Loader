@@ -1,3 +1,14 @@
+import {
+  compilePromptDocumentV6,
+  deserializePromptDocumentV6,
+  isPromptDocumentV6,
+  renderAuthoringPromptV6,
+  rebindPromptMentionsByOrderV6,
+  serializePromptDocumentV6,
+  validatePromptDocumentV6,
+  type PromptDocumentV6,
+} from "./prompt-v6.ts"
+
 export const PROMPT_STATE_VERSION = 5 as const
 export const MAX_PROMPT_STATE_CHARACTERS = 250_000
 export const MAX_PROMPT_TEXT_CHARACTERS = 100_000
@@ -186,7 +197,27 @@ function validFrame(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
 }
 
+function recoverPromptText(value: string): PromptDocument {
+  const text = value.slice(0, MAX_PROMPT_TEXT_CHARACTERS)
+  return {
+    version: PROMPT_STATE_VERSION,
+    view: "raw",
+    subjects: [],
+    shots: [],
+    sections: text ? [{ title: "scene", parts: [{ type: "text", text }] }] : [],
+  }
+}
+
 export function validatePromptDocument(value: unknown): PromptValidationResult {
+  if (isPromptDocumentV6(value)) {
+    const result = validatePromptDocumentV6(value)
+    return {
+      document: result.document
+        ? (result.document as unknown as PromptDocument)
+        : recoverPromptText(JSON.stringify(value)),
+      issues: result.issues,
+    }
+  }
   if (!isRecord(value) || value.version !== PROMPT_STATE_VERSION || !Array.isArray(value.sections))
     return { document: createEmptyPromptDocument(), issues: ["Prompt state was invalid."] }
   const issues: string[] = []
@@ -273,6 +304,7 @@ export function validatePromptDocument(value: unknown): PromptValidationResult {
   }
 }
 export function serializePromptDocument(documentInput: unknown): string {
+  if (isPromptDocumentV6(documentInput)) return serializePromptDocumentV6(documentInput)
   const document = normalizeDocumentInput(documentInput as PromptDocumentInput)
   return JSON.stringify(validatePromptDocument(document).document)
 }
@@ -404,6 +436,15 @@ export function deserializePromptDocument(value: unknown): PromptValidationResul
     }
   try {
     const parsed = JSON.parse(value) as unknown
+    if (isPromptDocumentV6(parsed)) {
+      const result = deserializePromptDocumentV6(parsed)
+      return {
+        document: result.document
+          ? (result.document as unknown as PromptDocument)
+          : recoverPromptText(value),
+        issues: result.issues,
+      }
+    }
     if (isRecord(parsed) && parsed.version === 4) return migrateV4(parsed)
     if (
       isRecord(parsed) &&
@@ -489,7 +530,9 @@ function renderParts(
           : part.text
         : part.type === "subject"
           ? (tokens?.get(part.label) ?? `#${part.label || part.subjectId}`)
-          : (active.get(`${part.mediaKind}:${part.referenceId}`)?.tag ?? mentionFallback(part)),
+          : tokens
+            ? (active.get(`${part.mediaKind}:${part.referenceId}`)?.tag ?? mentionFallback(part))
+            : `@${active.get(`${part.mediaKind}:${part.referenceId}`)?.label ?? part.label ?? part.referenceId}`,
     )
     .join("")
 }
@@ -522,9 +565,10 @@ function formatShotSeconds(frameIndex: number): string {
   return (Math.floor((frameIndex * 1000) / 24 + 0.5) / 1000).toFixed(3)
 }
 export function renderAuthoringPrompt(
-  documentInput: PromptDocumentInput,
+  documentInput: PromptDocumentInput | PromptDocumentV6,
   references: readonly PromptReference[],
 ): string {
+  if (isPromptDocumentV6(documentInput)) return renderAuthoringPromptV6(documentInput, references)
   const document = normalizeDocumentInput(documentInput)
   const active = new Map(
     references.map((reference) => [`${reference.mediaKind}:${reference.referenceId}`, reference]),
@@ -576,9 +620,10 @@ export function compilePromptSections(
   return compiled
 }
 export function compilePromptDocument(
-  document: PromptDocumentInput,
+  document: PromptDocumentInput | PromptDocumentV6,
   references: readonly PromptReference[],
 ): string {
+  if (isPromptDocumentV6(document)) return compilePromptDocumentV6(document, references)
   return compilePromptSections(document, references)
     .map(([title, content]) => (content ? `${title}:\n${content}` : `${title}:`))
     .join("\n\n")
@@ -600,6 +645,24 @@ function officialTagMatch(
     ? { raw: match[0], mediaKind: mediaKind as PromptMediaKind, ordinal }
     : undefined
 }
+
+function authoringMentionMatch(
+  value: string,
+  cursor: number,
+  references: readonly PromptReference[],
+): { raw: string; reference: PromptReference } | undefined {
+  if (value[cursor] !== "@" || (cursor > 0 && !/\s/u.test(value[cursor - 1] ?? "")))
+    return undefined
+  let end = cursor + 1
+  while (end < value.length && !/\s|@/u.test(value[end] ?? "")) end += 1
+  const alias = value.slice(cursor + 1, end)
+  if (!alias) return undefined
+  const reference = references.find((candidate) =>
+    [candidate.label, candidate.tag, `${candidate.mediaKind}${candidate.ordinal}`].includes(alias),
+  )
+  return reference ? { raw: value.slice(cursor, end), reference } : undefined
+}
+
 function parseSectionParts(
   value: string,
   references: readonly PromptReference[],
@@ -615,23 +678,36 @@ function parseSectionParts(
   let cursor = 0
   while (cursor < value.length) {
     const tag = officialTagMatch(value, cursor)
-    if (!tag) {
+    if (tag) {
+      if (plainStart < cursor) pushText(value.slice(plainStart, cursor))
+      const reference = references.find(
+        (candidate) => candidate.mediaKind === tag.mediaKind && candidate.ordinal === tag.ordinal,
+      )
+      if (reference)
+        parts.push({
+          type: "mention",
+          referenceId: reference.referenceId,
+          mediaKind: reference.mediaKind,
+          label: reference.label,
+        })
+      else pushText(tag.raw)
+      cursor += tag.raw.length
+      plainStart = cursor
+      continue
+    }
+    const mention = authoringMentionMatch(value, cursor, references)
+    if (!mention) {
       cursor += 1
       continue
     }
     if (plainStart < cursor) pushText(value.slice(plainStart, cursor))
-    const reference = references.find(
-      (candidate) => candidate.mediaKind === tag.mediaKind && candidate.ordinal === tag.ordinal,
-    )
-    if (reference)
-      parts.push({
-        type: "mention",
-        referenceId: reference.referenceId,
-        mediaKind: reference.mediaKind,
-        label: reference.label,
-      })
-    else pushText(tag.raw)
-    cursor += tag.raw.length
+    parts.push({
+      type: "mention",
+      referenceId: mention.reference.referenceId,
+      mediaKind: mention.reference.mediaKind,
+      label: mention.reference.label,
+    })
+    cursor += mention.raw.length
     plainStart = cursor
   }
   if (plainStart < value.length) pushText(value.slice(plainStart))
@@ -736,9 +812,10 @@ export function renamePromptTag(
   }
 }
 export function rebindPromptMentionsByOrder(
-  document: PromptDocument,
+  document: PromptDocument | PromptDocumentV6,
   references: readonly PromptReference[],
-): PromptDocument {
+): PromptDocument | PromptDocumentV6 {
+  if (isPromptDocumentV6(document)) return rebindPromptMentionsByOrderV6(document, references)
   const mapParts = (parts: readonly PromptSectionPart[]): PromptSectionPart[] =>
     parts.map((part) => {
       if (part.type !== "mention" || !/^(image|video|audio)[1-9]\d*$/u.test(part.label)) return part
@@ -761,3 +838,7 @@ export function rebindPromptMentionsByOrder(
     sections: document.sections.map((section) => ({ ...section, parts: mapParts(section.parts) })),
   }
 }
+
+// Prompt v6 is intentionally kept in a separate pure module while the legacy
+// v5 surface remains available to existing workflow consumers.
+export * from "./prompt-v6.ts"

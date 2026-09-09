@@ -23,6 +23,24 @@ import {
   type PromptSectionPart,
   type PromptSubject,
 } from "../prompt-state.ts"
+import {
+  assertPromptDocumentV6,
+  compilePromptDocumentV6,
+  createEmptyPromptDocumentV6,
+  createPromptDefinitionId,
+  deserializePromptDocumentV6,
+  isPromptDocumentV6,
+  parseAuthoringPromptV6,
+  parsePromptPartsV6,
+  normalizePromptPartsV6,
+  promptPartsV6Equal,
+  renderAuthoringPromptV6,
+  removePromptDefinitionV6,
+  renamePromptDefinitionV6,
+  serializePromptDocumentV6,
+  type PromptDocumentV6,
+  type PromptPartV6,
+} from "../prompt-v6.ts"
 import { makePromptDefinitionBody, makePromptSectionBody } from "./prompt-cards.ts"
 import {
   appendPromptText,
@@ -41,8 +59,25 @@ import {
   sectionPartsFromContainer,
   textContentWithBreaks,
 } from "./prompt-dom.ts"
+import type {
+  PromptBodyEdit,
+  PromptBodyEditResult,
+  PromptBodySnapshot,
+  PromptBodyTrigger,
+  PromptEditorTargetV6,
+  PromptRichEditorHandle,
+} from "./prompt-editor-contract.ts"
 
 type ReferenceProvider = () => readonly PromptReference[]
+
+let promptSessionCounter = 0
+
+function createPromptSessionScope(): string {
+  const randomUUID = globalThis.crypto?.randomUUID
+  if (typeof randomUUID === "function")
+    return `prompt-session-${randomUUID.call(globalThis.crypto)}`
+  return `prompt-session-${Date.now().toString(36)}-${(++promptSessionCounter).toString(36)}`
+}
 
 export interface ReferencePromptControllerOptions {
   presetId?: unknown
@@ -88,7 +123,9 @@ export interface PromptDefinitionSnapshot {
   readonly tag: string
   readonly ordinal: number
   readonly frameIndex?: number
-  readonly parts: readonly PromptSectionPart[]
+  readonly parts: readonly (PromptSectionPart | PromptPartV6)[]
+  readonly definitionId?: string
+  readonly bodySnapshot?: PromptBodySnapshot
   readonly placeholder: string
 }
 
@@ -101,12 +138,14 @@ export interface PromptDefinitionsSnapshot {
 
 export interface PromptSectionSnapshot {
   readonly title: string
+  readonly id?: string
   readonly color: string
   readonly colorIndex: number
   readonly isVirtual: boolean
-  readonly editor: "react-text"
+  readonly editor: "react-text" | "lexical"
   readonly text: string
-  readonly parts: readonly PromptSectionPart[]
+  readonly parts: readonly (PromptSectionPart | PromptPartV6)[]
+  readonly bodySnapshot?: PromptBodySnapshot
   readonly placeholder: string
   readonly dragTitle: string
   readonly dragAria: string
@@ -134,12 +173,14 @@ export type PromptEditorTarget =
       readonly identity: string
     }
 
+type PromptPickerShot = PromptDocument["shots"][number] & { readonly id?: string }
+
 export type PromptPickerOption =
   | { readonly kind: "reference"; readonly reference: PromptReference }
   | { readonly kind: "subject"; readonly subject: PromptSubject; readonly ordinal: number }
   | {
       readonly kind: "shot"
-      readonly shot: PromptDocument["shots"][number]
+      readonly shot: PromptPickerShot
       readonly ordinal: number
     }
   | {
@@ -203,12 +244,29 @@ export class ReferencePromptController {
   #definitionsRoot: HTMLElement | undefined
   #node: ComfyNode
   #references: ReferenceProvider
+  #sessionScope = createPromptSessionScope()
   #document: PromptDocument
+  #documentV6: PromptDocumentV6 | undefined
+  #v6ShotDraft:
+    | {
+        initial: PromptDocumentV6
+        document: PromptDocumentV6
+      }
+    | undefined
+  #bodyRevisions = new Map<string, number>()
+  #bodyEpoch = 0
+  #bodyFlushers = new Set<() => void>()
+  #bodyHandles = new Map<string, PromptRichEditorHandle>()
+  #v6PickerTarget: PromptEditorTargetV6 | undefined
+  #v6PickerReplaceLength = 0
+  #v6RawDraft: string | undefined
+  #v6RawBaseFingerprint = ""
+  #v6RawReferenceFingerprint = ""
   #pickerRange: Range | undefined
   #pickerMode: "reference" | "subject" | "alias" | undefined
   #pickerReferences: PromptReference[] = []
   #pickerSubjects: PromptSubject[] = []
-  #pickerShots: PromptDocument["shots"] = []
+  #pickerShots: PromptPickerShot[] = []
   #pickerCreateSubject: string | undefined
   #pickerAliases: PromptAlias[] = []
   #pickerIndex = 0
@@ -260,12 +318,175 @@ export class ReferencePromptController {
     this.#presetCatalog = normalizePromptPresetCatalog(options.presetCatalog)
     this.#preset = resolvePromptPreset(options.presetId, this.#presetCatalog)
     this.#locale = options.locale ?? detectPromptLocale()
-    const parsed = deserializePromptDocument(serialized)
-    this.#document = parsed.document
-    this.#recoveredFromVersion = parsed.recoveredFromVersion
+    if (serialized === undefined || serialized === null || serialized === "") {
+      this.#documentV6 = createEmptyPromptDocumentV6()
+      this.#document = createEmptyPromptDocumentV6() as unknown as PromptDocument
+      this.#ensureV6RawSession()
+      this.#viewSnapshot = this.#buildViewSnapshot()
+      this.#setHint()
+      return
+    }
+    let candidate: unknown = serialized
+    if (typeof serialized === "string") {
+      try {
+        candidate = JSON.parse(serialized) as unknown
+      } catch {
+        candidate = serialized
+      }
+    }
+    let issues: string[]
+    if (isPromptDocumentV6(candidate)) {
+      const parsed = deserializePromptDocumentV6(candidate)
+      if (parsed.document) {
+        this.#documentV6 = parsed.document
+        this.#document = createEmptyPromptDocumentV6() as unknown as PromptDocument
+        issues = parsed.issues
+        this.#ensureV6RawSession()
+      } else {
+        const recovered = deserializePromptDocument(serialized)
+        this.#documentV6 = undefined
+        this.#document = recovered.document
+        issues = [...parsed.issues, ...recovered.issues]
+        this.#recoveredFromVersion = recovered.recoveredFromVersion
+      }
+    } else {
+      const parsed = deserializePromptDocument(serialized)
+      this.#document = parsed.document
+      this.#recoveredFromVersion = parsed.recoveredFromVersion
+      issues = parsed.issues
+    }
     this.#viewSnapshot = this.#buildViewSnapshot()
-    this.#pendingRenderHint = parsed.issues.join(" ")
+    this.#pendingRenderHint = issues.join(" ")
     this.#setHint(this.#pendingRenderHint)
+  }
+
+  get usesPromptDocumentV6(): boolean {
+    return this.#documentV6 !== undefined
+  }
+
+  get promptSessionScope(): string {
+    return this.#sessionScope
+  }
+
+  getPromptBodySnapshot(target: PromptEditorTargetV6): PromptBodySnapshot | undefined {
+    if (!this.#documentV6) return undefined
+    const owner = this.#v6BodyOwner(target)
+    if (!owner) return undefined
+    const key = this.#v6BodyKey(target)
+    return {
+      target,
+      parts: owner.parts,
+      revision: this.#bodyRevisions.get(key) ?? 0,
+      epoch: this.#bodyEpoch,
+    }
+  }
+
+  applyPromptBodyEdit(edit: PromptBodyEdit): PromptBodyEditResult {
+    if (!this.#documentV6) return { ok: false, reason: "missing-target" }
+    if (this.#v6ShotDraft) return { ok: false, reason: "stale" }
+    if (edit.epoch !== this.#bodyEpoch) return { ok: false, reason: "stale" }
+    const owner = this.#v6BodyOwner(edit.target)
+    if (!owner) return { ok: false, reason: "missing-target" }
+    const key = this.#v6BodyKey(edit.target)
+    const revision = this.#bodyRevisions.get(key) ?? 0
+    if (edit.baseRevision !== revision) return { ok: false, reason: "stale" }
+    let parts: PromptPartV6[]
+    try {
+      parts = normalizePromptPartsV6(edit.parts)
+    } catch {
+      return { ok: false, reason: "invalid" }
+    }
+    if (promptPartsV6Equal(parts, owner.parts)) return { ok: true, revision, editId: edit.editId }
+    try {
+      const next = this.#replaceV6Body(edit.target, parts)
+      this.#documentV6 = assertPromptDocumentV6(next)
+    } catch {
+      return { ok: false, reason: "invalid" }
+    }
+    const nextRevision = revision + 1
+    this.#bodyRevisions.set(key, nextRevision)
+    this.#invalidateV6Snapshots()
+    this.#publishView()
+    this.#notifyShots()
+    this.#node.setDirtyCanvas(true, true)
+    return { ok: true, revision: nextRevision, editId: edit.editId }
+  }
+
+  registerPromptBodyEditor(
+    target: PromptEditorTargetV6,
+    handle: PromptRichEditorHandle | undefined,
+  ): () => void {
+    if (!handle) return () => undefined
+    const flush = (): void => handle.flushAcceptedModel()
+    this.#bodyFlushers.add(flush)
+    const key = this.#v6BodyKey(target)
+    this.#bodyHandles.set(key, handle)
+    return () => {
+      this.#bodyFlushers.delete(flush)
+      if (this.#bodyHandles.get(key) === handle) this.#bodyHandles.delete(key)
+    }
+  }
+
+  handlePromptBodyTrigger(
+    target: PromptEditorTargetV6,
+    trigger: PromptBodyTrigger | undefined,
+  ): void {
+    if (!this.#documentV6) return
+    if (!trigger) {
+      if (this.#v6PickerTarget?.id === target.id) this.#closePicker()
+      return
+    }
+    this.#v6PickerTarget = target
+    this.#v6PickerReplaceLength = trigger.replaceTextLength
+    this.#pickerAnchor = this.#v6EditorElement(target)
+    if (trigger.trigger === "@") this.#updateReferencePicker(trigger.query)
+    else this.#updateV6SubjectPicker(trigger.query, target)
+  }
+
+  resolvePromptPartLabel(part: PromptPartV6): string | undefined {
+    if (part.type === "text") return undefined
+    if (part.type === "mention")
+      return (
+        this.#references().find(
+          (reference) =>
+            reference.referenceId === part.referenceId && reference.mediaKind === part.mediaKind,
+        )?.label ?? part.label
+      )
+    const definition = this.#v6Definition(part.definitionId)
+    return definition?.tag
+  }
+
+  validatePromptBodyParts(target: PromptEditorTargetV6, parts: readonly PromptPartV6[]): boolean {
+    if (!this.#documentV6 || this.#v6ShotDraft || !this.#v6BodyOwner(target)) return false
+    try {
+      assertPromptDocumentV6(this.#replaceV6Body(target, parts))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  parsePromptBodyText(value: string): PromptPartV6[] {
+    if (!this.#documentV6) return [{ type: "text", text: value }]
+    return parsePromptPartsV6(
+      value,
+      this.#references(),
+      this.#v6ShotDraft?.document ?? this.#documentV6,
+    )
+  }
+
+  get rawDraftText(): string | undefined {
+    if (!this.#documentV6) return undefined
+    this.#ensureV6RawSession()
+    return this.#v6RawDraft ?? renderAuthoringPromptV6(this.#documentV6, this.#references())
+  }
+
+  updateRawDraftText(value: string): void {
+    if (!this.#documentV6 || this.#documentV6.view !== "raw") return
+    this.#ensureV6RawSession()
+    this.#v6RawDraft = value
+    this.#publishView()
+    this.#node.setDirtyCanvas(true, true)
   }
 
   mountDefinitions(root: HTMLElement | undefined): void {
@@ -368,7 +589,7 @@ export class ReferencePromptController {
   }
 
   renderReactSectionEditor(title: string, editor: HTMLElement): void {
-    if (this.#destroyed) return
+    if (this.#destroyed || this.#documentV6) return
     const section =
       this.#document.sections.find((candidate) => candidate.title === title) ??
       (title === this.#preset.defaultSectionTitle && this.#document.sections.length === 0
@@ -402,7 +623,7 @@ export class ReferencePromptController {
   }
 
   renderReactRawEditor(editor: HTMLElement): void {
-    if (this.#destroyed || this.#document.view !== "raw") return
+    if (this.#destroyed || this.#documentV6 || this.#document.view !== "raw") return
     editor.replaceChildren()
     this.#appendPromptText(editor, renderAuthoringPrompt(this.#document, this.#references()))
   }
@@ -412,7 +633,7 @@ export class ReferencePromptController {
     identity: string,
     editor: HTMLElement,
   ): void {
-    if (this.#destroyed) return
+    if (this.#destroyed || this.#documentV6) return
     const tag = this.#definitionTag(kind, identity)
     if (!tag) return
     const documentForView = this.#shotDraft?.document ?? this.#document
@@ -555,6 +776,14 @@ export class ReferencePromptController {
   }
 
   renameDefinition(kind: PromptDefinitionKind, identity: string, value: string): boolean {
+    if (this.#documentV6) {
+      if (kind !== "subject" && kind !== "shot") return false
+      const current = this.#v6Definition(identity)
+      const next = normalizePromptTag(normalizeDefinitionTagValue(value.trim()).slice(1))
+      if (!current || !next) return false
+      if (current.tag === next) return true
+      return this.#renameV6Definition(identity, next)
+    }
     const tag = this.#definitionTag(kind, identity)
     const next = normalizePromptTag(normalizeDefinitionTagValue(value.trim()).slice(1))
     if (!tag) return false
@@ -566,11 +795,19 @@ export class ReferencePromptController {
   }
 
   reorderDefinition(kind: PromptDefinitionKind, identity: string, delta: -1 | 1): void {
+    if (this.#documentV6) {
+      this.#moveV6Definition(kind, identity, delta)
+      return
+    }
     const tag = this.#definitionTag(kind, identity)
     if (tag) this.#moveDefinition(kind, tag, delta)
   }
 
   removeDefinition(kind: PromptDefinitionKind, identity: string): void {
+    if (this.#documentV6) {
+      this.#removeV6Definition(kind, identity)
+      return
+    }
     const tag = this.#definitionTag(kind, identity)
     if (tag) this.#removeDefinition(kind, tag)
   }
@@ -600,12 +837,20 @@ export class ReferencePromptController {
     return this.#preset.id
   }
 
-  get document(): PromptDocument {
+  get document(): PromptDocument | PromptDocumentV6 {
+    this.#flushBodyEditors()
+    if (this.#documentV6) return this.#documentV6
     this.#syncDocumentFromEditor()
     return this.#document
   }
 
-  get shots(): readonly PromptDocument["shots"][number][] {
+  get shots(): readonly { tag: string; frameIndex: number }[] {
+    this.#flushBodyEditors()
+    if (this.#documentV6)
+      return (this.#v6ShotDraft?.document.shots ?? this.#documentV6.shots).map((shot) => ({
+        tag: shot.tag,
+        frameIndex: shot.frameIndex,
+      }))
     this.#syncDocumentFromEditor()
     return this.#shotDraft?.document.shots ?? this.#document.shots
   }
@@ -619,6 +864,23 @@ export class ReferencePromptController {
 
   setShotFrame(tag: string, frameIndex: number): boolean {
     if (this.#destroyed || !Number.isSafeInteger(frameIndex) || frameIndex < 0) return false
+    if (this.#documentV6) {
+      const current = this.#documentV6.shots.find((shot) => shot.tag === tag)
+      if (!current || current.frameIndex === frameIndex) return Boolean(current)
+      this.#recordGraphChange(() => {
+        this.#documentV6 = assertPromptDocumentV6({
+          ...this.#documentV6!,
+          shots: this.#documentV6!.shots.map((shot) =>
+            shot.id === current.id ? { ...shot, frameIndex } : shot,
+          ),
+        })
+        this.#invalidateV6Snapshots()
+      })
+      this.#renderEditor()
+      this.#notifyShots()
+      this.#node.setDirtyCanvas(true, true)
+      return true
+    }
     this.#syncDocumentFromEditor(false)
     const current = this.#document.shots.find((shot) => shot.tag === tag)
     if (!current || current.frameIndex === frameIndex) return Boolean(current)
@@ -638,6 +900,28 @@ export class ReferencePromptController {
 
   setShotFrameDraft(tag: string, frameIndex: number): boolean {
     if (this.#destroyed || !Number.isSafeInteger(frameIndex) || frameIndex < 0) return false
+    if (this.#documentV6) {
+      const current = (this.#v6ShotDraft?.document.shots ?? this.#documentV6.shots).find(
+        (shot) => shot.tag === tag,
+      )
+      if (!current || current.frameIndex === frameIndex) return Boolean(current)
+      if (!this.#v6ShotDraft)
+        this.#v6ShotDraft = { initial: this.#documentV6, document: this.#documentV6 }
+      this.#v6ShotDraft = {
+        ...this.#v6ShotDraft,
+        document: assertPromptDocumentV6({
+          ...this.#v6ShotDraft.document,
+          shots: this.#v6ShotDraft.document.shots.map((shot) =>
+            shot.id === current.id ? { ...shot, frameIndex } : shot,
+          ),
+        }),
+      }
+      this.#invalidateV6Snapshots()
+      this.#renderEditor()
+      this.#notifyShots()
+      this.#node.setDirtyCanvas(true, true)
+      return true
+    }
     this.#syncDocumentFromEditor(false)
     const current = (this.#shotDraft?.document.shots ?? this.#document.shots).find(
       (shot) => shot.tag === tag,
@@ -661,6 +945,26 @@ export class ReferencePromptController {
   }
 
   removeShot(tag: string): void {
+    if (this.#documentV6) {
+      const current = (this.#v6ShotDraft?.document.shots ?? this.#documentV6.shots).find(
+        (shot) => shot.tag === tag,
+      )
+      if (!current) return
+      if (!this.#v6ShotDraft)
+        this.#v6ShotDraft = { initial: this.#documentV6, document: this.#documentV6 }
+      this.#v6ShotDraft = {
+        ...this.#v6ShotDraft,
+        document: assertPromptDocumentV6({
+          ...this.#v6ShotDraft.document,
+          shots: this.#v6ShotDraft.document.shots.filter((shot) => shot.id !== current.id),
+        }),
+      }
+      this.#invalidateV6Snapshots()
+      this.#renderEditor()
+      this.#notifyShots()
+      this.#node.setDirtyCanvas(true, true)
+      return
+    }
     this.#syncDocumentFromEditor()
     if (!(this.#shotDraft?.document.shots ?? this.#document.shots).some((shot) => shot.tag === tag))
       return
@@ -679,10 +983,25 @@ export class ReferencePromptController {
   }
 
   applyShotDraft(): boolean {
-    if (this.#destroyed || !this.#shotDraft) return false
+    if (this.#destroyed || (!this.#shotDraft && !this.#v6ShotDraft)) return false
+    if (this.#documentV6 && this.#v6ShotDraft) {
+      this.#recordGraphChange(() => {
+        this.#documentV6 = this.#v6ShotDraft!.document
+        this.#v6ShotDraft = undefined
+        this.#bodyEpoch += 1
+        this.#bodyRevisions.clear()
+        this.#invalidateV6Snapshots()
+      })
+      this.#renderEditor()
+      this.#notifyShots()
+      this.#node.setDirtyCanvas(true, true)
+      return true
+    }
     this.#syncDocumentFromEditor()
+    const shotDraft = this.#shotDraft
+    if (!shotDraft) return false
     const document = {
-      ...this.#shotDraft.document,
+      ...shotDraft.document,
       subjects: this.#document.subjects,
       sections: this.#document.sections,
     }
@@ -697,7 +1016,15 @@ export class ReferencePromptController {
   }
 
   cancelShotDraft(): boolean {
-    if (this.#destroyed || !this.#shotDraft) return false
+    if (this.#destroyed || (!this.#shotDraft && !this.#v6ShotDraft)) return false
+    if (this.#documentV6 && this.#v6ShotDraft) {
+      this.#v6ShotDraft = undefined
+      this.#invalidateV6Snapshots()
+      this.#renderEditor()
+      this.#notifyShots()
+      this.#node.setDirtyCanvas(true, true)
+      return true
+    }
     this.#shotDraft = undefined
     this.#renderEditor()
     this.#notifyShots()
@@ -714,19 +1041,69 @@ export class ReferencePromptController {
   }
 
   get compiledPrompt(): string {
+    this.#flushBodyEditors()
+    if (this.#documentV6) return compilePromptDocumentV6(this.#documentV6, this.#references())
     this.#syncDocumentFromEditor()
     return compilePromptDocument(this.#document, this.#references())
   }
 
   serialize(): string {
+    this.#flushBodyEditors()
+    if (this.#documentV6) return serializePromptDocumentV6(this.#documentV6)
     this.#syncDocumentFromEditor()
     return serializePromptDocument(this.#document)
   }
 
   restore(serialized: unknown): void {
     if (this.#destroyed) return
+    if (serialized === undefined || serialized === null || serialized === "") {
+      this.#shotDraft = undefined
+      this.#v6ShotDraft = undefined
+      this.#documentV6 = createEmptyPromptDocumentV6()
+      this.#document = createEmptyPromptDocumentV6() as unknown as PromptDocument
+      this.#bodyEpoch += 1
+      this.#bodyRevisions.clear()
+      this.#v6RawDraft = undefined
+      this.#ensureV6RawSession()
+      this.#recoveredFromVersion = undefined
+      this.#invalidateV6Snapshots()
+      this.#closePicker()
+      this.#renderEditor()
+      this.#setHint()
+      return
+    }
+    let candidate: unknown = serialized
+    if (typeof serialized === "string") {
+      try {
+        candidate = JSON.parse(serialized) as unknown
+      } catch {
+        candidate = serialized
+      }
+    }
+    if (isPromptDocumentV6(candidate)) {
+      const parsed = deserializePromptDocumentV6(candidate)
+      if (!parsed.document) {
+        this.#setHint(parsed.issues.join(" "))
+        return
+      }
+      this.#shotDraft = undefined
+      this.#v6ShotDraft = undefined
+      this.#documentV6 = parsed.document
+      this.#bodyEpoch += 1
+      this.#bodyRevisions.clear()
+      this.#v6RawDraft = undefined
+      this.#ensureV6RawSession()
+      this.#recoveredFromVersion = undefined
+      this.#invalidateV6Snapshots()
+      this.#closePicker()
+      this.#renderEditor()
+      this.#setHint(parsed.issues.join(" "))
+      return
+    }
     const parsed = deserializePromptDocument(serialized)
     this.#shotDraft = undefined
+    this.#v6ShotDraft = undefined
+    this.#documentV6 = undefined
     this.#document = parsed.document
     this.#recoveredFromVersion = parsed.recoveredFromVersion
     this.#pendingRenderHint = parsed.issues.join(" ")
@@ -739,7 +1116,7 @@ export class ReferencePromptController {
     if (this.#destroyed) return
     const preset = resolvePromptPreset(value, this.#presetCatalog)
     if (preset.id === this.#preset.id) return
-    this.#syncDocumentFromEditor()
+    if (!this.#documentV6) this.#syncDocumentFromEditor()
     this.#preset = preset
     this.#closePicker()
     this.#renderEditor()
@@ -748,8 +1125,27 @@ export class ReferencePromptController {
   refreshReferences(bindByOrder = false): void {
     if (this.#destroyed) return
     const currentReferences = this.#references()
+    if (this.#documentV6) {
+      if (bindByOrder) {
+        this.#documentV6 = rebindPromptMentionsByOrder(
+          this.#documentV6,
+          currentReferences,
+        ) as PromptDocumentV6
+        this.#invalidateV6Snapshots()
+      }
+      if (this.#documentV6.view === "raw") {
+        this.#v6RawDraft = renderAuthoringPromptV6(this.#documentV6, currentReferences)
+        this.#v6RawReferenceFingerprint = this.#v6ReferenceFingerprint()
+      }
+      this.#publishView()
+      this.#setHint()
+      return
+    }
     if (bindByOrder) {
-      this.#document = rebindPromptMentionsByOrder(this.#document, currentReferences)
+      this.#document = rebindPromptMentionsByOrder(
+        this.#document,
+        currentReferences,
+      ) as PromptDocument
     }
     const raw = this.#workspaceRoot?.querySelector<HTMLElement>("[data-prompt-editor]")
     if (this.#document.view === "raw") {
@@ -798,6 +1194,10 @@ export class ReferencePromptController {
     this.#definitionsListeners.clear()
     this.#sectionsListeners.clear()
     this.#pickerListeners.clear()
+    this.#bodyFlushers.clear()
+    this.#bodyHandles.clear()
+    this.#bodyRevisions.clear()
+    this.#v6ShotDraft = undefined
     this.#shotDraft = undefined
     this.#closePicker()
     this.#clearDefinitionDrag()
@@ -810,6 +1210,176 @@ export class ReferencePromptController {
     const roots = this.#workspaceRoot ? [this.#workspaceRoot] : []
     if (this.#definitionsRoot) roots.push(this.#definitionsRoot)
     return roots
+  }
+
+  #v6BodyKey(target: PromptEditorTargetV6): string {
+    return `${target.type}:${target.id}`
+  }
+
+  #v6BodyOwner(
+    target: PromptEditorTargetV6,
+  ):
+    | PromptDocumentV6["sections"][number]
+    | PromptDocumentV6["subjects"][number]
+    | PromptDocumentV6["shots"][number]
+    | undefined {
+    const document = this.#v6ShotDraft?.document ?? this.#documentV6
+    if (!document) return undefined
+    if (target.type === "section")
+      return document.sections.find((section) => section.id === target.id)
+    return (
+      document.subjects.find((subject) => subject.id === target.id) ??
+      document.shots.find((shot) => shot.id === target.id)
+    )
+  }
+
+  #v6Definition(
+    id: string,
+    document: PromptDocumentV6 | undefined = this.#v6ShotDraft?.document ?? this.#documentV6,
+  ): PromptDocumentV6["subjects"][number] | PromptDocumentV6["shots"][number] | undefined {
+    return (
+      document?.subjects.find((subject) => subject.id === id) ??
+      document?.shots.find((shot) => shot.id === id)
+    )
+  }
+
+  #replaceV6Body(target: PromptEditorTargetV6, parts: readonly PromptPartV6[]): PromptDocumentV6 {
+    const document = this.#v6ShotDraft?.document ?? this.#documentV6
+    if (!document) throw new Error("Prompt v6 document is unavailable.")
+    if (target.type === "section")
+      return {
+        ...document,
+        sections: document.sections.map((section) =>
+          section.id === target.id ? { ...section, parts: [...parts] } : section,
+        ),
+      }
+    return {
+      ...document,
+      subjects: document.subjects.map((subject) =>
+        subject.id === target.id ? { ...subject, parts: [...parts] } : subject,
+      ),
+      shots: document.shots.map((shot) =>
+        shot.id === target.id ? { ...shot, parts: [...parts] } : shot,
+      ),
+    }
+  }
+
+  #invalidateV6Snapshots(): void {
+    this.#viewSnapshot = undefined
+    this.#sectionsSnapshot = undefined
+    this.#definitionsSnapshot = undefined
+    this.#pickerSnapshot = undefined
+  }
+
+  #v6EditorElement(target: PromptEditorTargetV6): HTMLElement | undefined {
+    if (target.type === "section") {
+      if (!this.#workspaceRoot) return undefined
+      const section = this.#documentV6?.sections.find((candidate) => candidate.id === target.id)
+      return section
+        ? (this.#workspaceRoot.querySelector<HTMLElement>(
+            `[data-prompt-section-body="${CSS.escape(section.title)}"]`,
+          ) ?? undefined)
+        : undefined
+    }
+    return (
+      this.#definitionsRoot?.querySelector<HTMLElement>(
+        `[data-prompt-definition-identity="${CSS.escape(target.id)}"] [data-prompt-react-editor]`,
+      ) ?? undefined
+    )
+  }
+
+  #updateV6SubjectPicker(query: string, target: PromptEditorTargetV6): void {
+    if (!this.#documentV6) return
+    this.#pickerMode = "subject"
+    this.#pickerReferences = []
+    this.#pickerAliases = []
+    const normalized = query.trim().toLocaleLowerCase()
+    this.#pickerSubjects = this.#documentV6.subjects
+      .filter((subject, index) =>
+        [subject.tag, `subject${index + 1}`, `<Subject ${index + 1}>`].some((value) =>
+          value.toLocaleLowerCase().includes(normalized),
+        ),
+      )
+      .map((subject) => ({ tag: subject.tag, parts: [], subjectId: subject.id }))
+    this.#pickerShots = this.#documentV6.shots
+      .filter((shot) => shot.tag.toLocaleLowerCase().includes(normalized))
+      .map((shot) => ({ tag: shot.tag, frameIndex: shot.frameIndex, parts: [], id: shot.id }))
+    const label = normalizeSubjectLabel(query)
+    const body = this.#v6EditorElement(target)
+    const creationAllowed =
+      this.#preset.subjectMode === "anywhere" ||
+      (this.#preset.subjectMode === "definitions" &&
+        (body?.closest("[data-prompt-section-body]")?.getAttribute("data-prompt-section-body") ===
+          "subject_definitions" ||
+          Boolean(body?.closest("[data-prompt-definition-body]"))))
+    this.#pickerCreateSubject =
+      creationAllowed &&
+      label &&
+      ![...this.#documentV6.subjects, ...this.#documentV6.shots].some(
+        (definition) => definition.tag.toLowerCase() === label.toLowerCase(),
+      )
+        ? label
+        : undefined
+    this.#pickerIndex = Math.min(this.#pickerIndex, Math.max(0, this.#pickerOptionCount() - 1))
+    this.#pickerAnchor = body
+    this.#publishPicker()
+  }
+
+  #flushBodyEditors(): void {
+    if (!this.#documentV6 || this.#bodyFlushers.size === 0) return
+    for (const flush of [...this.#bodyFlushers]) flush()
+  }
+
+  #v6ReferenceFingerprint(): string {
+    return JSON.stringify(
+      this.#references().map((reference) => [
+        reference.mediaKind,
+        reference.referenceId,
+        reference.label,
+        reference.ordinal,
+      ]),
+    )
+  }
+
+  #ensureV6RawSession(): void {
+    if (!this.#documentV6 || this.#documentV6.view !== "raw" || this.#v6RawDraft !== undefined)
+      return
+    this.#v6RawDraft = renderAuthoringPromptV6(this.#documentV6, this.#references())
+    this.#v6RawBaseFingerprint = serializePromptDocumentV6(this.#documentV6)
+    this.#v6RawReferenceFingerprint = this.#v6ReferenceFingerprint()
+  }
+
+  #applyV6RawDraft(): boolean {
+    if (!this.#documentV6) return false
+    this.#ensureV6RawSession()
+    if (this.#v6RawReferenceFingerprint !== this.#v6ReferenceFingerprint()) {
+      this.#setHint("References changed while Raw Import was open. Reopen Raw and apply again.")
+      return false
+    }
+    if (this.#v6RawBaseFingerprint !== serializePromptDocumentV6(this.#documentV6)) {
+      this.#setHint("Prompt changed while Raw Import was open. Reopen Raw and apply again.")
+      return false
+    }
+    try {
+      const next = parseAuthoringPromptV6(
+        this.#v6RawDraft ?? "",
+        this.#references(),
+        this.#documentV6,
+      )
+      this.#recordGraphChange(() => {
+        this.#documentV6 = next
+        this.#bodyEpoch += 1
+        this.#bodyRevisions.clear()
+        this.#v6RawDraft = undefined
+        this.#v6RawBaseFingerprint = ""
+        this.#v6RawReferenceFingerprint = ""
+        this.#invalidateV6Snapshots()
+      })
+      return true
+    } catch (error) {
+      this.#setHint(error instanceof Error ? error.message : "Raw Prompt is invalid.")
+      return false
+    }
   }
 
   #isReactTextEditor(target: EventTarget | null): boolean {
@@ -826,6 +1396,14 @@ export class ReferencePromptController {
   }
 
   #definitionTag(kind: PromptDefinitionKind, identity: string): string | undefined {
+    if (this.#documentV6) {
+      const definition = this.#v6Definition(identity)
+      return definition &&
+        ((kind === "subject" && this.#documentV6.subjects.some((item) => item.id === identity)) ||
+          (kind === "shot" && this.#documentV6.shots.some((item) => item.id === identity)))
+        ? definition.tag
+        : undefined
+    }
     for (const [tag, candidate] of this.#definitionIdentities[kind])
       if (candidate === identity) return tag
     return undefined
@@ -857,9 +1435,40 @@ export class ReferencePromptController {
     identity: string
     ordinal: number
     frameIndex?: number
-    parts: readonly PromptSectionPart[]
+    parts: readonly (PromptSectionPart | PromptPartV6)[]
     placeholder: string
   }[] {
+    if (this.#documentV6) {
+      const document = this.#v6ShotDraft?.document ?? this.#documentV6
+      const placeholder = localize(
+        this.#preset.subjectMode === "disabled"
+          ? PROMPT_MESSAGES.bodyPlaceholder
+          : PROMPT_MESSAGES.bodyPlaceholderWithSubjects,
+        this.#locale,
+      )
+      const subjects = document.subjects.map((subject, index) => ({
+        kind: "subject" as const,
+        tag: subject.tag,
+        identity: subject.id,
+        definitionId: subject.id,
+        ordinal: index + 1,
+        parts: subject.parts,
+        bodySnapshot: this.getPromptBodySnapshot({ type: "definition", id: subject.id }),
+        placeholder,
+      }))
+      const shots = document.shots.map((shot, index) => ({
+        kind: "shot" as const,
+        tag: shot.tag,
+        identity: shot.id,
+        definitionId: shot.id,
+        ordinal: index + 1,
+        frameIndex: shot.frameIndex,
+        parts: shot.parts,
+        bodySnapshot: this.getPromptBodySnapshot({ type: "definition", id: shot.id }),
+        placeholder,
+      }))
+      return [...subjects, ...shots]
+    }
     this.#pruneDefinitionIdentities(this.#document)
     const subjects = this.#document.subjects.flatMap((subject, index) => {
       const tag = subject.tag ?? subject.label ?? subject.subjectId
@@ -903,12 +1512,62 @@ export class ReferencePromptController {
     return {
       subjects: records.filter((record) => record.kind === "subject"),
       shots: records.filter((record) => record.kind === "shot"),
-      draft: this.#shotDraft !== undefined,
+      draft: this.#shotDraft !== undefined || this.#v6ShotDraft !== undefined,
       mounted: this.#definitionsRoot !== undefined,
     }
   }
 
   #buildSectionsSnapshot(): PromptSectionsSnapshot {
+    if (this.#documentV6) {
+      const document = this.#documentV6
+      const placeholder = localize(
+        this.#preset.subjectMode === "disabled"
+          ? PROMPT_MESSAGES.bodyPlaceholder
+          : PROMPT_MESSAGES.bodyPlaceholderWithSubjects,
+        this.#locale,
+      )
+      return {
+        view: document.view,
+        sections: document.sections.map((section) => {
+          const accent = sectionColor(section.title)
+          return {
+            title: section.title,
+            id: section.id,
+            color: accent.color,
+            colorIndex: accent.index,
+            isVirtual: false,
+            editor: "lexical" as const,
+            text: section.parts
+              .map((part) =>
+                part.type === "text"
+                  ? part.text
+                  : part.type === "mention"
+                    ? `@${this.resolvePromptPartLabel(part) ?? part.label}`
+                    : `#${this.resolvePromptPartLabel(part) ?? part.definitionId}`,
+              )
+              .join(""),
+            parts: section.parts,
+            bodySnapshot: this.getPromptBodySnapshot({ type: "section", id: section.id }),
+            placeholder,
+            dragTitle:
+              this.#locale === "ko"
+                ? `${section.title} 섹션 순서 이동`
+                : `Reorder ${section.title} section`,
+            dragAria:
+              this.#locale === "ko"
+                ? `${section.title} 섹션 순서 이동. Alt와 위아래 화살표도 사용할 수 있습니다.`
+                : `Reorder ${section.title} section. You can also use Alt plus Up or Down.`,
+            removeTitle:
+              this.#locale === "ko" ? `${section.title} 제거` : `Remove ${section.title}`,
+            removeAria:
+              this.#locale === "ko"
+                ? `${section.title} 섹션 제거`
+                : `Remove ${section.title} section`,
+          }
+        }),
+        mounted: this.#workspaceRoot !== undefined,
+      }
+    }
     const sections =
       this.#document.sections.length > 0
         ? this.#document.sections.map((section) => ({ section, isVirtual: false }))
@@ -970,14 +1629,20 @@ export class ReferencePromptController {
                 kind: "subject" as const,
                 subject,
                 ordinal:
-                  this.#document.subjects.findIndex(
-                    (candidate) => subjectTag(candidate) === subjectTag(subject),
-                  ) + 1,
+                  (this.#documentV6
+                    ? this.#documentV6.subjects.findIndex(
+                        (candidate) => candidate.id === subject.subjectId,
+                      )
+                    : this.#document.subjects.findIndex(
+                        (candidate) => subjectTag(candidate) === subjectTag(subject),
+                      )) + 1,
               })),
               ...this.#pickerShots.map((shot) => ({
                 kind: "shot" as const,
                 shot,
-                ordinal: this.#document.shots.indexOf(shot) + 1,
+                ordinal: this.#documentV6
+                  ? this.#documentV6.shots.findIndex((candidate) => candidate.id === shot.id) + 1
+                  : this.#document.shots.indexOf(shot) + 1,
               })),
               ...(this.#pickerCreateSubject
                 ? [
@@ -1052,12 +1717,16 @@ export class ReferencePromptController {
         return (
           candidate &&
           section.title === candidate.title &&
+          section.id === candidate.id &&
           section.color === candidate.color &&
           section.colorIndex === candidate.colorIndex &&
           section.isVirtual === candidate.isVirtual &&
           section.editor === candidate.editor &&
           section.text === candidate.text &&
           JSON.stringify(section.parts) === JSON.stringify(candidate.parts) &&
+          section.bodySnapshot?.target.id === candidate.bodySnapshot?.target.id &&
+          section.bodySnapshot?.revision === candidate.bodySnapshot?.revision &&
+          section.bodySnapshot?.epoch === candidate.bodySnapshot?.epoch &&
           section.placeholder === candidate.placeholder &&
           section.dragTitle === candidate.dragTitle &&
           section.dragAria === candidate.dragAria &&
@@ -1086,7 +1755,10 @@ export class ReferencePromptController {
           record.ordinal === right[index]?.ordinal &&
           record.frameIndex === right[index]?.frameIndex &&
           record.placeholder === right[index]?.placeholder &&
-          JSON.stringify(record.parts) === JSON.stringify(right[index]?.parts),
+          JSON.stringify(record.parts) === JSON.stringify(right[index]?.parts) &&
+          record.bodySnapshot?.target.id === right[index]?.bodySnapshot?.target.id &&
+          record.bodySnapshot?.revision === right[index]?.bodySnapshot?.revision &&
+          record.bodySnapshot?.epoch === right[index]?.bodySnapshot?.epoch,
       )
     if (
       !force &&
@@ -1118,6 +1790,47 @@ export class ReferencePromptController {
 
   #buildViewSnapshot(): PromptViewSnapshot {
     const presetLabel = localize(this.#preset.label, this.#locale)
+    const document = this.#documentV6
+    if (document) {
+      this.#ensureV6RawSession()
+      return {
+        view: document.view,
+        presetId: this.#preset.id,
+        presetLabel,
+        presetDescription: localize(this.#preset.description, this.#locale),
+        editorAria: localize(PROMPT_MESSAGES.editorAria, this.#locale),
+        clearLabel: localize(PROMPT_MESSAGES.clear, this.#locale),
+        clearTitle: localize(PROMPT_MESSAGES.clearTitle, this.#locale),
+        clearAria: localize(PROMPT_MESSAGES.clearAria, this.#locale),
+        toggleAria: localize(PROMPT_MESSAGES.toggleAria, this.#locale),
+        structuredLabel: localize(PROMPT_MESSAGES.structured, this.#locale),
+        rawLabel: localize(PROMPT_MESSAGES.raw, this.#locale),
+        backToStructuredTitle: localize(PROMPT_MESSAGES.backToStructured, this.#locale),
+        showRawTitle: localize(PROMPT_MESSAGES.showRaw, this.#locale),
+        title: localize(PROMPT_MESSAGES.prompt, this.#locale),
+        subtitle: localize(
+          this.#preset.subjectMode === "disabled"
+            ? PROMPT_MESSAGES.subtitle
+            : PROMPT_MESSAGES.subtitleWithSubjects,
+          this.#locale,
+        ),
+        rawPlaceholder: localize(PROMPT_MESSAGES.rawPlaceholder, this.#locale),
+        sectionEntryPlaceholder: localize(PROMPT_MESSAGES.addSectionPlaceholder, this.#locale),
+        sectionEntryAria: localize(PROMPT_MESSAGES.addSectionAria, this.#locale),
+        sourceText:
+          document.view === "raw"
+            ? (this.#v6RawDraft ?? "")
+            : renderAuthoringPromptV6(document, this.#references()),
+        compiledText: compilePromptDocumentV6(document, this.#references()),
+        canClear: document.sections.length > 0,
+        hint: this.#hintText,
+        nativeHosts: {
+          workspace: this.#workspaceRoot !== undefined,
+          picker: this.#pickerElement !== undefined,
+          definitions: this.#definitionsRoot !== undefined,
+        },
+      }
+    }
     return {
       view: this.#document.view,
       presetId: this.#preset.id,
@@ -1217,6 +1930,7 @@ export class ReferencePromptController {
 
   #syncDocumentFromEditor(syncShotFrames = true): void {
     if (this.#destroyed) return
+    if (this.#documentV6) return
     const workspace = this.#workspaceRoot
     if (this.#document.view === "raw") {
       const editor = workspace?.querySelector<HTMLElement>("[data-prompt-editor]")
@@ -1312,9 +2026,114 @@ export class ReferencePromptController {
     return true
   }
 
+  #renameV6Definition(definitionId: string, tag: string): boolean {
+    if (!this.#documentV6) return false
+    if (
+      [...this.#documentV6.subjects, ...this.#documentV6.shots].some(
+        (definition) => definition.tag === tag && definition.id !== definitionId,
+      )
+    ) {
+      this.#setHint("Subject and Shot tags must be unique.")
+      return false
+    }
+    try {
+      this.#recordGraphChange(() => {
+        this.#documentV6 = renamePromptDefinitionV6(this.#documentV6!, definitionId, tag)
+        this.#invalidateV6Snapshots()
+      })
+    } catch (error) {
+      this.#setHint(error instanceof Error ? error.message : "Definition tag is invalid.")
+      return false
+    }
+    this.#closePicker()
+    this.#renderEditor()
+    this.#notifyShots()
+    this.#node.setDirtyCanvas(true, true)
+    return true
+  }
+
+  #moveV6Definition(kind: PromptDefinitionKind, definitionId: string, delta: -1 | 1): void {
+    if (!this.#documentV6 || this.#v6ShotDraft) return
+    const values = kind === "subject" ? [...this.#documentV6.subjects] : [...this.#documentV6.shots]
+    const index = values.findIndex((definition) => definition.id === definitionId)
+    const target = Math.max(0, Math.min(values.length - 1, index + delta))
+    if (index < 0 || index === target) return
+    const [item] = values.splice(index, 1)
+    if (!item) return
+    values.splice(target, 0, item)
+    this.#recordGraphChange(() => {
+      this.#documentV6 = assertPromptDocumentV6(
+        kind === "subject"
+          ? { ...this.#documentV6!, subjects: values }
+          : { ...this.#documentV6!, shots: values },
+      )
+      this.#invalidateV6Snapshots()
+    })
+    this.#closePicker()
+    this.#renderEditor()
+    this.#notifyShots()
+    this.#node.setDirtyCanvas(true, true)
+  }
+
+  #removeV6Definition(kind: PromptDefinitionKind, definitionId: string): void {
+    if (!this.#documentV6 || this.#v6ShotDraft) return
+    const definition = this.#v6Definition(definitionId)
+    if (
+      !definition ||
+      (kind === "subject" && !this.#documentV6.subjects.some((item) => item.id === definitionId)) ||
+      (kind === "shot" && !this.#documentV6.shots.some((item) => item.id === definitionId))
+    )
+      return
+    try {
+      this.#recordGraphChange(() => {
+        this.#documentV6 = removePromptDefinitionV6(this.#documentV6!, definitionId)
+        this.#bodyEpoch += 1
+        this.#bodyRevisions.delete(`definition:${definitionId}`)
+        this.#invalidateV6Snapshots()
+      })
+    } catch (error) {
+      this.#setHint(error instanceof Error ? error.message : "Definition is still referenced.")
+      return
+    }
+    this.#closePicker()
+    this.#renderEditor()
+    this.#notifyShots()
+    this.#node.setDirtyCanvas(true, true)
+  }
+
   #addDefinition(kind: "subject" | "shot"): void {
     if (this.#shotDraft) {
       this.#setHint("Apply or cancel the current Shot timing edit first.")
+      return
+    }
+    if (this.#documentV6) {
+      let index = 1
+      let tag = `${kind}_${index}`
+      while (
+        [...this.#documentV6.subjects, ...this.#documentV6.shots].some(
+          (definition) => definition.tag === tag,
+        )
+      )
+        tag = `${kind}_${++index}`
+      const id = createPromptDefinitionId()
+      this.#recordGraphChange(() => {
+        this.#documentV6 = assertPromptDocumentV6(
+          kind === "subject"
+            ? {
+                ...this.#documentV6!,
+                subjects: [...this.#documentV6!.subjects, { id, tag, parts: [] }],
+              }
+            : {
+                ...this.#documentV6!,
+                shots: [...this.#documentV6!.shots, { id, tag, frameIndex: 0, parts: [] }],
+              },
+        )
+        this.#invalidateV6Snapshots()
+      })
+      this.#closePicker()
+      this.#renderEditor()
+      this.#notifyShots()
+      this.#node.setDirtyCanvas(true, true)
       return
     }
     this.#syncDocumentFromEditor()
@@ -1448,6 +2267,22 @@ export class ReferencePromptController {
   }
 
   #toggleView(): void {
+    if (this.#documentV6) {
+      if (this.#documentV6.view === "raw") {
+        if (!this.#applyV6RawDraft()) return
+        this.#documentV6 = { ...this.#documentV6, view: "structured" }
+      } else {
+        this.#documentV6 = { ...this.#documentV6, view: "raw" }
+        this.#v6RawDraft = undefined
+        this.#ensureV6RawSession()
+      }
+      this.#recoveredFromVersion = undefined
+      this.#closePicker()
+      this.#invalidateV6Snapshots()
+      this.#renderEditor()
+      this.#node.setDirtyCanvas(true, true)
+      return
+    }
     this.#syncDocumentFromEditor()
     this.#recoveredFromVersion = undefined
     this.#document = {
@@ -1460,6 +2295,18 @@ export class ReferencePromptController {
   }
 
   #clearPrompt(): void {
+    if (this.#documentV6) {
+      if (this.#documentV6.sections.length === 0) return
+      this.#documentV6 = { ...this.#documentV6, sections: [] }
+      this.#bodyEpoch += 1
+      this.#bodyRevisions.clear()
+      this.#closePicker()
+      this.#invalidateV6Snapshots()
+      this.#renderEditor()
+      this.#setHint(localize(PROMPT_MESSAGES.cleared, this.#locale))
+      this.#node.setDirtyCanvas(true, true)
+      return
+    }
     this.#syncDocumentFromEditor()
     if (this.#document.sections.length === 0) return
     this.#document = { ...this.#document, sections: [] }
@@ -1478,6 +2325,22 @@ export class ReferencePromptController {
   }
 
   async #copyPrompt(compiled: boolean): Promise<void> {
+    if (this.#documentV6) {
+      this.#flushBodyEditors()
+      const prompt = compiled
+        ? compilePromptDocumentV6(this.#documentV6, this.#references())
+        : renderAuthoringPromptV6(this.#documentV6, this.#references())
+      if (!prompt) return
+      try {
+        const writeText = globalThis.navigator?.clipboard?.writeText
+        if (!writeText) throw new Error("Clipboard API is unavailable.")
+        await writeText.call(globalThis.navigator.clipboard, prompt)
+        if (!this.#destroyed) this.#setHint(localize(PROMPT_MESSAGES.copied, this.#locale))
+      } catch {
+        if (!this.#destroyed) this.#setHint(localize(PROMPT_MESSAGES.copyFailed, this.#locale))
+      }
+      return
+    }
     this.#syncDocumentFromEditor()
     const prompt = compiled
       ? compilePromptDocument(this.#document, this.#references())
@@ -1509,6 +2372,28 @@ export class ReferencePromptController {
   }
 
   #addOrFocusSection(title: string): void {
+    if (this.#documentV6) {
+      const existing = this.#documentV6.sections.find((section) => section.title === title)
+      if (existing) {
+        this.#closePicker()
+        return
+      }
+      const id = createPromptDefinitionId()
+      this.#documentV6 = assertPromptDocumentV6({
+        ...this.#documentV6,
+        view: "structured",
+        sections: [...this.#documentV6.sections, { id, title, parts: [] }],
+      })
+      this.#closePicker()
+      this.#invalidateV6Snapshots()
+      this.#renderEditor()
+      const body = this.#workspaceRoot?.querySelector<HTMLElement>(
+        `[data-prompt-section-body="${CSS.escape(title)}"]`,
+      )
+      if (body) placeCaretAtEnd(body)
+      this.#node.setDirtyCanvas(true, true)
+      return
+    }
     this.#syncDocumentFromEditor()
     const entry = this.#workspaceRoot?.querySelector<HTMLElement>("[data-prompt-section-entry]")
     const existing = this.#workspaceRoot?.querySelector<HTMLElement>(
@@ -1531,6 +2416,20 @@ export class ReferencePromptController {
   }
 
   #removeSection(title: string): void {
+    if (this.#documentV6) {
+      if (!this.#documentV6.sections.some((section) => section.title === title)) return
+      this.#documentV6 = assertPromptDocumentV6({
+        ...this.#documentV6,
+        sections: this.#documentV6.sections.filter((section) => section.title !== title),
+      })
+      this.#bodyEpoch += 1
+      this.#bodyRevisions.clear()
+      this.#closePicker()
+      this.#invalidateV6Snapshots()
+      this.#renderEditor()
+      this.#node.setDirtyCanvas(true, true)
+      return
+    }
     this.#syncDocumentFromEditor()
     const sections = this.#document.sections.filter((section) => section.title !== title)
     this.#document = {
@@ -1544,6 +2443,29 @@ export class ReferencePromptController {
   }
 
   #moveSection(title: string, delta: -1 | 1): void {
+    if (this.#documentV6) {
+      const sourceIndex = this.#documentV6.sections.findIndex((section) => section.title === title)
+      const targetIndex = Math.max(
+        0,
+        Math.min(this.#documentV6.sections.length - 1, sourceIndex + delta),
+      )
+      if (sourceIndex < 0 || sourceIndex === targetIndex) return
+      const sections = [...this.#documentV6.sections]
+      const [section] = sections.splice(sourceIndex, 1)
+      if (!section) return
+      sections.splice(targetIndex, 0, section)
+      this.#recordGraphChange(() => {
+        this.#documentV6 = assertPromptDocumentV6({ ...this.#documentV6!, sections })
+        this.#closePicker()
+        this.#invalidateV6Snapshots()
+        this.#renderEditor()
+      })
+      this.#node.setDirtyCanvas(true, true)
+      this.#workspaceRoot
+        ?.querySelector<HTMLElement>(`[data-prompt-section-drag-handle="${CSS.escape(title)}"]`)
+        ?.focus()
+      return
+    }
     this.#syncDocumentFromEditor()
     const sourceIndex = this.#document.sections.findIndex((section) => section.title === title)
     const targetIndex = Math.max(
@@ -1595,7 +2517,7 @@ export class ReferencePromptController {
       event.target instanceof Element
         ? event.target.closest<HTMLElement>("[data-prompt-definition]")
         : undefined
-    if (!tag || this.#shotDraft) {
+    if (!tag || this.#shotDraft || this.#v6ShotDraft) {
       event.preventDefault()
       return
     }
@@ -1647,6 +2569,36 @@ export class ReferencePromptController {
     }
     event.preventDefault()
     event.stopPropagation()
+    if (this.#documentV6) {
+      const values =
+        source.kind === "subject" ? [...this.#documentV6.subjects] : [...this.#documentV6.shots]
+      const sourceIndex = values.findIndex((definition) => definition.tag === source.tag)
+      if (sourceIndex < 0) {
+        this.#clearDefinitionDrag()
+        return
+      }
+      const [item] = values.splice(sourceIndex, 1)
+      const targetIndex = values.findIndex((definition) => definition.tag === targetTag)
+      if (!item || targetIndex < 0) {
+        this.#clearDefinitionDrag()
+        return
+      }
+      values.splice(targetIndex + (after ? 1 : 0), 0, item)
+      this.#recordGraphChange(() => {
+        this.#documentV6 = assertPromptDocumentV6(
+          source.kind === "subject"
+            ? { ...this.#documentV6!, subjects: values }
+            : { ...this.#documentV6!, shots: values },
+        )
+        this.#closePicker()
+        this.#invalidateV6Snapshots()
+        this.#renderEditor()
+      })
+      this.#notifyShots()
+      this.#node.setDirtyCanvas(true, true)
+      this.#clearDefinitionDrag()
+      return
+    }
     this.#syncDocumentFromEditor()
     const values =
       source.kind === "subject" ? [...this.#document.subjects] : [...this.#document.shots]
@@ -1719,6 +2671,34 @@ export class ReferencePromptController {
     }
     event.preventDefault()
     event.stopPropagation()
+    if (this.#documentV6) {
+      const sourceIndex = this.#documentV6.sections.findIndex(
+        (section) => section.title === sourceTitle,
+      )
+      const targetIndex = this.#documentV6.sections.findIndex(
+        (section) => section.title === targetTitle,
+      )
+      if (sourceIndex < 0 || targetIndex < 0) {
+        this.#clearSectionDrag()
+        return
+      }
+      this.#recordGraphChange(() => {
+        const sections = [...this.#documentV6!.sections]
+        const [section] = sections.splice(sourceIndex, 1)
+        if (!section) return
+        const adjustedTargetIndex = sections.findIndex(
+          (candidate) => candidate.title === targetTitle,
+        )
+        sections.splice(adjustedTargetIndex + (after ? 1 : 0), 0, section)
+        this.#documentV6 = assertPromptDocumentV6({ ...this.#documentV6!, sections })
+        this.#closePicker()
+        this.#invalidateV6Snapshots()
+        this.#renderEditor()
+        this.#node.setDirtyCanvas(true, true)
+      })
+      this.#clearSectionDrag()
+      return
+    }
     this.#syncDocumentFromEditor()
     const sourceIndex = this.#document.sections.findIndex(
       (section) => section.title === sourceTitle,
@@ -1903,7 +2883,17 @@ export class ReferencePromptController {
   }
 
   #insertMention(reference: PromptReference | undefined): void {
-    if (!reference || !this.#pickerRange) return
+    if (!reference) return
+    if (this.#documentV6) {
+      this.#insertV6Part({
+        type: "mention",
+        referenceId: reference.referenceId,
+        mediaKind: reference.mediaKind,
+        label: reference.label,
+      })
+      return
+    }
+    if (!this.#pickerRange) return
     const selection = globalThis.getSelection?.()
     const chip = makeMentionChip(
       {
@@ -1930,7 +2920,13 @@ export class ReferencePromptController {
   }
 
   #insertSubject(subject: PromptSubject | undefined): void {
-    if (!subject || !this.#pickerRange) return
+    if (!subject) return
+    if (this.#documentV6) {
+      if (subject.subjectId)
+        this.#insertV6Part({ type: "definition-ref", definitionId: subject.subjectId })
+      return
+    }
+    if (!this.#pickerRange) return
     const selection = globalThis.getSelection?.()
     this.#pickerRange.deleteContents()
     const text = document.createTextNode(`#${subject.tag} `)
@@ -1953,7 +2949,13 @@ export class ReferencePromptController {
   }
 
   #insertShot(shot: PromptDocument["shots"][number] | undefined): void {
-    if (!shot || !this.#pickerRange) return
+    if (!shot) return
+    if (this.#documentV6) {
+      const id = (shot as PromptPickerShot).id
+      if (id) this.#insertV6Part({ type: "definition-ref", definitionId: id })
+      return
+    }
+    if (!this.#pickerRange) return
     const selection = globalThis.getSelection?.()
     this.#pickerRange.deleteContents()
     const text = document.createTextNode(`#${shot.tag} `)
@@ -1977,9 +2979,22 @@ export class ReferencePromptController {
 
   #createAndInsertSubject(label: string | undefined): void {
     if (!label) return
+    if (this.#documentV6) {
+      if (this.#documentV6.subjects.some((candidate) => candidate.tag === label)) return
+      const id = createPromptDefinitionId()
+      this.#documentV6 = assertPromptDocumentV6({
+        ...this.#documentV6,
+        subjects: [...this.#documentV6.subjects, { id, tag: label, parts: [] }],
+      })
+      this.#invalidateV6Snapshots()
+      this.#renderEditor()
+      this.#insertV6Part({ type: "definition-ref", definitionId: id })
+      return
+    }
     const subject = { tag: label, parts: [] as PromptSectionPart[] }
     if (this.#document.subjects.some((candidate) => candidate.tag === label)) return
     this.#document.subjects.push(subject)
+    this.#publishDefinitions()
     this.#insertSubject(subject)
   }
 
@@ -2007,6 +3022,15 @@ export class ReferencePromptController {
     } else this.#insertMention(this.#pickerReferences[this.#pickerIndex])
   }
 
+  #insertV6Part(part: PromptPartV6): void {
+    if (!this.#v6PickerTarget) return
+    const handle = this.#bodyHandles.get(this.#v6BodyKey(this.#v6PickerTarget))
+    if (!handle) return
+    handle.insertParts([part], this.#v6PickerReplaceLength)
+    this.#closePicker()
+    this.#node.setDirtyCanvas(true, true)
+  }
+
   #closePicker(): void {
     this.#pickerRange = undefined
     this.#pickerAnchor = undefined
@@ -2017,6 +3041,8 @@ export class ReferencePromptController {
     this.#pickerAliases = []
     this.#pickerIndex = 0
     this.#pickerTarget = undefined
+    this.#v6PickerTarget = undefined
+    this.#v6PickerReplaceLength = 0
     this.#publishPicker()
   }
 }

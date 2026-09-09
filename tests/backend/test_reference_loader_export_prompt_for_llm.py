@@ -58,9 +58,9 @@ def _bundle(module):
     '{"sections":[{"parts":[{"text":"<Subject 1> uses ","type":"text"},'
     '{"label":"image1","mediaKind":"image","referenceId":"image",'
     '"type":"mention"},{"text":" carefully","type":"text"}],'
-    '"title":"detailed_description"},{"parts":[{"text":"N/A",'
-    '"type":"text"}],"title":"non_diegetic_music"}],'
-    '"shots":[],"subjects":[],"version":5}'
+    '"title":"detailed_description","id":"description-section"},{"parts":[{"text":"N/A",'
+    '"type":"text"}],"title":"non_diegetic_music","id":"music-section"}],'
+    '"shots":[],"subjects":[],"version":6,"view":"structured"}'
   )
   return module.ReferenceLoaderBundle(
     images=("image-payload",),

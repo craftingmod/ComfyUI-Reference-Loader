@@ -174,7 +174,7 @@ describe("Reference Loader stylesheet", () => {
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
     expect(first.href).toBe(
-      "https://example.test/extensions/comfyui-reference-loader/index.css?v=20",
+      "https://example.test/extensions/comfyui-reference-loader/index.css?v=21",
     )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })
@@ -275,6 +275,21 @@ describe("Reference Loader stylesheet", () => {
     expect(promptTagHeaderRule).toContain("border-radius: 3px 0 0 3px;")
     expect(css).toContain("content: attr(data-prompt-tag-header);")
     expect(css).toContain("--rl-prompt-tag-color: #2f8f60;")
+  })
+
+  it("resets Lexical paragraph margins and styles the empty-editor helper", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
+    ).text()
+    const paragraphRule = css.match(
+      /\.reference-prompt \.rl-prompt-editor > p\s*,\s*\.reference-prompt-definitions \.rl-prompt-editor > p\s*\{([^}]*)\}/,
+    )?.[1]
+    const hintRule = css.match(/\.rl-prompt-editor__hint\s*\{([^}]*)\}/)?.[1]
+
+    expect(paragraphRule).toContain("margin: 0;")
+    expect(hintRule).toContain("display: block;")
+    expect(hintRule).toContain("border-radius: 6px;")
+    expect(hintRule).toContain("overflow-wrap: anywhere;")
   })
 
   it("uses the green Shot accent in the Timeline lane", async () => {

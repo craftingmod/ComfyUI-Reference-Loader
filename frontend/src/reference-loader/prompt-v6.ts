@@ -1,14 +1,25 @@
-import type {
-  PromptDocument as PromptDocumentV5,
-  PromptMediaKind,
-  PromptReference,
-  PromptSectionPart as PromptSectionPartV5,
-} from "./prompt-state.ts"
-
 /** The persisted Prompt document contract. Lexical JSON never crosses this boundary. */
 export const PROMPT_DOCUMENT_VERSION = 6 as const
 
+export const MAX_PROMPT_STATE_CHARACTERS = 250_000
+export const MAX_PROMPT_TEXT_CHARACTERS = 100_000
+export const MAX_PROMPT_SECTION_TITLE_CHARACTERS = 64
+export const MAX_PROMPT_DEFINITION_TAG_CHARACTERS = 64
+
+export type PromptMediaKind = "image" | "video" | "audio"
+export type PromptViewMode = "structured" | "raw"
 export type PromptPartMediaKind = PromptMediaKind
+
+export interface PromptReference {
+  referenceId: string
+  itemId: string
+  mediaKind: PromptMediaKind
+  ordinal: number
+  tag: string
+  label: string
+  filename: string
+  previewUrl?: string
+}
 
 export interface PromptTextPartV6 {
   type: "text"
@@ -55,6 +66,25 @@ export interface PromptDocumentV6 {
   subjects: PromptSubjectV6[]
   shots: PromptShotV6[]
   sections: PromptSectionV6[]
+}
+
+export type PromptDocument = PromptDocumentV6
+export type PromptPart = PromptPartV6
+export type PromptSectionPart = PromptPartV6
+export type PromptSubject = PromptSubjectV6
+export type PromptShot = PromptShotV6
+export type PromptSection = PromptSectionV6
+
+export const PROMPT_TAG_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}_-]{0,63}$/u
+
+export function normalizePromptSectionTitle(value: string): string | undefined {
+  const title = value.trim().replace(/:$/u, "")
+  return /^[a-z][a-z0-9_]{0,63}$/u.test(title) ? title : undefined
+}
+
+export function normalizePromptTag(value: string): string | undefined {
+  const tag = value.trim()
+  return PROMPT_TAG_PATTERN.test(tag) ? tag : undefined
 }
 
 export function createEmptyPromptDocumentV6(
@@ -602,66 +632,6 @@ export function parsePromptPartsV6(
   for (const definition of [...currentDocument.subjects, ...currentDocument.shots])
     definitions.set(definition.tag, definition.id)
   return sourcePartsV6(value.slice(0, 100_000), definitions, references)
-}
-
-export function migratePromptDocumentV5(
-  document: PromptDocumentV5,
-  createId: () => string = createPromptDefinitionId,
-): PromptDocumentV6 {
-  const subjects = document.subjects.map((subject) => ({
-    id: createId(),
-    tag: subject.tag ?? subject.label ?? subject.subjectId ?? "subject",
-    parts: [] as PromptPartV6[],
-  }))
-  const shots = document.shots.map((shot) => ({
-    id: createId(),
-    tag: shot.tag,
-    frameIndex: shot.frameIndex,
-    parts: [] as PromptPartV6[],
-  }))
-  const definitions = new Map<string, string>()
-  const legacySubjectIds = new Map<string, string>()
-  document.subjects.forEach((subject, index) => {
-    const migrated = subjects[index]
-    if (!migrated) return
-    const tag = subject.tag ?? subject.label ?? subject.subjectId ?? migrated.tag
-    definitions.set(tag, migrated.id)
-    if (subject.subjectId) legacySubjectIds.set(subject.subjectId, migrated.id)
-  })
-  document.shots.forEach((shot, index) => {
-    const migrated = shots[index]
-    if (migrated) definitions.set(shot.tag, migrated.id)
-  })
-  const migrateParts = (parts: readonly PromptSectionPartV5[]): PromptPartV6[] =>
-    normalizePromptPartsV6(
-      parts.flatMap((part): PromptPartV6[] => {
-        if (part.type === "text") return sourcePartsV6(part.text, definitions, [])
-        if (part.type === "mention") return [{ ...part }]
-        const definitionId =
-          legacySubjectIds.get(part.subjectId) ?? definitions.get(part.label) ?? part.subjectId
-        return definitionId && isIdentity(definitionId)
-          ? [{ type: "definition-ref", definitionId }]
-          : [{ type: "text", text: `#${part.label || part.subjectId}` }]
-      }),
-    )
-  subjects.forEach((subject, index) => {
-    subject.parts = migrateParts(document.subjects[index]?.parts ?? [])
-  })
-  shots.forEach((shot, index) => {
-    shot.parts = migrateParts(document.shots[index]?.parts ?? [])
-  })
-  const sections = document.sections.map((section) => ({
-    id: createId(),
-    title: section.title,
-    parts: migrateParts(section.parts),
-  }))
-  return assertPromptDocumentV6({
-    version: PROMPT_DOCUMENT_VERSION,
-    view: document.view,
-    subjects,
-    shots,
-    sections,
-  })
 }
 
 /** Parse the human-readable source projection without changing definitions. */

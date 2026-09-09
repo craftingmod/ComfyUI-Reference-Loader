@@ -13,6 +13,8 @@ import {
   $isLineBreakNode,
   $isRangeSelection,
   $isTextNode,
+  COMMAND_PRIORITY_CRITICAL,
+  KEY_DOWN_COMMAND,
   type LexicalNode,
 } from "lexical"
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react"
@@ -205,7 +207,7 @@ function ClipboardBridge({
         const nodes: LexicalNode[] = pastedParts.flatMap<LexicalNode>((part) =>
           part.type === "text"
             ? [$createTextNode(part.text)]
-            : [$createPromptReferenceNode(part, part.type === "mention" ? part.label : undefined)],
+            : [$createPromptReferenceNode(part, resolveLabel?.(part))],
         )
         selection.insertNodes(nodes)
       })
@@ -240,12 +242,14 @@ function EditorBridge({
   parseText,
   onReady,
   onTriggerChange,
+  onKeyDown,
 }: PromptRichEditorProps): ReactNode {
   const [editor] = useLexicalComposerContext()
   const valueRef = useRef(value)
   const onChangeRef = useRef(onChange)
   const resolveLabelRef = useRef(resolveLabel)
   const onTriggerChangeRef = useRef(onTriggerChange)
+  const onKeyDownRef = useRef(onKeyDown)
   const composingRef = useRef(false)
   const applyingRef = useRef(false)
   const editCounterRef = useRef(0)
@@ -256,6 +260,18 @@ function EditorBridge({
   onChangeRef.current = onChange
   resolveLabelRef.current = resolveLabel
   onTriggerChangeRef.current = onTriggerChange
+  onKeyDownRef.current = onKeyDown
+
+  useEffect(() => {
+    return editor.registerCommand(
+      KEY_DOWN_COMMAND,
+      (event) => {
+        onKeyDownRef.current?.(event)
+        return event.defaultPrevented
+      },
+      COMMAND_PRIORITY_CRITICAL,
+    )
+  }, [editor])
 
   const readParts = useCallback(
     (): PromptPartV6[] => editor.getEditorState().read(readPromptEditorParts),
@@ -385,12 +401,7 @@ function EditorBridge({
             const nodes: LexicalNode[] = parts.flatMap<LexicalNode>((part) =>
               part.type === "text"
                 ? [$createTextNode(part.text)]
-                : [
-                    $createPromptReferenceNode(
-                      part,
-                      part.type === "mention" ? part.label : undefined,
-                    ),
-                  ],
+                : [$createPromptReferenceNode(part, resolveLabelRef.current?.(part))],
             )
             selection.insertNodes(nodes)
           },
@@ -456,7 +467,6 @@ export function PromptRichEditor(props: PromptRichEditorProps): ReactNode {
             spellCheck
             {...dataAttributes}
             contentEditable={!readOnly}
-            onKeyDown={(event) => props.onKeyDown?.(event.nativeEvent)}
             onCompositionStart={() => undefined}
             onCompositionEnd={() => undefined}
             onBlur={() => props.onBlur?.()}

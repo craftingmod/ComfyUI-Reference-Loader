@@ -1,4 +1,4 @@
-import type { PromptReference } from "./prompt-state.ts"
+import type { PromptReference } from "./prompt-v6.ts"
 import { isAudioItem, type ItemRuntime, type LoaderState, type MediaItem } from "./types.ts"
 import { isSilentWaveform } from "./waveform.ts"
 

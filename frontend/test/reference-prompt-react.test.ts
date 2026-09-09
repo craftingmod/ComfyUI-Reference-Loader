@@ -6,28 +6,38 @@ import type { ComfyNode } from "../src/comfyui.ts"
 import { createPromptDefinitionsReact } from "../src/reference-loader/components/prompt-definitions-react.tsx"
 import { ReferencePromptController } from "../src/reference-loader/components/prompt-editor.ts"
 import { createPromptReact } from "../src/reference-loader/components/prompt-react.tsx"
-import type { PromptReference } from "../src/reference-loader/prompt-state.ts"
+import type { PromptDocumentV6 } from "../src/reference-loader/prompt-v6.ts"
 import {
-  createEmptyPromptDocument,
-  serializePromptDocument,
-} from "../src/reference-loader/prompt-state.ts"
+  createEmptyPromptDocumentV6,
+  createPromptDefinitionId,
+  serializePromptDocumentV6,
+} from "../src/reference-loader/prompt-v6.ts"
 
 const node: ComfyNode = {
   addDOMWidget: () => ({ name: "unused", value: null }),
   setDirtyCanvas: () => undefined,
 }
 
-function imageReference(): PromptReference {
-  return {
-    referenceId: "image-a",
-    itemId: "image-a",
-    mediaKind: "image",
-    ordinal: 1,
-    tag: "<Picture 1>",
-    label: "image1",
-    filename: "fighter.png",
-    previewUrl: "/fighter.webp",
+const createEmptyPromptDocument = createEmptyPromptDocumentV6
+
+function serializePromptDocument(value: any): string {
+  const document: PromptDocumentV6 = {
+    version: 6,
+    view: value.view ?? "structured",
+    subjects: (value.subjects ?? []).map((subject: any) => ({
+      ...subject,
+      id: subject.id ?? createPromptDefinitionId(),
+    })),
+    shots: (value.shots ?? []).map((shot: any) => ({
+      ...shot,
+      id: shot.id ?? createPromptDefinitionId(),
+    })),
+    sections: (value.sections ?? []).map((section: any) => ({
+      ...section,
+      id: section.id ?? createPromptDefinitionId(),
+    })),
   }
+  return serializePromptDocumentV6(document)
 }
 
 function placeCaretAtEnd(element: HTMLElement): void {
@@ -272,300 +282,150 @@ describe("Reference Prompt React shell", () => {
     controller.destroy()
   })
 
-  test("keeps structured section editors uncontrolled while syncing canonical prompt state", () => {
+  test("puts empty-section instructions in a helper and removes them after editing", () => {
     const root = document.createElement("div")
     document.body.append(root)
-    const initial = {
-      ...createEmptyPromptDocument(),
-      sections: [
-        { title: "scene", parts: [{ type: "text" as const, text: "old scene" }] },
-        { title: "camera_direction", parts: [{ type: "text" as const, text: "native camera" }] },
+    const controller = new ReferencePromptController(
+      node,
+      () => [],
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        sections: [{ title: "scene", parts: [] }],
+      }),
+      { locale: "en" },
+    )
+    const mount = createPromptReact({ container: root, controller })
+    const section = root.querySelector<HTMLElement>('[data-prompt-section="scene"]')!
+    const editor = section.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')!
+
+    expect(section.querySelector<HTMLElement>("[data-prompt-editor-hint]")?.textContent).toBe(
+      "Write this section. Type @ for media or # for subjects.",
+    )
+    expect(editor.textContent).toBe("")
+    expect(editor.querySelector(":scope > p")).not.toBeNull()
+
+    const sectionId = controller.document.sections[0]!.id
+    const snapshot = controller.getPromptBodySnapshot({ type: "section", id: sectionId })!
+    flushSync(() =>
+      controller.applyPromptBodyEdit({
+        target: snapshot.target,
+        baseRevision: snapshot.revision,
+        epoch: snapshot.epoch,
+        parts: [{ type: "text", text: "Describe the scene" }],
+        editId: "edit-helper-test",
+        composing: false,
+      }),
+    )
+    expect(section.querySelector("[data-prompt-editor-hint]")).toBeNull()
+    expect(editor.textContent).toBe("Describe the scene")
+
+    mount.destroy()
+    controller.destroy()
+  })
+
+  test("renders inserted definition references with their tag instead of the UUID", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const subjectId = createPromptDefinitionId()
+    const controller = new ReferencePromptController(
+      node,
+      () => [],
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        subjects: [{ id: subjectId, tag: "hero", parts: [] }],
+        sections: [{ title: "scene", parts: [] }],
+      }),
+      { locale: "en" },
+    )
+    const mount = createPromptReact({ container: root, controller })
+    const editor = root.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')!
+    const sectionId = controller.document.sections[0]!.id
+    const snapshot = controller.getPromptBodySnapshot({ type: "section", id: sectionId })!
+
+    flushSync(() =>
+      controller.applyPromptBodyEdit({
+        target: snapshot.target,
+        baseRevision: snapshot.revision,
+        epoch: snapshot.epoch,
+        parts: [{ type: "definition-ref", definitionId: subjectId }],
+        editId: "edit-definition-label-test",
+        composing: false,
+      }),
+    )
+    expect(editor.textContent).toBe("#hero")
+    expect(editor.textContent).not.toContain(subjectId)
+
+    mount.destroy()
+    controller.destroy()
+  })
+
+  test("commits @ and # picker choices with Enter before the picker element mounts", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const subjectId = createPromptDefinitionId()
+    const controller = new ReferencePromptController(
+      node,
+      () => [
+        {
+          referenceId: "image-a",
+          itemId: "image-a",
+          mediaKind: "image",
+          ordinal: 1,
+          tag: "<Picture 1>",
+          label: "image1",
+          filename: "hero.png",
+        },
       ],
-    }
-    const controller = new ReferencePromptController(
-      node,
-      () => [],
-      serializePromptDocument(initial),
-      {},
-    )
-    const mount = createPromptReact({ container: root, controller })
-    const editor = root.querySelector<HTMLElement>("[data-prompt-react-editor]")!
-    expect(editor.dataset.promptSectionTitle).toBe("scene")
-    expect(editor.contentEditable).toBe("true")
-    expect(editor.dataset.placeholder).not.toBe("")
-    expect(
-      root.querySelector('[data-prompt-section="camera_direction"] [data-prompt-react-editor]'),
-    ).not.toBeNull()
-
-    editor.focus()
-    flushSync(() => {
-      editor.textContent = "new scene"
-      editor.dispatchEvent(new InputEvent("input", { bubbles: true, data: "e" }))
-    })
-    expect(JSON.parse(controller.serialize()).sections).toEqual([
-      { title: "scene", parts: [{ type: "text", text: "new scene" }] },
-      { title: "camera_direction", parts: [{ type: "text", text: "native camera" }] },
-    ])
-    expect(root.querySelector<HTMLElement>("[data-prompt-react-editor]")).toBe(editor)
-
-    flushSync(() => controller.setPreset("minimax_h3_base"))
-    expect(root.querySelector<HTMLElement>("[data-prompt-react-editor]")).toBe(editor)
-    expect(editor.textContent).toBe("new scene")
-
-    editor.blur()
-    flushSync(() =>
-      controller.restore(
-        serializePromptDocument({
-          ...initial,
-          sections: [
-            { title: "scene", parts: [{ type: "text" as const, text: "restored scene" }] },
-            initial.sections[1]!,
-          ],
-        }),
-      ),
-    )
-    expect(root.querySelector<HTMLElement>("[data-prompt-react-editor]")).toBe(editor)
-    expect(editor.textContent).toBe("restored scene")
-
-    mount.destroy()
-    controller.destroy()
-  })
-
-  test("owns the Raw editor in React and converts it through one canonical parse", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const controller = new ReferencePromptController(
-      node,
-      () => [],
       serializePromptDocument({
         ...createEmptyPromptDocument(),
-        sections: [{ title: "scene", parts: [{ type: "text", text: "old" }] }],
+        subjects: [{ id: subjectId, tag: "hero", parts: [] }],
+        sections: [{ title: "scene", parts: [{ type: "text", text: "Write " }] }],
       }),
-      {},
+      { locale: "en" },
     )
     const mount = createPromptReact({ container: root, controller })
-
-    flushSync(() =>
-      root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click(),
-    )
-    const raw = root.querySelector<HTMLElement>("[data-prompt-raw-editor]")!
-    expect(raw.matches("[data-prompt-react-editor]")).toBe(true)
-    expect(root.querySelector("[data-prompt-editor-host]")).toBeNull()
-    inputText(raw, "scene:\nnew\n\ncamera_direction:\ntrack", null)
-    expect(controller.document.view).toBe("raw")
-
-    flushSync(() =>
-      root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click(),
-    )
-    expect(root.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')?.textContent).toBe(
-      "new",
-    )
-    expect(
-      root.querySelector<HTMLElement>('[data-prompt-section-body="camera_direction"]')?.textContent,
-    ).toBe("track")
-
-    flushSync(() =>
-      root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click(),
-    )
-    const activeRaw = root.querySelector<HTMLElement>("[data-prompt-raw-editor]")!
-    activeRaw.focus()
-    const restored = serializePromptDocument({
-      ...createEmptyPromptDocument(),
-      sections: [{ title: "scene", parts: [{ type: "text", text: "restored" }] }],
-      view: "raw",
-    })
-    flushSync(() => controller.restore(restored))
-    expect(root.querySelector<HTMLElement>("[data-prompt-raw-editor]")?.textContent).toContain(
-      "restored",
-    )
-
-    mount.destroy()
-    controller.destroy()
-  })
-
-  test("deletes React mention chips atomically and keeps the editor identity", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const controller = new ReferencePromptController(
-      node,
-      () => [imageReference()],
-      serializePromptDocument({
-        ...createEmptyPromptDocument(),
-        sections: [{ title: "scene", parts: [{ type: "text", text: "Use " }] }],
-      }),
-      {},
-    )
-    const mount = createPromptReact({ container: root, controller })
-    const editor = root.querySelector<HTMLElement>("[data-prompt-react-editor]")!
-
-    inputText(editor, "Use @", "@")
-    press(editor, "Enter")
-    const mentionEditor = root.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')!
-    expect(mentionEditor.querySelector("[data-prompt-part='mention']")).not.toBeNull()
-    placeCaretAtEnd(mentionEditor)
-    const backspace = press(mentionEditor, "Backspace")
-    expect(backspace.defaultPrevented).toBe(true)
-    expect(mentionEditor.querySelector("[data-prompt-part='mention']")).toBeNull()
-    expect(JSON.parse(controller.serialize()).sections[0].parts).toEqual([
-      { type: "text", text: "Use " },
-    ])
-
-    mount.destroy()
-    controller.destroy()
-  })
-
-  test("defers canonical updates during IME composition until compositionend", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const controller = new ReferencePromptController(
-      node,
-      () => [],
-      serializePromptDocument({
-        ...createEmptyPromptDocument(),
-        sections: [{ title: "scene", parts: [{ type: "text", text: "before" }] }],
-      }),
-      {},
-    )
-    const mount = createPromptReact({ container: root, controller })
-    const editor = root.querySelector<HTMLElement>("[data-prompt-react-editor]")!
-
-    flushSync(() => {
-      editor.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }))
-      editor.textContent = "during composition"
-      editor.dispatchEvent(new InputEvent("input", { bubbles: true, data: "중" }))
-    })
-    expect(controller.getSectionsSnapshot().sections[0]?.text).toBe("before")
-
-    flushSync(() => editor.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })))
-    expect(controller.getSectionsSnapshot().sections[0]?.text).toBe("during composition")
-
-    mount.destroy()
-    controller.destroy()
-  })
-
-  test("routes React editor autocomplete and @ mention selection through the controller", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const controller = new ReferencePromptController(
-      node,
-      () => [imageReference()],
-      serializePromptDocument({
-        ...createEmptyPromptDocument(),
-        sections: [{ title: "scene", parts: [{ type: "text", text: "Battle" }] }],
-      }),
-      {},
-    )
-    const mount = createPromptReact({ container: root, controller })
-    const editor = root.querySelector<HTMLElement>("[data-prompt-react-editor]")!
-
-    inputText(editor, "Battle @", "@")
-
-    const picker = root.querySelector<HTMLElement>("[data-prompt-picker]")!
-    expect(picker.hidden).toBe(false)
-    expect(picker.querySelectorAll("[data-prompt-reference-index]")).toHaveLength(1)
-    expect(picker.parentElement?.hasAttribute("data-prompt-react-picker-slot")).toBe(true)
-
-    const enter = press(editor, "Enter")
-    expect(enter.defaultPrevented).toBe(true)
-    expect(JSON.parse(controller.serialize()).sections[0].parts).toEqual([
-      { type: "text", text: "Battle " },
+    const editor = root.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')!
+    const sectionId = controller.document.sections[0]!.id
+    const inserted: unknown[] = []
+    const release = controller.registerPromptBodyEditor(
+      { type: "section", id: sectionId },
       {
-        type: "mention",
-        referenceId: "image-a",
-        mediaKind: "image",
-        label: "image1",
+        focus: () => undefined,
+        flushAcceptedModel: () => undefined,
+        cancelTransientSession: () => undefined,
+        insertParts: (parts, replaceTextLength) => inserted.push(parts, replaceTextLength),
       },
+    )
+
+    controller.unmountPickerElement()
+    controller.handlePromptBodyTrigger(
+      { type: "section", id: sectionId },
+      { trigger: "@", query: "", replaceTextLength: 1 },
+    )
+    expect(press(editor, "Enter").defaultPrevented).toBe(true)
+    expect(inserted).toEqual([
+      [
+        {
+          type: "mention",
+          referenceId: "image-a",
+          mediaKind: "image",
+          label: "image1",
+        },
+      ],
+      1,
     ])
-    expect(
-      root.querySelector<HTMLElement>('[data-prompt-section="scene"] .rl-prompt-mention'),
-    ).not.toBeNull()
-    expect(root.querySelector<HTMLElement>("[data-prompt-picker]")?.hidden).toBe(true)
 
+    inserted.length = 0
+    controller.handlePromptBodyTrigger(
+      { type: "section", id: sectionId },
+      { trigger: "#", query: "", replaceTextLength: 1 },
+    )
+    expect(press(editor, "Enter").defaultPrevented).toBe(true)
+    expect(inserted).toEqual([[{ type: "definition-ref", definitionId: subjectId }], 1])
+
+    release()
     mount.destroy()
     controller.destroy()
-  })
-
-  test("renders complete Shot and Subject icons in React # autocomplete", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const controller = new ReferencePromptController(
-      node,
-      () => [],
-      serializePromptDocument({
-        ...createEmptyPromptDocument(),
-        subjects: [{ tag: "hero", parts: [] }],
-        shots: [{ tag: "shot_entrance", frameIndex: 24, parts: [] }],
-        sections: [{ title: "scene", parts: [] }],
-      }),
-      {},
-    )
-    const mount = createPromptReact({ container: root, controller })
-    const editor = root.querySelector<HTMLElement>("[data-prompt-react-editor]")!
-
-    inputText(editor, "#shot", "#")
-
-    const picker = root.querySelector<HTMLElement>("[data-prompt-picker]")!
-    const shot = picker.querySelector<HTMLButtonElement>("[data-prompt-shot-index]")
-    expect(shot?.querySelector(".rl-prompt-subject-icon")?.textContent).toBe("SH1")
-    expect(shot?.querySelector("strong")?.textContent).toBe("#shot_entrance")
-    expect(shot?.children).toHaveLength(2)
-    expect(shot?.querySelector<HTMLElement>(".rl-prompt-subject-icon")?.style.background).not.toBe(
-      "",
-    )
-
-    inputText(editor, "#", "#")
-
-    const subject = picker.querySelector<HTMLButtonElement>("[data-prompt-subject-index]")
-    expect(subject?.querySelector(".rl-prompt-subject-icon")?.textContent).toBe("S1")
-    expect(
-      subject?.querySelector<HTMLElement>(".rl-prompt-subject-icon")?.style.background,
-    ).not.toBe("")
-
-    mount.destroy()
-    controller.destroy()
-  })
-
-  test("keeps React Subject autocomplete and two Prompt instances independent", () => {
-    const firstRoot = document.createElement("div")
-    const secondRoot = document.createElement("div")
-    document.body.append(firstRoot, secondRoot)
-    const first = new ReferencePromptController(
-      node,
-      () => [],
-      serializePromptDocument({
-        ...createEmptyPromptDocument(),
-        sections: [{ title: "scene", parts: [] }],
-      }),
-      {},
-    )
-    const second = new ReferencePromptController(
-      node,
-      () => [],
-      serializePromptDocument({
-        ...createEmptyPromptDocument(),
-        sections: [{ title: "scene", parts: [] }],
-      }),
-      {},
-    )
-    const firstMount = createPromptReact({ container: firstRoot, controller: first })
-    const secondMount = createPromptReact({ container: secondRoot, controller: second })
-    const firstEditor = firstRoot.querySelector<HTMLElement>("[data-prompt-react-editor]")!
-    const secondEditor = secondRoot.querySelector<HTMLElement>("[data-prompt-react-editor]")!
-
-    inputText(firstEditor, "Meet #woman", "#")
-    expect(firstRoot.querySelector("[data-prompt-subject-create]")).not.toBeNull()
-    expect(secondRoot.querySelector("[data-prompt-subject-create]")).toBeNull()
-
-    expect(press(firstEditor, "Enter").defaultPrevented).toBe(true)
-    expect(JSON.parse(first.serialize()).subjects).toEqual([{ tag: "woman", parts: [] }])
-    expect(first.compiledPrompt).toContain("Meet <Subject 1>")
-    expect(JSON.parse(second.serialize()).subjects).toEqual([])
-    expect(secondEditor.textContent).toBe("")
-
-    firstMount.destroy()
-    secondMount.destroy()
-    first.destroy()
-    second.destroy()
   })
 
   test("routes section entry, drag/drop, and keyboard reorder through React actions", () => {
@@ -712,62 +572,6 @@ describe("Reference Prompt React shell", () => {
 
     definitionsMount.destroy()
     expect(definitionsRoot.childElementCount).toBe(0)
-    promptMount.destroy()
-    controller.destroy()
-  })
-
-  test("persists edits from the React Prompt and Subject bodies", () => {
-    const promptRoot = document.createElement("div")
-    const definitionsRoot = document.createElement("div")
-    document.body.append(promptRoot, definitionsRoot)
-    const initial = {
-      ...createEmptyPromptDocument(),
-      sections: [{ title: "scene", parts: [{ type: "text" as const, text: "old scene" }] }],
-      subjects: [{ tag: "hero", parts: [{ type: "text" as const, text: "old subject" }] }],
-    }
-    const controller = new ReferencePromptController(
-      node,
-      () => [],
-      serializePromptDocument(initial),
-      {},
-    )
-    const promptMount = createPromptReact({ container: promptRoot, controller })
-    controller.mountDefinitions(definitionsRoot)
-    const definitionsMount = createPromptDefinitionsReact({
-      container: definitionsRoot,
-      controller,
-    })
-    let definitionNotifications = 0
-    const unsubscribeDefinitions = controller.subscribeDefinitions(() => definitionNotifications++)
-    definitionNotifications = 0
-
-    flushSync(() =>
-      promptRoot.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click(),
-    )
-    flushSync(() =>
-      promptRoot.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click(),
-    )
-    const promptBody = promptRoot.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')!
-    const subjectBody = definitionsRoot.querySelector<HTMLElement>("[data-prompt-definition-body]")!
-    promptBody.textContent = "new scene"
-    promptBody.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
-    subjectBody.textContent = "new subject"
-    subjectBody.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
-
-    expect(JSON.parse(controller.serialize())).toMatchObject({
-      sections: [{ title: "scene", parts: [{ type: "text", text: "new scene" }] }],
-      subjects: [{ tag: "hero", parts: [{ type: "text", text: "new subject" }] }],
-    })
-    expect(definitionNotifications).toBe(1)
-    expect(controller.getDefinitionsSnapshot().subjects[0]?.parts).toEqual([
-      { type: "text", text: "new subject" },
-    ])
-    expect(definitionsRoot.querySelector<HTMLElement>("[data-prompt-definition-body]")).toBe(
-      subjectBody,
-    )
-
-    unsubscribeDefinitions()
-    definitionsMount.destroy()
     promptMount.destroy()
     controller.destroy()
   })

@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test"
 
 import type { ComfyNode } from "../src/comfyui.ts"
 import {
-  createEmptyPromptDocument,
-  deserializePromptDocument,
-  serializePromptDocument,
-} from "../src/reference-loader/prompt-state.ts"
+  createEmptyPromptDocumentV6,
+  createPromptDefinitionId,
+  serializePromptDocumentV6,
+} from "../src/reference-loader/prompt-v6.ts"
 import { loaderReducer } from "../src/reference-loader/reducer.ts"
 import { serializeLoaderState } from "../src/reference-loader/serialization.ts"
 import {
@@ -72,13 +72,19 @@ describe("Reference Loader snapshots", () => {
     }
     image.edit = { flipX: true, revision: 2 }
     const loader = loaderReducer(createEmptyLoaderState(), { type: "add", item: image })
-    const prompt = createEmptyPromptDocument()
+    const prompt = createEmptyPromptDocumentV6()
     prompt.view = "raw"
-    prompt.sections = [{ title: "scene", parts: [{ type: "text", text: "A scene" }] }]
+    prompt.sections = [
+      {
+        id: createPromptDefinitionId(),
+        title: "scene",
+        parts: [{ type: "text", text: "A scene" }],
+      },
+    ]
 
     const serialized = serializeReferenceLoaderSnapshot({
       loaderState: serializeLoaderState(loader),
-      promptState: serializePromptDocument(prompt),
+      promptState: serializePromptDocumentV6(prompt),
       settings,
     })
     const file = JSON.parse(serialized) as Record<string, unknown>
@@ -109,7 +115,7 @@ describe("Reference Loader snapshots", () => {
     const parsed = parseReferenceLoaderSnapshot(
       serializeReferenceLoaderSnapshot({
         loaderState: serializeLoaderState(loader),
-        promptState: serializePromptDocument(createEmptyPromptDocument()),
+        promptState: serializePromptDocumentV6(createEmptyPromptDocumentV6()),
         settings,
       }),
     )
@@ -134,7 +140,7 @@ describe("Reference Loader snapshots", () => {
     expect(() =>
       serializeReferenceLoaderSnapshot({
         loaderState: serializeLoaderState(state),
-        promptState: serializePromptDocument(createEmptyPromptDocument()),
+        promptState: serializePromptDocumentV6(createEmptyPromptDocumentV6()),
         settings,
       }),
     ).toThrow("more than two enabled Images")
@@ -148,16 +154,16 @@ describe("Reference Loader snapshots", () => {
     expect(() =>
       serializeReferenceLoaderSnapshot({
         loaderState: serializeLoaderState(createEmptyLoaderState()),
-        promptState: serializePromptDocument(createEmptyPromptDocument()),
+        promptState: serializePromptDocumentV6(createEmptyPromptDocumentV6()),
         settings: { ...settings, maxImagePixels: Number.NaN },
       }),
     ).toThrow("max_image_pixels must be a finite number")
   })
 
-  test("preserves a legacy Prompt snapshot for Raw recovery by the editor", () => {
+  test("rejects a legacy Prompt snapshot instead of recovering it", () => {
     const serialized = serializeReferenceLoaderSnapshot({
       loaderState: serializeLoaderState(createEmptyLoaderState()),
-      promptState: serializePromptDocument(createEmptyPromptDocument()),
+      promptState: serializePromptDocumentV6(createEmptyPromptDocumentV6()),
       settings: { ...settings, twoImageMode: false },
     })
     const snapshot = JSON.parse(serialized)
@@ -166,12 +172,8 @@ describe("Reference Loader snapshots", () => {
       sections: [{ title: "scene", parts: [{ type: "text", text: "Legacy snapshot" }] }],
     }
 
-    const parsed = parseReferenceLoaderSnapshot(JSON.stringify(snapshot))
-    const recovered = deserializePromptDocument(parsed.promptState)
-    expect(recovered.recoveredFromVersion).toBe(3)
-    expect(recovered.document.view).toBe("raw")
-    expect(recovered.document.sections[0]?.parts).toEqual([
-      { type: "text", text: "Legacy snapshot" },
-    ])
+    expect(() => parseReferenceLoaderSnapshot(JSON.stringify(snapshot))).toThrow(
+      "Prompt state is invalid",
+    )
   })
 })

@@ -189,15 +189,17 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     ),
   )
   prompt_state = {
-    "version": 4,
+    "version": 6,
     "view": "structured",
-    "subjects": [{"subjectId": "fighter", "label": "fighter"}],
+    "subjects": [{"id": "fighter", "tag": "fighter", "parts": []}],
+    "shots": [],
     "sections": [
       {
+        "id": "scene-section",
         "title": "scene",
         "parts": [
           {"type": "text", "text": "Use "},
-          {"type": "subject", "subjectId": "fighter", "label": "fighter"},
+          {"type": "definition-ref", "definitionId": "fighter"},
           {"type": "text", "text": " from "},
           {
             "type": "mention",
@@ -221,15 +223,17 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert bundle.videos == ()
   assert bundle.video_captions == ()
   assert json.loads(bundle.prompt_state_json) == {
-    "version": 5,
-    "subjects": [{"tag": "fighter", "parts": []}],
+    "version": 6,
+    "view": "structured",
+    "subjects": [{"id": "fighter", "tag": "fighter", "parts": []}],
     "shots": [],
     "sections": [
       {
+        "id": "scene-section",
         "title": "scene",
         "parts": [
           {"type": "text", "text": "Use "},
-          {"type": "text", "text": "#fighter"},
+          {"type": "definition-ref", "definitionId": "fighter"},
           {"type": "text", "text": " from "},
           prompt_state["sections"][0]["parts"][3],
         ],
@@ -366,10 +370,13 @@ def test_reference_loader_raw_prompt_extracts_compiled_bundle_prompt(monkeypatch
     manifest_json=json.dumps(manifest.build_reference_manifest(state)),
     prompt_state_json=json.dumps(
       {
-        "version": 4,
+        "version": 6,
+        "view": "structured",
         "subjects": [],
+        "shots": [],
         "sections": [
           {
+            "id": "scene-section",
             "title": "scene",
             "parts": [{"type": "text", "text": "A quiet station"}],
           }
@@ -535,15 +542,33 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
   )
   prompt_fingerprint = module.ReferenceLoaderNode.fingerprint_inputs(
     module.EMPTY_LOADER_STATE_JSON,
-    prompt="A different prompt",
+    prompt=json.dumps(
+      {
+        "version": 6,
+        "view": "structured",
+        "subjects": [],
+        "shots": [],
+        "sections": [
+          {
+            "id": "scene-section",
+            "title": "scene",
+            "parts": [{"type": "text", "text": "A different prompt"}],
+          }
+        ],
+      }
+    ),
   )
   raw_view_fingerprint = module.ReferenceLoaderNode.fingerprint_inputs(
     module.EMPTY_LOADER_STATE_JSON,
-    prompt=json.dumps({"version": 4, "view": "raw", "subjects": [], "sections": []}),
+    prompt=json.dumps(
+      {"version": 6, "view": "raw", "subjects": [], "shots": [], "sections": []}
+    ),
   )
-  legacy_empty_fingerprint = module.ReferenceLoaderNode.fingerprint_inputs(
+  structured_empty_fingerprint = module.ReferenceLoaderNode.fingerprint_inputs(
     module.EMPTY_LOADER_STATE_JSON,
-    prompt=json.dumps({"version": 5, "subjects": [], "shots": [], "sections": []}),
+    prompt=json.dumps(
+      {"version": 6, "view": "structured", "subjects": [], "shots": [], "sections": []}
+    ),
   )
 
   assert len(fingerprint) == 64
@@ -556,6 +581,6 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
   assert opaque_fingerprint != fingerprint
   assert opaque_alpha_fingerprint == opaque_fingerprint
   assert prompt_fingerprint != fingerprint
-  assert raw_view_fingerprint == legacy_empty_fingerprint
+  assert raw_view_fingerprint != structured_empty_fingerprint
   assert raw_view_fingerprint != fingerprint
   assert len(calls) == 12

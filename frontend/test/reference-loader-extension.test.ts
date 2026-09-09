@@ -15,9 +15,10 @@ import {
   REFERENCE_PROMPT_WIDGET_TYPE,
 } from "../src/reference-loader/extension.ts"
 import {
-  createEmptyPromptDocument,
-  serializePromptDocument,
-} from "../src/reference-loader/prompt-state.ts"
+  createEmptyPromptDocumentV6,
+  createPromptDefinitionId,
+  serializePromptDocumentV6,
+} from "../src/reference-loader/prompt-v6.ts"
 import { loaderReducer } from "../src/reference-loader/reducer.ts"
 import { serializeLoaderState } from "../src/reference-loader/serialization.ts"
 import {
@@ -59,14 +60,26 @@ describe("Reference Loader custom widget", () => {
 
     definitionsFactory?.(node, "prompt_definitions", ["STRING", { default: "" }], app)
     const promptState = {
-      ...createEmptyPromptDocument(),
-      subjects: [{ tag: "hero", parts: [{ type: "text" as const, text: "red coat" }] }],
-      sections: [{ title: "scene", parts: [{ type: "text" as const, text: "Keep this" }] }],
+      ...createEmptyPromptDocumentV6(),
+      subjects: [
+        {
+          id: createPromptDefinitionId(),
+          tag: "hero",
+          parts: [{ type: "text" as const, text: "red coat" }],
+        },
+      ],
+      sections: [
+        {
+          id: createPromptDefinitionId(),
+          title: "scene",
+          parts: [{ type: "text" as const, text: "Keep this" }],
+        },
+      ],
     }
     promptFactory?.(
       node,
       "prompt",
-      ["STRING", { default: serializePromptDocument(promptState) }],
+      ["STRING", { default: serializePromptDocumentV6(promptState) }],
       app,
     )
 
@@ -115,7 +128,7 @@ describe("Reference Loader custom widget", () => {
     promptFactory?.(
       node,
       "prompt",
-      ["STRING", { default: serializePromptDocument(createEmptyPromptDocument()) }],
+      ["STRING", { default: serializePromptDocumentV6(createEmptyPromptDocumentV6()) }],
       app,
     )
     definitionsFactory?.(node, "prompt_definitions", ["STRING", { default: "" }], app)
@@ -309,7 +322,7 @@ describe("Reference Loader custom widget", () => {
     promptFactory?.(
       oldNode,
       "prompt",
-      ["STRING", { default: serializePromptDocument(createEmptyPromptDocument()) }],
+      ["STRING", { default: serializePromptDocumentV6(createEmptyPromptDocumentV6()) }],
       app,
     )
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -344,7 +357,7 @@ describe("Reference Loader custom widget", () => {
       promptFactory?.(
         restoredNode,
         "prompt",
-        ["STRING", { default: serializePromptDocument(createEmptyPromptDocument()) }],
+        ["STRING", { default: serializePromptDocumentV6(createEmptyPromptDocumentV6()) }],
         app,
       )
       await new Promise((resolve) => setTimeout(resolve, 0))
@@ -579,7 +592,7 @@ describe("Reference Loader custom widget", () => {
       },
       setDirtyCanvas: () => undefined,
     }
-    const serialized = serializePromptDocument(createEmptyPromptDocument())
+    const serialized = serializePromptDocumentV6(createEmptyPromptDocumentV6())
     factory?.(
       node,
       "prompt",
@@ -589,13 +602,13 @@ describe("Reference Loader custom widget", () => {
     node.widgets?.push(presetWidget)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(root?.querySelector("[data-prompt-section='custom_direction']")).toBeTruthy()
+    expect(root?.querySelector("[data-prompt-panel]")).toBeTruthy()
     expect(String(options?.getValue?.())).toBe(serialized)
     presetWidget.callback?.("freeform")
     expect(originalCalls).toEqual(["freeform"])
     expect(presetWidget.value).toBe("custom_video")
     expect(root?.querySelector("[data-prompt-preset]")?.textContent).toBe("Custom video")
-    expect(root?.querySelector("[data-prompt-section='custom_direction']")).toBeTruthy()
+    expect(root?.querySelector("[data-prompt-panel]")).toBeTruthy()
     expect(String(options?.getValue?.())).toBe(serialized)
 
     promptWidget.onRemove?.()
@@ -634,7 +647,7 @@ describe("Reference Loader custom widget", () => {
     promptFactory?.(
       node,
       "prompt",
-      ["STRING", { default: serializePromptDocument(createEmptyPromptDocument()) }],
+      ["STRING", { default: serializePromptDocumentV6(createEmptyPromptDocumentV6()) }],
       app,
     )
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -731,17 +744,21 @@ describe("Reference Loader custom widget", () => {
     promptFactory?.(
       node,
       "prompt",
-      ["STRING", { default: serializePromptDocument(createEmptyPromptDocument()) }],
+      ["STRING", { default: serializePromptDocumentV6(createEmptyPromptDocumentV6()) }],
       app,
     )
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     const loaderState = createEmptyLoaderState()
     loaderState.ui.gridColumns = 6
-    const promptState = createEmptyPromptDocument()
+    const promptState = createEmptyPromptDocumentV6()
     promptState.view = "raw"
     promptState.sections = [
-      { title: "integrated_multimodal_description", parts: [{ type: "text", text: "Saved" }] },
+      {
+        id: createPromptDefinitionId(),
+        title: "integrated_multimodal_description",
+        parts: [{ type: "text", text: "Saved" }],
+      },
     ]
     const settings: ReferenceLoaderSnapshotSettings = {
       limitImagePixels: true,
@@ -755,7 +772,7 @@ describe("Reference Loader custom widget", () => {
     }
     const snapshot = serializeReferenceLoaderSnapshot({
       loaderState: serializeLoaderState(loaderState),
-      promptState: serializePromptDocument(promptState),
+      promptState: serializePromptDocumentV6(promptState),
       settings,
     })
     const originalConfirm = globalThis.confirm

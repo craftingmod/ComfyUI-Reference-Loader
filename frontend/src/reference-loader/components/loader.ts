@@ -19,7 +19,7 @@ import {
   type H3GuideChannel,
 } from "../h3-media-guides.ts"
 import { LoaderStore, type LoaderDispatchOptions } from "../loader-store.ts"
-import type { PromptReference, PromptShot } from "../prompt-state.ts"
+import type { PromptReference, PromptShot } from "../prompt-v6.ts"
 import { loaderReducer, type LoaderAction, type LoaderChannel } from "../reducer.ts"
 import { deserializeLoaderState, serializeLoaderState } from "../serialization.ts"
 import {

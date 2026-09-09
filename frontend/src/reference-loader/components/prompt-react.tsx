@@ -11,7 +11,7 @@ import {
 import { createPortal, flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
-import { promptContentFingerprint, sectionColor, SHOT_COLOR, subjectColor } from "./prompt-dom.ts"
+import { sectionColor, SHOT_COLOR, subjectColor } from "./prompt-dom.ts"
 import type {
   PromptBodyEdit,
   PromptBodyEditResult,
@@ -65,8 +65,6 @@ export interface PromptReactActions extends PromptEditorActions {
   removeSection(title: string): void
   handleReactSectionEntryInput(editor: HTMLElement, input?: PromptEditorInput): void
   handleReactSectionEntryKeydown(event: KeyboardEvent): void
-  renderSectionEditor(title: string, editor: HTMLElement): void
-  renderRawEditor(editor: HTMLElement): void
   moveSection(title: string, delta: -1 | 1): void
   movePicker(delta: -1 | 1): void
   activatePickerOption(index?: number): void
@@ -93,6 +91,7 @@ function PromptV6Editor({
   target,
   snapshot,
   placeholder,
+  helperText,
   className,
   disabled,
   ariaLabel,
@@ -102,6 +101,7 @@ function PromptV6Editor({
   target: PromptEditorTarget
   snapshot: PromptBodySnapshot
   placeholder: string
+  helperText?: string
   className: string
   disabled: boolean
   ariaLabel?: string
@@ -127,7 +127,7 @@ function PromptV6Editor({
         ariaLabel={
           ariaLabel ?? (target.type === "section" ? `${target.title} text` : "Prompt text")
         }
-        placeholder={placeholder}
+        placeholder={helperText ? undefined : placeholder}
         className={className}
         dataAttributes={{
           "data-prompt-section-body": target.type === "section" ? target.title : undefined,
@@ -145,6 +145,11 @@ function PromptV6Editor({
         onKeyDown={actions.handleReactEditorKeydown}
         onBlur={actions.handleReactEditorBlur}
       />
+      {helperText ? (
+        <small className="rl-prompt-editor__hint" data-prompt-editor-hint="" role="note">
+          {helperText}
+        </small>
+      ) : null}
     </>
   )
 }
@@ -246,9 +251,8 @@ function PromptV6RawEditor({
 export function PromptEditor({
   actions,
   target,
-  contentKey,
   placeholder,
-  renderContent,
+  helperText,
   bodySnapshot,
   className = "rl-prompt-editor rl-prompt-editor--plain",
   disabled = false,
@@ -256,92 +260,25 @@ export function PromptEditor({
 }: {
   actions: PromptEditorActions
   target: PromptEditorTarget
-  contentKey?: string
   placeholder: string
-  renderContent?: (editor: HTMLElement) => void
-  bodySnapshot?: PromptBodySnapshot
+  helperText?: string
+  bodySnapshot: PromptBodySnapshot
   className?: string
   disabled?: boolean
   ariaLabel?: string
 }): ReactNode {
-  if (bodySnapshot) {
-    return (
-      <PromptV6Editor
-        actions={actions}
-        target={target}
-        snapshot={bodySnapshot}
-        placeholder={placeholder}
-        className={className}
-        disabled={disabled}
-        ariaLabel={ariaLabel}
-        sessionScope={actions.sessionScope}
-      />
-    )
-  }
-  const editorRef = useRef<HTMLDivElement>(null)
-  const composing = useRef(false)
-  const targetKey =
-    target.type === "section"
-      ? `section:${target.title}`
-      : target.type === "definition"
-        ? `definition:${target.kind}:${target.identity}`
-        : "raw"
-
-  useLayoutEffect(() => {
-    const editor = editorRef.current
-    if (!editor) return
-    if (!renderContent || contentKey === undefined) return
-    if (editor.dataset.promptEditorState === promptContentFingerprint(contentKey)) return
-    renderContent(editor)
-    editor.dataset.promptEditorState = promptContentFingerprint(contentKey)
-  }, [contentKey, renderContent, targetKey])
-
-  const handleInput = (event: FormEvent<HTMLDivElement>): void => {
-    if (composing.current) return
-    const nativeEvent = event.nativeEvent as Event & Partial<PromptEditorInput>
-    const input =
-      typeof nativeEvent.inputType === "string" || nativeEvent.data !== undefined
-        ? nativeEvent
-        : undefined
-    actions.handleReactEditorInput(target, event.currentTarget, input)
-  }
-
   return (
-    <>
-      <div data-prompt-react-picker-slot="" />
-      <div
-        ref={editorRef}
-        className={className}
-        data-prompt-editor=""
-        data-prompt-react-editor=""
-        data-prompt-section-body={target.type === "section" ? target.title : undefined}
-        data-prompt-section-title={target.type === "section" ? target.title : undefined}
-        data-prompt-definition-body={target.type === "definition" ? "" : undefined}
-        data-prompt-definition-identity={target.type === "definition" ? target.identity : undefined}
-        data-prompt-raw-editor={target.type === "raw" ? "" : undefined}
-        suppressContentEditableWarning
-        role="textbox"
-        aria-multiline="true"
-        aria-label={
-          ariaLabel ?? (target.type === "section" ? `${target.title} text` : "Prompt text")
-        }
-        spellCheck
-        data-placeholder={placeholder}
-        data-capture-wheel="true"
-        contentEditable={disabled ? "false" : "true"}
-        onCompositionStart={() => {
-          composing.current = true
-        }}
-        onCompositionEnd={(event) => {
-          composing.current = false
-          actions.handleReactEditorInput(target, event.currentTarget)
-        }}
-        onInput={handleInput}
-        onKeyDown={(event) => actions.handleReactEditorKeydown(event.nativeEvent)}
-        onPaste={(event) => actions.handleReactEditorPaste(event.nativeEvent)}
-        onBlur={actions.handleReactEditorBlur}
-      />
-    </>
+    <PromptV6Editor
+      actions={actions}
+      target={target}
+      snapshot={bodySnapshot}
+      placeholder={placeholder}
+      helperText={helperText}
+      className={className}
+      disabled={disabled}
+      ariaLabel={ariaLabel}
+      sessionScope={actions.sessionScope}
+    />
   )
 }
 
@@ -353,10 +290,6 @@ function PromptSectionCard({
   actions: PromptReactActions
 }): ReactNode {
   const target: PromptEditorTarget = { type: "section", title: section.title }
-  const renderContent = useCallback(
-    (editor: HTMLElement) => actions.renderSectionEditor(section.title, editor),
-    [actions, section.title],
-  )
   return (
     <section
       className="rl-prompt-section"
@@ -402,9 +335,8 @@ function PromptSectionCard({
       <PromptEditor
         actions={actions}
         target={target}
-        contentKey={JSON.stringify(section.parts)}
         placeholder={section.placeholder}
-        renderContent={renderContent}
+        helperText={section.bodySnapshot.parts.length === 0 ? section.placeholder : undefined}
         bodySnapshot={section.bodySnapshot}
       />
     </section>
@@ -688,29 +620,11 @@ function PromptWorkspaceHost({
     [controller],
   )
   const sections = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  const rawTarget: PromptEditorTarget = { type: "raw" }
-  const renderRawEditor = useCallback(
-    (editor: HTMLElement) => actions.renderRawEditor(editor),
-    [actions],
-  )
 
   return (
     <div data-prompt-workspace="" ref={workspaceRef}>
       {snapshot.view === "raw" ? (
-        controller.usesPromptDocumentV6 ? (
-          <PromptV6RawEditor snapshot={snapshot} actions={actions} />
-        ) : (
-          <PromptEditor
-            key="raw"
-            actions={actions}
-            target={rawTarget}
-            contentKey={snapshot.sourceText}
-            placeholder={snapshot.rawPlaceholder}
-            renderContent={renderRawEditor}
-            className="rl-prompt-editor is-raw"
-            ariaLabel="Raw prompt editor"
-          />
-        )
+        <PromptV6RawEditor snapshot={snapshot} actions={actions} />
       ) : (
         <div key="structured" className="rl-prompt-stack" data-prompt-stack="">
           {sections.sections.map((section) => (
@@ -800,8 +714,6 @@ export function createPromptReact(options: PromptReactOptions): PromptReactMount
     handleReactSectionEntryInput: (editor, input) =>
       controller.handleReactSectionEntryInput(editor, input),
     handleReactSectionEntryKeydown: (event) => controller.handleReactSectionEntryKeydown(event),
-    renderSectionEditor: (title, editor) => controller.renderReactSectionEditor(title, editor),
-    renderRawEditor: (editor) => controller.renderReactRawEditor(editor),
     moveSection: (title, delta) => controller.moveSection(title, delta),
     movePicker: (delta) => controller.movePicker(delta),
     activatePickerOption: (index) => controller.activatePickerOption(index),

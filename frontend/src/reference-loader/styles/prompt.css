@@ -510,6 +510,24 @@
   box-sizing: border-box;
 }
 
+.reference-prompt .rl-prompt-editor > p,
+.reference-prompt-definitions .rl-prompt-editor > p {
+  margin: 0;
+}
+
+.rl-prompt-editor__hint {
+  display: block;
+  margin: 0 9px 7px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--rl-border) 88%, var(--rl-muted));
+  border-radius: 6px;
+  color: var(--rl-muted);
+  background: color-mix(in srgb, var(--rl-bg) 42%, var(--rl-panel));
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .rl-prompt-section__body:empty::before,
 .rl-prompt-section-entry:empty::before {
   color: var(--rl-muted);

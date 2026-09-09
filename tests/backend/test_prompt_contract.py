@@ -1,11 +1,8 @@
-import json
-
 import pytest
 
 from backend.core.prompt_contract import (
   PromptContractError,
   compile_prompt,
-  compile_prompt_state,
   parse_prompt_state,
   rebind_prompt_mentions_by_order,
 )
@@ -37,224 +34,77 @@ def reference_state():
             "sha256": "b" * 64,
           },
           "caption": "",
-          "imageEnabled": False,
-        },
-        "video-a": {
-          "id": "video-a",
-          "kind": "video",
-          "source": {
-            "path": "reference_loader/sources/a.mp4",
-            "mime": "video/mp4",
-            "sha256": "c" * 64,
-          },
-          "caption": "",
-          "videoEnabled": True,
-          "audioEnabled": True,
-        },
-        "audio-a": {
-          "id": "audio-a",
-          "kind": "audio",
-          "source": {
-            "path": "reference_loader/sources/a.wav",
-            "mime": "audio/wav",
-            "sha256": "d" * 64,
-          },
-          "caption": "",
-          "audioEnabled": True,
+          "imageEnabled": True,
         },
       },
       "imageOrder": ["image-b", "image-a"],
-      "videoOrder": ["video-a"],
-      "audioOrder": ["video-a", "audio-a"],
+      "videoOrder": [],
+      "audioOrder": [],
       "videoAudioPolicy": "preserve",
     }
   )
 
 
-def test_compiles_stable_mentions_against_active_per_type_orders():
-  document = {
-    "version": 4,
+def document():
+  return {
+    "version": 6,
     "view": "structured",
-    "subjects": [
-      {"subjectId": "woman", "label": "woman"},
-      {"subjectId": "station", "label": "station"},
-    ],
-    "sections": [
-      {
-        "title": "integrated_multimodal_description",
-        "parts": [
-          {"type": "text", "text": "A "},
-          {"type": "subject", "subjectId": "woman", "label": "woman"},
-          {"type": "text", "text": " from "},
-          {
-            "type": "mention",
-            "referenceId": "image-a",
-            "mediaKind": "image",
-            "label": "image1",
-          },
-          {"type": "text", "text": " watches "},
-          {
-            "type": "mention",
-            "referenceId": "video-a",
-            "mediaKind": "video",
-            "label": "video1",
-          },
-          {"type": "text", "text": " with "},
-          {
-            "type": "mention",
-            "referenceId": "video-a:audio",
-            "mediaKind": "audio",
-            "label": "audio1",
-          },
-          {"type": "text", "text": " and "},
-          {
-            "type": "mention",
-            "referenceId": "audio-a",
-            "mediaKind": "audio",
-            "label": "audio2",
-          },
-          {"type": "text", "text": "안녕하세요"},
-        ],
-      },
-      {
-        "title": "visual_style",
-        "parts": [{"type": "text", "text": "Soft 3D"}],
-      },
-      {
-        "title": "overall_soundscape",
-        "parts": [
-          {"type": "text", "text": "No music for "},
-          {
-            "type": "mention",
-            "referenceId": "image-a",
-            "mediaKind": "image",
-            "label": "image1",
-          },
-        ],
-      },
-    ],
-  }
-  assert compile_prompt_state(json.dumps(document), reference_state()) == (
-    "subject_definitions:\n"
-    "<Subject 1>:\n\n<Subject 2>:\n\n"
-    "integrated_multimodal_description:\n"
-    "A <Subject 1> from <Picture 1> watches <Video 1> with <Audio 1> and <Audio 2>안녕하세요"
-    "\n\nvisual_style:\nSoft 3D"
-    "\n\noverall_soundscape:\nNo music for <Picture 1>"
-  )
-
-
-def test_unavailable_mentions_remain_visible_without_rebinding_to_another_item():
-  document = {
-    "version": 4,
     "subjects": [],
+    "shots": [],
     "sections": [
       {
+        "id": "section-1",
         "title": "scene",
         "parts": [
+          {"type": "text", "text": "Meet "},
           {
             "type": "mention",
-            "referenceId": "image-b",
+            "referenceId": "removed-image",
             "mediaKind": "image",
-            "label": "disabled-image",
-          }
+            "label": "image1",
+          },
         ],
       }
     ],
   }
-  assert compile_prompt_state(document, reference_state()) == "scene:\n@disabled-image"
 
 
-def test_rebinds_standard_mention_labels_to_current_output_positions():
-  document = parse_prompt_state(
-    {
-      "version": 4,
-      "subjects": [],
-      "sections": [
-        {
-          "title": "scene",
-          "parts": [
-            {
-              "type": "mention",
-              "referenceId": "removed-image",
-              "mediaKind": "image",
-              "label": "image1",
-            },
-            {"type": "text", "text": " and "},
-            {
-              "type": "mention",
-              "referenceId": "removed-audio",
-              "mediaKind": "audio",
-              "label": "audio2",
-            },
-          ],
-        }
-      ],
-    }
-  )
-
-  rebound = rebind_prompt_mentions_by_order(document, reference_state())
-
-  assert rebound.sections[0].parts[0].reference_id == "image-a"
-  assert rebound.sections[0].parts[2].reference_id == "audio-a"
-  assert compile_prompt(rebound, reference_state()) == (
-    "scene:\n<Picture 1> and <Audio 2>"
+def test_compiles_v6_mentions_without_promoting_text():
+  assert compile_prompt(parse_prompt_state(document()), reference_state()) == (
+    "scene:\nMeet @image1"
   )
 
 
-def test_accepts_literal_prompt_strings_and_rejects_invalid_structured_state():
-  assert (
-    compile_prompt_state("literal text", reference_state()) == "scene:\nliteral text"
+def test_rebinds_standard_v6_mention_labels_to_current_output_positions():
+  rebound = rebind_prompt_mentions_by_order(
+    parse_prompt_state(document()), reference_state()
   )
-  with pytest.raises(PromptContractError, match="prompt.sections"):
-    parse_prompt_state(
-      json.dumps({"version": 4, "subjects": [], "sections": "invalid"})
-    )
-  with pytest.raises(PromptContractError, match="lowercase snake_case"):
-    parse_prompt_state(
-      {
-        "version": 4,
-        "subjects": [],
-        "sections": [{"title": "Bad Title", "parts": []}],
-      }
-    )
-  with pytest.raises(PromptContractError, match="must be text, mention, or subject"):
-    parse_prompt_state(
-      {
-        "version": 4,
-        "subjects": [],
-        "sections": [
-          {
-            "title": "scene",
-            "parts": [{"type": "dialogue", "text": "removed"}],
-          }
-        ],
-      }
-    )
-  with pytest.raises(PromptContractError, match="letters, numbers"):
+  assert rebound.sections[0].parts[1].reference_id == "image-b"
+  assert compile_prompt(rebound, reference_state()) == "scene:\nMeet <Picture 1>"
+
+
+@pytest.mark.parametrize(
+  "value",
+  [
+    "literal text",
+    {"version": 3, "subjects": [], "sections": []},
+    {"version": 4, "subjects": [], "sections": []},
+    {"version": 5, "subjects": [], "shots": [], "sections": []},
+  ],
+)
+def test_rejects_non_v6_prompt_state(value):
+  with pytest.raises(PromptContractError, match="v6 JSON|must equal 6"):
+    parse_prompt_state(value)
+
+
+def test_rejects_v6_definitions_without_stable_ids():
+  with pytest.raises(PromptContractError, match="must be a string|stable identity"):
     parse_prompt_state(
       {
-        "version": 4,
-        "subjects": [{"subjectId": "bad", "label": "bad label"}],
+        "version": 6,
+        "view": "structured",
+        "subjects": [{"tag": "hero", "parts": []}],
+        "shots": [],
         "sections": [],
-      }
-    )
-
-
-def test_rejects_version_3_prompt_state_without_migration():
-  with pytest.raises(PromptContractError, match="prompt.version: must equal 5"):
-    parse_prompt_state({"version": 3, "subjects": [], "sections": []})
-
-
-def test_rejects_duplicate_section_titles():
-  with pytest.raises(PromptContractError, match="must be unique"):
-    parse_prompt_state(
-      {
-        "version": 4,
-        "subjects": [],
-        "sections": [
-          {"title": "scene", "parts": []},
-          {"title": "scene", "parts": []},
-        ],
       }
     )

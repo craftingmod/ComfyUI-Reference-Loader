@@ -9,7 +9,6 @@ import { createPromptReact } from "../src/reference-loader/components/prompt-rea
 import {
   compilePromptDocumentV6,
   createPromptDefinitionId,
-  migratePromptDocumentV5,
   parsePromptPartsV6,
   renamePromptDefinitionV6,
   serializePromptDocumentV6,
@@ -69,9 +68,8 @@ afterEach(() => {
 })
 
 describe("Reference Prompt v6 AST", () => {
-  test("starts new Prompt state in v6 without converting existing v5 state", () => {
+  test("starts new Prompt state in v6 and rejects existing v5 state", () => {
     const controller = new ReferencePromptController(node, () => [], undefined)
-    expect(controller.usesPromptDocumentV6).toBe(true)
     expect(JSON.parse(controller.serialize()).version).toBe(6)
 
     controller.restore(
@@ -83,8 +81,8 @@ describe("Reference Prompt v6 AST", () => {
         sections: [],
       }),
     )
-    expect(controller.usesPromptDocumentV6).toBe(false)
-    expect(JSON.parse(controller.serialize()).version).toBe(5)
+    expect(JSON.parse(controller.serialize()).version).toBe(6)
+    expect(controller.getViewSnapshot().hint).toContain("Only Prompt state version 6")
     controller.destroy()
   })
 
@@ -116,7 +114,7 @@ describe("Reference Prompt v6 AST", () => {
     })
   })
 
-  test("does not promote text while compiling and migrates registered v5 tags once", () => {
+  test("does not promote text while compiling and parses registered v6 tags", () => {
     const value = documentV6()
     expect(compilePromptDocumentV6(value, [])).toContain("Meet <Subject 1>")
     expect(
@@ -133,29 +131,11 @@ describe("Reference Prompt v6 AST", () => {
         [],
       ),
     ).toContain("#hero \\#hero")
-    const migrated = migratePromptDocumentV5(
-      {
-        version: 5,
-        view: "structured",
-        subjects: [{ tag: "hero", parts: [{ type: "text", text: "red" }] }],
-        shots: [],
-        sections: [
-          {
-            title: "scene",
-            parts: [{ type: "text", text: "#hero \\#hero" }],
-          },
-        ],
-      },
-      (() => {
-        let index = 0
-        return () => `id-${++index}`
-      })(),
-    )
-    expect(migrated.sections[0]?.parts).toEqual([
-      { type: "definition-ref", definitionId: "id-1" },
+    const subjectId = value.subjects[0]!.id
+    expect(parsePromptPartsV6("#hero \\#hero", [], value)).toEqual([
+      { type: "definition-ref", definitionId: subjectId },
       { type: "text", text: " \\#hero" },
     ])
-    expect(parsePromptPartsV6("#hero \\#hero", [], migrated)).toEqual(migrated.sections[0]?.parts)
   })
 
   test("rejects duplicate section titles in the v6 contract", () => {
@@ -176,7 +156,6 @@ describe("Reference Prompt v6 AST", () => {
       () => [],
       serializePromptDocumentV6(value),
     )
-    expect(controller.usesPromptDocumentV6).toBe(true)
     const snapshot = controller.getPromptBodySnapshot({ type: "section", id: sectionId })!
     const accepted = controller.applyPromptBodyEdit({
       target: snapshot.target,

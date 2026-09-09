@@ -8,12 +8,10 @@ import { createPromptDefinitionsReact } from "../src/reference-loader/components
 import { ReferencePromptController } from "../src/reference-loader/components/prompt-editor.ts"
 import { createPromptReact } from "../src/reference-loader/components/prompt-react.tsx"
 import {
-  compilePromptDocument,
-  createEmptyPromptDocument,
-  renamePromptTag,
-  scanPromptTags,
-  serializePromptDocument,
-} from "../src/reference-loader/prompt-state.ts"
+  createEmptyPromptDocumentV6,
+  createPromptDefinitionId,
+  serializePromptDocumentV6,
+} from "../src/reference-loader/prompt-v6.ts"
 import { createEmptyLoaderState } from "../src/reference-loader/types.ts"
 
 function node(transactions: string[]): ComfyNode {
@@ -32,68 +30,7 @@ afterEach(() => {
   getSelection()?.removeAllRanges()
 })
 
-describe("Reference Prompt v5 authoring", () => {
-  test("keeps tags in source data and compiles both definition kinds", () => {
-    const document = {
-      ...createEmptyPromptDocument(),
-      subjects: [{ tag: "hero", parts: [{ type: "text" as const, text: "red coat" }] }],
-      shots: [
-        {
-          tag: "opening",
-          frameIndex: 49,
-          parts: [{ type: "text" as const, text: "#hero enters" }],
-        },
-      ],
-      sections: [{ title: "scene", parts: [{ type: "text" as const, text: "#hero waits" }] }],
-    }
-
-    expect(JSON.parse(serializePromptDocument(document))).toMatchObject({
-      version: 5,
-      subjects: [{ tag: "hero" }],
-      shots: [{ tag: "opening", frameIndex: 49 }],
-    })
-    expect(compilePromptDocument(document, [])).toBe(
-      "subject_definitions:\n<Subject 1>: red coat\n\nscene:\n<Subject 1> waits\n\ntimeline_direction:\n[Shot 1]\nAt 2.042 seconds: <Subject 1> enters",
-    )
-  })
-
-  test("scans exact tags, escaped tags, and unresolved tags without substring matches", () => {
-    const tokens = scanPromptTags("#hero #heroine #한글 \\#hero foo#hero")
-    expect(tokens.map((token) => [token.tag, token.escaped])).toEqual([
-      ["hero", false],
-      ["heroine", false],
-      ["한글", false],
-      ["hero", true],
-    ])
-    const document = {
-      ...createEmptyPromptDocument(),
-      subjects: [{ tag: "hero", parts: [] }],
-      sections: [
-        {
-          title: "scene",
-          parts: [{ type: "text" as const, text: "#hero #heroine \\#hero foo#hero" }],
-        },
-      ],
-    }
-    expect(compilePromptDocument(document, [])).toBe(
-      "subject_definitions:\n<Subject 1>:\n\nscene:\n<Subject 1> #heroine #hero foo#hero",
-    )
-  })
-
-  test("renames definitions and all exact references in one pure document change", () => {
-    const document = {
-      ...createEmptyPromptDocument(),
-      subjects: [{ tag: "hero", parts: [{ type: "text" as const, text: "#heroine \\#hero" }] }],
-      shots: [{ tag: "opening", frameIndex: 0, parts: [{ type: "text" as const, text: "#hero" }] }],
-      sections: [{ title: "scene", parts: [{ type: "text" as const, text: "#hero #heroine" }] }],
-    }
-    const renamed = renamePromptTag(document, "hero", "lead")
-    expect(renamed.subjects[0]?.tag).toBe("lead")
-    expect(renamed.subjects[0]?.parts?.[0]).toEqual({ type: "text", text: "#heroine \\#hero" })
-    expect(renamed.shots[0]?.parts[0]).toEqual({ type: "text", text: "#lead" })
-    expect(renamed.sections[0]?.parts[0]).toEqual({ type: "text", text: "#lead #heroine" })
-  })
-
+describe("Reference Prompt v6 authoring", () => {
   test("keeps Timeline Shot timing in a Prompt draft until Apply or Cancel", () => {
     const transactions: string[] = []
     const root = document.createElement("div")
@@ -101,15 +38,22 @@ describe("Reference Prompt v5 authoring", () => {
     const definitionsRoot = document.createElement("div")
     root.append(promptRoot, definitionsRoot)
     document.body.append(root)
+    const shotId = createPromptDefinitionId()
     const initial = {
-      ...createEmptyPromptDocument(),
-      shots: [{ tag: "opening", frameIndex: 0, parts: [] }],
-      sections: [{ title: "scene", parts: [{ type: "text" as const, text: "#opening" }] }],
+      ...createEmptyPromptDocumentV6(),
+      shots: [{ id: shotId, tag: "opening", frameIndex: 0, parts: [] }],
+      sections: [
+        {
+          id: createPromptDefinitionId(),
+          title: "scene",
+          parts: [{ type: "text" as const, text: "#opening" }],
+        },
+      ],
     }
     const controller = new ReferencePromptController(
       node(transactions),
       () => [],
-      serializePromptDocument(initial),
+      serializePromptDocumentV6(initial),
     )
     const promptMount = createPromptReact({ container: promptRoot, controller })
     controller.mountDefinitions(definitionsRoot)
@@ -143,13 +87,13 @@ describe("Reference Prompt v5 authoring", () => {
     root.append(promptRoot, definitionsRoot)
     document.body.append(root)
     const initial = {
-      ...createEmptyPromptDocument(),
-      shots: [{ tag: "opening", frameIndex: 0, parts: [] }],
+      ...createEmptyPromptDocumentV6(),
+      shots: [{ id: createPromptDefinitionId(), tag: "opening", frameIndex: 0, parts: [] }],
     }
     const controller = new ReferencePromptController(
       node([]),
       () => [],
-      serializePromptDocument(initial),
+      serializePromptDocumentV6(initial),
     )
     const promptMount = createPromptReact({ container: promptRoot, controller })
     controller.mountDefinitions(definitionsRoot)

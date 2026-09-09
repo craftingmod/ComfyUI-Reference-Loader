@@ -31,7 +31,6 @@ export interface PromptDefinitionsReactActions extends PromptEditorActions {
   setShotFrame(identity: string, frameIndex: number): void
   applyShotDraft(): void
   cancelShotDraft(): void
-  renderDefinitionEditor(kind: PromptDefinitionKind, identity: string, editor: HTMLElement): void
 }
 
 export interface PromptDefinitionsReactOptions {
@@ -72,11 +71,6 @@ function PromptDefinitionCard({
     kind: definition.kind,
     identity: definition.identity,
   }
-  const renderContent = useCallback(
-    (editor: HTMLElement) =>
-      actions.renderDefinitionEditor(definition.kind, definition.identity, editor),
-    [actions, definition.identity, definition.kind],
-  )
   const subjectAccent = definition.kind === "subject" ? subjectColor(definition.ordinal) : undefined
 
   useLayoutEffect(() => {
@@ -217,9 +211,7 @@ function PromptDefinitionCard({
       <PromptEditor
         actions={actions}
         target={target}
-        contentKey={JSON.stringify(definition.parts)}
         placeholder={definition.placeholder}
-        renderContent={renderContent}
         bodySnapshot={definition.bodySnapshot}
         className="rl-prompt-definition__body"
         disabled={draft}
@@ -367,8 +359,6 @@ export function createPromptDefinitionsReact(
       controller.handlePromptBodyTrigger(target, trigger),
     validatePromptBodyParts: (target, parts) => controller.validatePromptBodyParts(target, parts),
     parsePromptBodyText: (value) => controller.parsePromptBodyText(value),
-    renderDefinitionEditor: (kind, identity, editor) =>
-      controller.renderReactDefinitionEditor(kind, identity, editor),
   }
   const root: Root = createRoot(options.container)
   let destroyed = false

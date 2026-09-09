@@ -6,7 +6,7 @@ import {
   PROMPT_PRESET_IDS,
   resolvePromptPreset,
 } from "../src/reference-loader/prompt-presets.ts"
-import { isPromptSectionTitle } from "../src/reference-loader/prompt-state.ts"
+import { normalizePromptSectionTitle } from "../src/reference-loader/prompt-v6.ts"
 
 describe("Reference Prompt presets", () => {
   test("exposes stable preset ids and falls back to generic", () => {
@@ -55,7 +55,9 @@ describe("Reference Prompt presets", () => {
 
   test("provides valid unique aliases and complete Korean and English copy", () => {
     for (const preset of PROMPT_PRESETS) {
-      expect(isPromptSectionTitle(preset.defaultSectionTitle)).toBe(true)
+      expect(normalizePromptSectionTitle(preset.defaultSectionTitle)).toBe(
+        preset.defaultSectionTitle,
+      )
       expect(preset.label.en).not.toBe("")
       expect(preset.label.ko).not.toBe("")
       expect(preset.description.en).not.toBe("")
@@ -63,7 +65,7 @@ describe("Reference Prompt presets", () => {
       expect(new Set(preset.aliases.map((alias) => alias.command)).size).toBe(preset.aliases.length)
       for (const alias of preset.aliases) {
         expect(alias.command).toMatch(/^[a-z]+$/)
-        expect(isPromptSectionTitle(alias.title)).toBe(true)
+        expect(normalizePromptSectionTitle(alias.title)).toBe(alias.title)
         expect(alias.label.en).not.toBe("")
         expect(alias.label.ko).not.toBe("")
         expect(alias.description.en).not.toBe("")

@@ -2,6 +2,7 @@ import { LexicalComposer, type InitialConfigType } from "@lexical/react/LexicalC
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext"
 import { ContentEditable } from "@lexical/react/LexicalContentEditable"
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary"
+import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin"
 import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin"
 import {
   $createLineBreakNode,
@@ -14,7 +15,14 @@ import {
   $isRangeSelection,
   $isTextNode,
   COMMAND_PRIORITY_CRITICAL,
+  COPY_COMMAND,
+  CLEAR_HISTORY_COMMAND,
+  CUT_TAG,
+  CUT_COMMAND,
+  HISTORY_PUSH_TAG,
   KEY_DOWN_COMMAND,
+  PASTE_TAG,
+  PASTE_COMMAND,
   type LexicalNode,
 } from "lexical"
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react"
@@ -32,6 +40,7 @@ import {
   $createPromptReferenceNode,
   $isPromptReferenceNode,
   PromptReferenceNode,
+  type PromptReferenceVisual,
 } from "./prompt-reference-node.tsx"
 
 const INTERNAL_CLIPBOARD_TYPE = "application/x-reference-loader-prompt-parts+json"
@@ -45,12 +54,14 @@ export interface PromptRichEditorProps {
   className?: string
   dataAttributes?: Record<string, string | undefined>
   resolveLabel?(part: PromptPartV6): string | undefined
+  resolveVisual?(part: PromptPartV6): PromptReferenceVisual | undefined
   sessionScope: string
   validateParts?(parts: readonly PromptPartV6[]): boolean
   parseText?(value: string): readonly PromptPartV6[]
   onReady?(handle: PromptRichEditorHandle | undefined): void
   onTriggerChange?(trigger: PromptBodyTrigger | undefined): void
   onKeyDown?(event: KeyboardEvent): void
+  onPaste?(event: ClipboardEvent): void
   onBlur?(): void
 }
 
@@ -90,6 +101,7 @@ export function readPromptEditorParts(): PromptPartV6[] {
 export function writePromptEditorParts(
   parts: readonly PromptPartV6[],
   resolveLabel?: (part: PromptPartV6) => string | undefined,
+  resolveVisual?: (part: PromptPartV6) => PromptReferenceVisual | undefined,
 ): void {
   const paragraph = $createParagraphNode()
   for (const part of parts) {
@@ -99,7 +111,10 @@ export function writePromptEditorParts(
         if (line === "\n" || line === "\r\n") paragraph.append($createLineBreakNode())
         else if (line) paragraph.append($createTextNode(line))
       }
-    } else paragraph.append($createPromptReferenceNode(part, resolveLabel?.(part)))
+    } else
+      paragraph.append(
+        $createPromptReferenceNode(part, resolveLabel?.(part), resolveVisual?.(part)),
+      )
   }
   $getRoot().clear().append(paragraph)
 }
@@ -123,6 +138,15 @@ function displaySource(
     .join("")
 }
 
+function clipboardDataFromEvent(
+  event: ClipboardEvent | InputEvent | KeyboardEvent | null,
+): DataTransfer | null {
+  if (!event) return null
+  if ("clipboardData" in event) return event.clipboardData
+  if ("dataTransfer" in event) return event.dataTransfer
+  return null
+}
+
 function readPromptBodyTrigger(): PromptBodyTrigger | undefined {
   const selection = $getSelection()
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return undefined
@@ -144,20 +168,22 @@ function ClipboardBridge({
   sessionScope,
   readParts,
   resolveLabel,
+  resolveVisual,
   validateParts,
   parseText,
 }: {
   sessionScope: string
   readParts(): PromptPartV6[]
   resolveLabel?: (part: PromptPartV6) => string | undefined
+  resolveVisual?: (part: PromptPartV6) => PromptReferenceVisual | undefined
   validateParts?: (parts: readonly PromptPartV6[]) => boolean
   parseText?: (value: string) => readonly PromptPartV6[]
 }): null {
   const [editor] = useLexicalComposerContext()
   const copy = useCallback(
-    (event: ClipboardEvent, cut: boolean): void => {
-      const clipboard = event.clipboardData
-      if (!clipboard) return
+    (event: ClipboardEvent | InputEvent | KeyboardEvent | null, cut: boolean): boolean => {
+      const clipboard = clipboardDataFromEvent(event)
+      if (!event || !clipboard) return false
       const parts = editor.getEditorState().read(() => readParts())
       clipboard.setData("text/plain", displaySource(parts, resolveLabel))
       clipboard.setData(
@@ -166,17 +192,21 @@ function ClipboardBridge({
       )
       event.preventDefault()
       if (cut)
-        editor.update(() => {
-          const selection = $getSelection()
-          if ($isRangeSelection(selection)) selection.removeText()
-        })
+        editor.update(
+          () => {
+            const selection = $getSelection()
+            if ($isRangeSelection(selection)) selection.removeText()
+          },
+          { tag: CUT_TAG },
+        )
+      return true
     },
     [editor, readParts, resolveLabel, sessionScope],
   )
   const paste = useCallback(
-    (event: ClipboardEvent): void => {
-      const clipboard = event.clipboardData
-      if (!clipboard) return
+    (event: ClipboardEvent | InputEvent | KeyboardEvent | null): boolean => {
+      const clipboard = clipboardDataFromEvent(event)
+      if (!event || !clipboard) return false
       const plainText = clipboard.getData("text/plain")
       let parts: PromptPartV6[] | undefined
       try {
@@ -199,34 +229,45 @@ function ClipboardBridge({
         parts = undefined
       }
       event.preventDefault()
-      editor.update(() => {
-        const selection = $getSelection()
-        if (!$isRangeSelection(selection)) return
-        const pastedParts =
-          parts ?? (parseText ? parseText(plainText) : [{ type: "text", text: plainText }])
-        const nodes: LexicalNode[] = pastedParts.flatMap<LexicalNode>((part) =>
-          part.type === "text"
-            ? [$createTextNode(part.text)]
-            : [$createPromptReferenceNode(part, resolveLabel?.(part))],
-        )
-        selection.insertNodes(nodes)
-      })
+      editor.update(
+        () => {
+          const selection = $getSelection()
+          if (!$isRangeSelection(selection)) return
+          const pastedParts =
+            parts ?? (parseText ? parseText(plainText) : [{ type: "text", text: plainText }])
+          const nodes: LexicalNode[] = pastedParts.flatMap<LexicalNode>((part) =>
+            part.type === "text"
+              ? [$createTextNode(part.text)]
+              : [$createPromptReferenceNode(part, resolveLabel?.(part), resolveVisual?.(part))],
+          )
+          selection.insertNodes(nodes)
+        },
+        { tag: PASTE_TAG },
+      )
+      return true
     },
-    [editor, parseText, resolveLabel, sessionScope, validateParts],
+    [editor, parseText, resolveLabel, resolveVisual, sessionScope, validateParts],
   )
   useEffect(() => {
-    const root = editor.getRootElement()
-    if (!root) return
-    const onCopy = (event: ClipboardEvent): void => copy(event, false)
-    const onCut = (event: ClipboardEvent): void => copy(event, true)
-    const onPaste = (event: ClipboardEvent): void => paste(event)
-    root.addEventListener("copy", onCopy)
-    root.addEventListener("cut", onCut)
-    root.addEventListener("paste", onPaste)
+    const unregisterCopy = editor.registerCommand(
+      COPY_COMMAND,
+      (event) => copy(event, false),
+      COMMAND_PRIORITY_CRITICAL,
+    )
+    const unregisterCut = editor.registerCommand(
+      CUT_COMMAND,
+      (event) => copy(event, true),
+      COMMAND_PRIORITY_CRITICAL,
+    )
+    const unregisterPaste = editor.registerCommand(
+      PASTE_COMMAND,
+      (event) => paste(event),
+      COMMAND_PRIORITY_CRITICAL,
+    )
     return () => {
-      root.removeEventListener("copy", onCopy)
-      root.removeEventListener("cut", onCut)
-      root.removeEventListener("paste", onPaste)
+      unregisterCopy()
+      unregisterCut()
+      unregisterPaste()
     }
   }, [copy, editor, paste])
   return null
@@ -237,6 +278,7 @@ function EditorBridge({
   onChange,
   readOnly,
   resolveLabel,
+  resolveVisual,
   sessionScope,
   validateParts,
   parseText,
@@ -248,6 +290,7 @@ function EditorBridge({
   const valueRef = useRef(value)
   const onChangeRef = useRef(onChange)
   const resolveLabelRef = useRef(resolveLabel)
+  const resolveVisualRef = useRef(resolveVisual)
   const onTriggerChangeRef = useRef(onTriggerChange)
   const onKeyDownRef = useRef(onKeyDown)
   const composingRef = useRef(false)
@@ -255,10 +298,12 @@ function EditorBridge({
   const editCounterRef = useRef(0)
   const lastAcceptedKeyRef = useRef(partsKey(value.parts))
   const lastAppliedKeyRef = useRef("")
+  const lastEpochRef = useRef(value.epoch)
 
   valueRef.current = value
   onChangeRef.current = onChange
   resolveLabelRef.current = resolveLabel
+  resolveVisualRef.current = resolveVisual
   onTriggerChangeRef.current = onTriggerChange
   onKeyDownRef.current = onKeyDown
 
@@ -279,7 +324,13 @@ function EditorBridge({
   )
   const readDisplayKey = useCallback(
     (parts: readonly PromptPartV6[]): string =>
-      JSON.stringify(parts.map((part) => ({ part, label: resolveLabelRef.current?.(part) ?? "" }))),
+      JSON.stringify(
+        parts.map((part) => ({
+          part,
+          label: resolveLabelRef.current?.(part) ?? "",
+          visual: resolveVisualRef.current?.(part) ?? null,
+        })),
+      ),
     [],
   )
 
@@ -322,20 +373,42 @@ function EditorBridge({
   }, [editor, readOnly])
 
   useEffect(() => {
+    let needsDisplayUpdate = false
+    editor.getEditorState().read(() => {
+      const inspectDisplay = (node: LexicalNode): void => {
+        if ($isPromptReferenceNode(node)) {
+          const nextLabel = resolveLabelRef.current?.(node.getPart())
+          const nextVisual = resolveVisualRef.current?.(node.getPart())
+          if (
+            node.getDisplayLabel() !== nextLabel ||
+            JSON.stringify(node.getDisplayVisual()) !== JSON.stringify(nextVisual)
+          )
+            needsDisplayUpdate = true
+        }
+        if ($isElementNode(node)) node.getChildren().forEach(inspectDisplay)
+      }
+      $getRoot().getChildren().forEach(inspectDisplay)
+    })
+    if (!needsDisplayUpdate) return
     let changed = false
     editor.update(
       () => {
-        const updateLabels = (node: LexicalNode): void => {
+        const updateDisplay = (node: LexicalNode): void => {
           if ($isPromptReferenceNode(node)) {
             const nextLabel = resolveLabelRef.current?.(node.getPart())
+            const nextVisual = resolveVisualRef.current?.(node.getPart())
             if (node.getDisplayLabel() !== nextLabel) {
               node.setDisplayLabel(nextLabel)
               changed = true
             }
+            if (JSON.stringify(node.getDisplayVisual()) !== JSON.stringify(nextVisual)) {
+              node.setDisplayVisual(nextVisual)
+              changed = true
+            }
           }
-          if ($isElementNode(node)) node.getChildren().forEach(updateLabels)
+          if ($isElementNode(node)) node.getChildren().forEach(updateDisplay)
         }
-        $getRoot().getChildren().forEach(updateLabels)
+        $getRoot().getChildren().forEach(updateDisplay)
       },
       { discrete: true },
     )
@@ -363,6 +436,10 @@ function EditorBridge({
     const desiredKey = readDisplayKey(value.parts)
     const currentParts = readParts()
     const currentKey = readDisplayKey(currentParts)
+    const epochChanged = value.epoch !== lastEpochRef.current
+    lastEpochRef.current = value.epoch
+    const needsExternalSync = desiredKey !== currentKey
+    if (epochChanged || needsExternalSync) editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined)
     if (desiredKey === currentKey) {
       lastAppliedKeyRef.current = desiredKey
       lastAcceptedKeyRef.current = partsKey(currentParts)
@@ -370,13 +447,20 @@ function EditorBridge({
     }
     if (desiredKey === lastAppliedKeyRef.current && value.epoch === valueRef.current.epoch) return
     applyingRef.current = true
-    editor.update(
-      () => {
-        writePromptEditorParts(value.parts, (part) => resolveLabelRef.current?.(part))
-      },
-      { discrete: true },
-    )
-    applyingRef.current = false
+    try {
+      editor.update(
+        () => {
+          writePromptEditorParts(
+            value.parts,
+            (part) => resolveLabelRef.current?.(part),
+            (part) => resolveVisualRef.current?.(part),
+          )
+        },
+        { discrete: true },
+      )
+    } finally {
+      applyingRef.current = false
+    }
     lastAppliedKeyRef.current = desiredKey
     lastAcceptedKeyRef.current = partsKey(value.parts)
   }, [editor, readDisplayKey, readParts, value.epoch, value.revision, value.parts])
@@ -401,11 +485,17 @@ function EditorBridge({
             const nodes: LexicalNode[] = parts.flatMap<LexicalNode>((part) =>
               part.type === "text"
                 ? [$createTextNode(part.text)]
-                : [$createPromptReferenceNode(part, resolveLabelRef.current?.(part))],
+                : [
+                    $createPromptReferenceNode(
+                      part,
+                      resolveLabelRef.current?.(part),
+                      resolveVisualRef.current?.(part),
+                    ),
+                  ],
             )
             selection.insertNodes(nodes)
           },
-          { discrete: true },
+          { discrete: true, tag: HISTORY_PUSH_TAG },
         )
       },
     }),
@@ -422,6 +512,7 @@ function EditorBridge({
       sessionScope={sessionScope}
       readParts={readParts}
       resolveLabel={resolveLabelRef.current}
+      resolveVisual={resolveVisualRef.current}
       validateParts={validateParts}
       parseText={parseText}
     />
@@ -431,13 +522,18 @@ function EditorBridge({
 export function PromptRichEditor(props: PromptRichEditorProps): ReactNode {
   const initialValueRef = useRef(props.value.parts)
   const initialResolveLabelRef = useRef(props.resolveLabel)
+  const initialResolveVisualRef = useRef(props.resolveVisual)
   const initialConfig = useMemo<InitialConfigType>(
     () => ({
       namespace: `reference-loader-prompt-${props.value.target.type}-${props.value.target.id}`,
       nodes: [PromptReferenceNode],
       editable: true,
       editorState: (editor) => {
-        writePromptEditorParts(initialValueRef.current, initialResolveLabelRef.current)
+        writePromptEditorParts(
+          initialValueRef.current,
+          initialResolveLabelRef.current,
+          initialResolveVisualRef.current,
+        )
         editor.setEditable(!props.readOnly)
       },
       onError: (error) => {
@@ -450,6 +546,7 @@ export function PromptRichEditor(props: PromptRichEditorProps): ReactNode {
   const readOnly = Boolean(props.readOnly)
   return (
     <LexicalComposer initialConfig={initialConfig}>
+      <HistoryPlugin delay={1000} />
       <EditorBridge {...props} />
       <PlainTextPlugin
         contentEditable={
@@ -469,6 +566,7 @@ export function PromptRichEditor(props: PromptRichEditorProps): ReactNode {
             contentEditable={!readOnly}
             onCompositionStart={() => undefined}
             onCompositionEnd={() => undefined}
+            onPaste={(event) => props.onPaste?.(event.nativeEvent)}
             onBlur={() => props.onBlur?.()}
           />
         }

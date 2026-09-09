@@ -6,7 +6,8 @@ import type { ComfyNode } from "../src/comfyui.ts"
 import { createPromptDefinitionsReact } from "../src/reference-loader/components/prompt-definitions-react.tsx"
 import { ReferencePromptController } from "../src/reference-loader/components/prompt-editor.ts"
 import { createPromptReact } from "../src/reference-loader/components/prompt-react.tsx"
-import type { PromptDocumentV6 } from "../src/reference-loader/prompt-v6.ts"
+import { PromptReferenceNode } from "../src/reference-loader/components/prompt-reference-node.tsx"
+import type { PromptDocumentV6, PromptReference } from "../src/reference-loader/prompt-v6.ts"
 import {
   createEmptyPromptDocumentV6,
   createPromptDefinitionId,
@@ -142,6 +143,7 @@ describe("Reference Prompt React shell", () => {
       serializePromptDocument({
         ...createEmptyPromptDocument(),
         subjects: [{ tag: "hero", parts: [] }],
+        shots: [{ tag: "opening", frameIndex: 0, parts: [] }],
       }),
       {},
     )
@@ -174,6 +176,17 @@ describe("Reference Prompt React shell", () => {
     expect(
       definitions.querySelector("[data-prompt-definition-body][data-prompt-react-editor]"),
     ).not.toBeNull()
+    expect(
+      definitions.querySelector('[data-prompt-definition="subject"] [data-prompt-editor-hint]'),
+    ).not.toBeNull()
+    expect(
+      definitions.querySelector('[data-prompt-definition="shot"] [data-prompt-editor-hint]'),
+    ).not.toBeNull()
+    const emptySubjectBody = definitions.querySelector<HTMLElement>(
+      '[data-prompt-definition="subject"] [data-prompt-definition-body]',
+    )
+    expect(emptySubjectBody?.getAttribute("data-placeholder")).toBeNull()
+    expect(emptySubjectBody?.textContent).toBe("")
     expect(
       root.querySelector<HTMLElement>("[data-prompt-panel]")?.dataset.promptDefinitionsMounted,
     ).toBe("true")
@@ -323,6 +336,83 @@ describe("Reference Prompt React shell", () => {
     controller.destroy()
   })
 
+  test("keeps prompt undo and redo local to the focused rich editor", async () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const controller = new ReferencePromptController(
+      node,
+      () => [],
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        sections: [
+          { title: "scene", parts: [] },
+          { title: "camera_direction", parts: [{ type: "text", text: "camera" }] },
+        ],
+      }),
+      { locale: "en" },
+    )
+    const mount = createPromptReact({ container: root, controller })
+    const editor = root.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')!
+    const siblingEditor = root.querySelector<HTMLElement>(
+      '[data-prompt-section-body="camera_direction"]',
+    )!
+    let graphUndoCount = 0
+    root.addEventListener("keydown", (event) => {
+      if (event instanceof KeyboardEvent && event.key.toLowerCase() === "z") graphUndoCount += 1
+    })
+    const paste = async (text: string): Promise<void> => {
+      placeCaretAtEnd(editor)
+      const event = new Event("paste", { bubbles: true, cancelable: true })
+      Object.defineProperty(event, "clipboardData", {
+        value: {
+          getData: () => text,
+          setData: () => undefined,
+        },
+      })
+      flushSync(() => editor.dispatchEvent(event))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+
+    await paste("first")
+    await paste("updated")
+    expect(controller.document.sections[0]?.parts).toEqual([{ type: "text", text: "firstupdated" }])
+
+    const undo = new KeyboardEvent("keydown", {
+      key: "z",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    flushSync(() => editor.dispatchEvent(undo))
+    expect(undo.defaultPrevented).toBe(true)
+    expect(graphUndoCount).toBe(0)
+    expect(controller.document.sections[0]?.parts).toEqual([{ type: "text", text: "first" }])
+    expect(editor.textContent).toBe("first")
+    expect(getSelection()?.anchorOffset).toBe(5)
+    expect(root.querySelector<HTMLElement>('[data-prompt-section-body="camera_direction"]')).toBe(
+      siblingEditor,
+    )
+
+    const redo = new KeyboardEvent("keydown", {
+      key: "z",
+      ctrlKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    flushSync(() => editor.dispatchEvent(redo))
+    expect(redo.defaultPrevented).toBe(true)
+    expect(graphUndoCount).toBe(0)
+    expect(controller.document.sections[0]?.parts).toEqual([{ type: "text", text: "firstupdated" }])
+    expect(editor.textContent).toBe("firstupdated")
+    expect(root.querySelector<HTMLElement>('[data-prompt-section-body="camera_direction"]')).toBe(
+      siblingEditor,
+    )
+
+    mount.destroy()
+    controller.destroy()
+  })
+
   test("renders inserted definition references with their tag instead of the UUID", () => {
     const root = document.createElement("div")
     document.body.append(root)
@@ -352,11 +442,201 @@ describe("Reference Prompt React shell", () => {
         composing: false,
       }),
     )
-    expect(editor.textContent).toBe("#hero")
+    expect(editor.querySelector(".rl-prompt-mention__label")?.textContent).toBe("#hero")
     expect(editor.textContent).not.toContain(subjectId)
+    const chip = editor.querySelector<HTMLElement>(".rl-prompt-subject")
+    expect(chip).not.toBeNull()
+    expect(chip?.querySelector(".rl-prompt-subject-icon")?.textContent).toBe("S1")
+    expect(chip?.style.getPropertyValue("--rl-prompt-subject-color")).not.toBe("")
 
     mount.destroy()
     controller.destroy()
+  })
+
+  test("renders an available media preview on mention chips", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const controller = new ReferencePromptController(
+      node,
+      () => [
+        {
+          referenceId: "image-a",
+          itemId: "image-a",
+          mediaKind: "image",
+          ordinal: 1,
+          tag: "<Picture 1>",
+          label: "image1",
+          filename: "hero.png",
+          previewUrl: "/hero.webp",
+        },
+      ],
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        sections: [
+          {
+            title: "scene",
+            parts: [
+              { type: "mention", referenceId: "image-a", mediaKind: "image", label: "image1" },
+            ],
+          },
+        ],
+      }),
+      { locale: "en" },
+    )
+    const mount = createPromptReact({ container: root, controller })
+    const editor = root.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')!
+    const chip = editor.querySelector<HTMLElement>(".rl-prompt-lexical-reference")
+    expect(chip?.classList.contains("is-stale")).toBe(false)
+    expect(chip?.querySelector("img")?.getAttribute("src")).toBe("/hero.webp")
+    expect(chip?.querySelector(".rl-prompt-mention__label")?.textContent).toBe("@image1")
+
+    mount.destroy()
+    controller.destroy()
+  })
+
+  test("refreshes a restored mention chip when its runtime preview becomes available", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const references: PromptReference[] = [
+      {
+        referenceId: "image-a",
+        itemId: "image-a",
+        mediaKind: "image" as const,
+        ordinal: 1,
+        tag: "<Picture 1>",
+        label: "image1",
+        filename: "hero.png",
+      },
+    ]
+    const controller = new ReferencePromptController(
+      node,
+      () => references,
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        sections: [
+          {
+            title: "scene",
+            parts: [
+              { type: "mention", referenceId: "image-a", mediaKind: "image", label: "image1" },
+            ],
+          },
+        ],
+      }),
+      { locale: "en" },
+    )
+    const mount = createPromptReact({ container: root, controller })
+    const editor = root.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')!
+    expect(editor.querySelector(".rl-prompt-lexical-reference img")).toBeNull()
+
+    references[0]!.previewUrl = "/hero.webp"
+    flushSync(() => controller.refreshReferences())
+
+    expect(editor.querySelector(".rl-prompt-lexical-reference img")?.getAttribute("src")).toBe(
+      "/hero.webp",
+    )
+
+    mount.destroy()
+    controller.destroy()
+  })
+
+  test("copies visible definition and media chips as authoring tags", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const subjectId = createPromptDefinitionId()
+    const references = [
+      {
+        referenceId: "image-a",
+        itemId: "image-a",
+        mediaKind: "image" as const,
+        ordinal: 1,
+        tag: "<Picture 1>",
+        label: "image1",
+        filename: "hero.png",
+      },
+    ]
+    const controller = new ReferencePromptController(
+      node,
+      () => references,
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        subjects: [{ id: subjectId, tag: "hero", parts: [] }],
+        sections: [
+          {
+            title: "scene",
+            parts: [
+              { type: "text", text: "이와 함께 " },
+              { type: "definition-ref", definitionId: subjectId },
+              { type: "text", text: " 를 " },
+              { type: "mention", referenceId: "image-a", mediaKind: "image", label: "image1" },
+            ],
+          },
+        ],
+      }),
+      { locale: "ko" },
+    )
+    const mount = createPromptReact({ container: root, controller })
+    const editor = root.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')!
+    const copied = new Map<string, string>()
+    const event = new Event("copy", { bubbles: true, cancelable: true })
+    Object.defineProperty(event, "clipboardData", {
+      value: {
+        setData(type: string, value: string) {
+          copied.set(type, value)
+        },
+        getData(type: string) {
+          return copied.get(type) ?? ""
+        },
+      },
+    })
+
+    flushSync(() => editor.dispatchEvent(event))
+
+    expect(copied.get("text/plain")).toBe("이와 함께 #hero 를 @image1")
+    expect(event.defaultPrevented).toBe(true)
+
+    mount.destroy()
+    controller.destroy()
+  })
+
+  test("keeps Prompt paste from reaching the ComfyUI canvas", () => {
+    const outer = document.createElement("div")
+    const root = document.createElement("div")
+    outer.append(root)
+    document.body.append(outer)
+    const controller = new ReferencePromptController(
+      node,
+      () => [],
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        sections: [{ title: "scene", parts: [] }],
+      }),
+      { locale: "en" },
+    )
+    const mount = createPromptReact({ container: root, controller })
+    const editor = root.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')!
+    let canvasPaste = false
+    outer.addEventListener("paste", () => {
+      canvasPaste = true
+    })
+    const event = new Event("paste", { bubbles: true, cancelable: true })
+    Object.defineProperty(event, "clipboardData", {
+      value: {
+        getData: () => "pasted text",
+        setData: () => undefined,
+      },
+    })
+
+    flushSync(() => editor.dispatchEvent(event))
+
+    expect(canvasPaste).toBe(false)
+
+    mount.destroy()
+    controller.destroy()
+  })
+
+  test("keeps inline reference chips on the surrounding text-caret path", () => {
+    expect(PromptReferenceNode.prototype.isInline()).toBe(true)
+    expect(PromptReferenceNode.prototype.isKeyboardSelectable()).toBe(false)
   })
 
   test("commits @ and # picker choices with Enter before the picker element mounts", () => {

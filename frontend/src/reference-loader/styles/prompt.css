@@ -510,9 +510,13 @@
   box-sizing: border-box;
 }
 
-.reference-prompt .rl-prompt-editor > p,
-.reference-prompt-definitions .rl-prompt-editor > p {
+.reference-prompt .rl-prompt-editor > p {
   margin: 0;
+}
+
+.reference-prompt-definitions p {
+  margin-block-start: 0px;
+  margin-block-end: 0px;
 }
 
 .rl-prompt-editor__hint {

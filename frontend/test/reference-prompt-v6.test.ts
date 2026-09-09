@@ -360,6 +360,10 @@ describe("Reference Prompt v6 AST", () => {
     const sidekick = definitionsRoot.querySelector<HTMLElement>(
       '[data-prompt-definition="subject"][data-prompt-definition-tag="sidekick"]',
     )!
+    const heroColor = hero.style.getPropertyValue("--rl-prompt-subject-color")
+    const sidekickColor = sidekick.style.getPropertyValue("--rl-prompt-subject-color")
+    expect(heroColor).not.toBe("")
+    expect(sidekickColor).not.toBe("")
     Object.defineProperty(sidekick, "getBoundingClientRect", {
       configurable: true,
       value: () => ({ top: 0, height: 100 }),
@@ -379,6 +383,14 @@ describe("Reference Prompt v6 AST", () => {
       secondSubjectId,
       value.subjects[0]!.id,
     ])
+    const movedHero = definitionsRoot.querySelector<HTMLElement>(
+      '[data-prompt-definition="subject"][data-prompt-definition-tag="hero"]',
+    )!
+    const movedSidekick = definitionsRoot.querySelector<HTMLElement>(
+      '[data-prompt-definition="subject"][data-prompt-definition-tag="sidekick"]',
+    )!
+    expect(movedHero.style.getPropertyValue("--rl-prompt-subject-color")).toBe(heroColor)
+    expect(movedSidekick.style.getPropertyValue("--rl-prompt-subject-color")).toBe(sidekickColor)
 
     definitionsMount.destroy()
     promptMount.destroy()

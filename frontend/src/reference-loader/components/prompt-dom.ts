@@ -28,10 +28,8 @@ export function sectionColor(title: string): { color: string; index: number } {
   return { color: SECTION_COLOR_PALETTE[index], index }
 }
 
-export function subjectColor(ordinal: number | undefined): string | undefined {
-  return ordinal === undefined
-    ? undefined
-    : SECTION_COLOR_PALETTE[(ordinal - 1) % SECTION_COLOR_PALETTE.length]
+export function subjectColor(identity: string | undefined): string | undefined {
+  return identity ? sectionColor(identity).color : undefined
 }
 
 export function normalizeDefinitionTagValue(value: string): string {

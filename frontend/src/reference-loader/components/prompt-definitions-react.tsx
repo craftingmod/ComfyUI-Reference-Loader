@@ -71,7 +71,8 @@ function PromptDefinitionCard({
     kind: definition.kind,
     identity: definition.identity,
   }
-  const subjectAccent = definition.kind === "subject" ? subjectColor(definition.ordinal) : undefined
+  const subjectAccent =
+    definition.kind === "subject" ? subjectColor(definition.identity) : undefined
 
   useLayoutEffect(() => {
     if (document.activeElement !== tagInput.current) setTagValue(`#${definition.tag}`)
@@ -212,6 +213,7 @@ function PromptDefinitionCard({
         actions={actions}
         target={target}
         placeholder={definition.placeholder}
+        helperText={definition.bodySnapshot.parts.length === 0 ? definition.placeholder : undefined}
         bodySnapshot={definition.bodySnapshot}
         className="rl-prompt-definition__body"
         disabled={draft}
@@ -355,6 +357,7 @@ export function createPromptDefinitionsReact(
     registerPromptBodyEditor: (target, handle) =>
       controller.registerPromptBodyEditor(target, handle),
     resolvePromptPartLabel: (part) => controller.resolvePromptPartLabel(part),
+    resolvePromptPartVisual: (part) => controller.resolvePromptPartVisual(part),
     handlePromptBodyTrigger: (target, trigger) =>
       controller.handlePromptBodyTrigger(target, trigger),
     validatePromptBodyParts: (target, parts) => controller.validatePromptBodyParts(target, parts),

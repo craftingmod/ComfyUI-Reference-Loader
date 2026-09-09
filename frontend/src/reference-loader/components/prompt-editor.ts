@@ -34,7 +34,9 @@ import {
   closestPromptBody,
   normalizeDefinitionTagValue,
   placeCaretAtEnd,
+  SHOT_COLOR,
   sectionColor,
+  subjectColor,
   textContentWithBreaks,
 } from "./prompt-dom.ts"
 import type {
@@ -45,6 +47,7 @@ import type {
   PromptEditorTargetV6,
   PromptRichEditorHandle,
 } from "./prompt-editor-contract.ts"
+import type { PromptReferenceVisual } from "./prompt-reference-node.tsx"
 
 type ReferenceProvider = () => readonly PromptReference[]
 
@@ -363,6 +366,37 @@ export class ReferencePromptController {
     return definition?.tag
   }
 
+  resolvePromptPartVisual(part: PromptPartV6): PromptReferenceVisual | undefined {
+    if (part.type === "text") return undefined
+    if (part.type === "mention") {
+      const reference = this.#references().find(
+        (candidate) =>
+          candidate.referenceId === part.referenceId && candidate.mediaKind === part.mediaKind,
+      )
+      return reference
+        ? {
+            previewUrl: reference.previewUrl,
+          }
+        : undefined
+    }
+    const document = this.#v6ShotDraft?.document ?? this.#documentV6
+    const subjectIndex = document.subjects.findIndex((subject) => subject.id === part.definitionId)
+    if (subjectIndex >= 0)
+      return {
+        definitionKind: "subject",
+        ordinal: subjectIndex + 1,
+        color: subjectColor(document.subjects[subjectIndex]?.id),
+      }
+    const shotIndex = document.shots.findIndex((shot) => shot.id === part.definitionId)
+    return shotIndex >= 0
+      ? {
+          definitionKind: "shot",
+          ordinal: shotIndex + 1,
+          color: SHOT_COLOR,
+        }
+      : undefined
+  }
+
   validatePromptBodyParts(target: PromptEditorTargetV6, parts: readonly PromptPartV6[]): boolean {
     if (this.#v6ShotDraft || !this.#v6BodyOwner(target)) return false
     try {
@@ -593,6 +627,18 @@ export class ReferencePromptController {
       !this.#isReactTextEditor(event.target)
     )
       return
+    const modifier = event.ctrlKey || event.metaKey
+    const isUndo = modifier && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "z"
+    const isRedo =
+      modifier &&
+      !event.altKey &&
+      (event.key.toLowerCase() === "y" || (event.key.toLowerCase() === "z" && event.shiftKey))
+    if (isUndo || isRedo) {
+      // Let Lexical's local HistoryPlugin handle the command, but keep it
+      // away from ComfyUI's graph-level undo handler.
+      event.stopPropagation()
+      return
+    }
     this.#handlePickerKeydown(event)
   }
 
@@ -819,6 +865,10 @@ export class ReferencePromptController {
   refreshReferences(bindByOrder = false): void {
     if (this.#destroyed) return
     const currentReferences = this.#references()
+    // Media previews are runtime-only metadata. The Prompt document does not
+    // change when a restored reference finishes loading, so invalidate the
+    // React snapshots explicitly to refresh existing chips.
+    this.#invalidateV6Snapshots()
     if (bindByOrder) {
       this.#documentV6 = rebindPromptMentionsByOrderV6(this.#documentV6, currentReferences)
       this.#invalidateV6Snapshots()

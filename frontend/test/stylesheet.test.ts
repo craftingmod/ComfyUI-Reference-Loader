@@ -174,7 +174,7 @@ describe("Reference Loader stylesheet", () => {
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
     expect(first.href).toBe(
-      "https://example.test/extensions/comfyui-reference-loader/index.css?v=21",
+      "https://example.test/extensions/comfyui-reference-loader/index.css?v=22",
     )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })
@@ -281,12 +281,15 @@ describe("Reference Loader stylesheet", () => {
     const css = await Bun.file(
       new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
     ).text()
-    const paragraphRule = css.match(
-      /\.reference-prompt \.rl-prompt-editor > p\s*,\s*\.reference-prompt-definitions \.rl-prompt-editor > p\s*\{([^}]*)\}/,
+    const paragraphRule = css.match(/\.reference-prompt \.rl-prompt-editor > p\s*\{([^}]*)\}/)?.[1]
+    const definitionsParagraphRule = css.match(
+      /\.reference-prompt-definitions p\s*\{([^}]*)\}/,
     )?.[1]
     const hintRule = css.match(/\.rl-prompt-editor__hint\s*\{([^}]*)\}/)?.[1]
 
     expect(paragraphRule).toContain("margin: 0;")
+    expect(definitionsParagraphRule).toContain("margin-block-start: 0px;")
+    expect(definitionsParagraphRule).toContain("margin-block-end: 0px;")
     expect(hintRule).toContain("display: block;")
     expect(hintRule).toContain("border-radius: 6px;")
     expect(hintRule).toContain("overflow-wrap: anywhere;")

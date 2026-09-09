@@ -30,6 +30,7 @@ import type {
   PromptViewSnapshot,
   ReferencePromptController,
 } from "./prompt-editor.ts"
+import type { PromptReferenceVisual } from "./prompt-reference-node.tsx"
 import { PromptRichEditor } from "./prompt-rich-editor.tsx"
 
 export interface PromptEditorActions {
@@ -48,6 +49,9 @@ export interface PromptEditorActions {
     handle: PromptRichEditorHandle | undefined,
   ): () => void
   resolvePromptPartLabel(part: PromptBodySnapshot["parts"][number]): string | undefined
+  resolvePromptPartVisual(
+    part: PromptBodySnapshot["parts"][number],
+  ): PromptReferenceVisual | undefined
   handlePromptBodyTrigger(
     target: PromptEditorTargetV6,
     trigger: PromptBodyTrigger | undefined,
@@ -137,12 +141,14 @@ function PromptV6Editor({
             target.type === "definition" ? target.identity : undefined,
         }}
         resolveLabel={actions.resolvePromptPartLabel}
+        resolveVisual={actions.resolvePromptPartVisual}
         sessionScope={sessionScope}
         validateParts={(parts) => actions.validatePromptBodyParts(snapshot.target, parts)}
         parseText={actions.parsePromptBodyText}
         onReady={onReady}
         onTriggerChange={(trigger) => actions.handlePromptBodyTrigger(snapshot.target, trigger)}
         onKeyDown={actions.handleReactEditorKeydown}
+        onPaste={actions.handleReactEditorPaste}
         onBlur={actions.handleReactEditorBlur}
       />
       {helperText ? (
@@ -445,7 +451,7 @@ function PromptPickerOptionView({
       >
         <span
           className="rl-prompt-subject-icon"
-          style={{ background: subjectColor(option.ordinal) }}
+          style={{ background: subjectColor(option.subject.id) }}
         >
           {`S${option.ordinal}`}
         </span>
@@ -704,6 +710,7 @@ export function createPromptReact(options: PromptReactOptions): PromptReactMount
     registerPromptBodyEditor: (target, handle) =>
       controller.registerPromptBodyEditor(target, handle),
     resolvePromptPartLabel: (part) => controller.resolvePromptPartLabel(part),
+    resolvePromptPartVisual: (part) => controller.resolvePromptPartVisual(part),
     handlePromptBodyTrigger: (target, trigger) =>
       controller.handlePromptBodyTrigger(target, trigger),
     validatePromptBodyParts: (target, parts) => controller.validatePromptBodyParts(target, parts),

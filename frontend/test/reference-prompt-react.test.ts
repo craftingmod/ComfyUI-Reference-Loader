@@ -191,6 +191,88 @@ describe("Reference Prompt React shell", () => {
       root.querySelector<HTMLElement>("[data-prompt-panel]")?.dataset.promptDefinitionsMounted,
     ).toBe("true")
 
+    const subjectIdentity = controller.getDefinitionsSnapshot().subjects[0]!.identity
+    const shotIdentity = controller.getDefinitionsSnapshot().shots[0]!.identity
+    const subjectSnapshot = controller.getPromptBodySnapshot({
+      type: "definition",
+      id: subjectIdentity,
+    })!
+    flushSync(() =>
+      expect(
+        controller.applyPromptBodyEdit({
+          target: subjectSnapshot.target,
+          baseRevision: subjectSnapshot.revision,
+          epoch: subjectSnapshot.epoch,
+          parts: [{ type: "text", text: "red coat" }],
+          editId: "definition-helper-subject-add",
+          composing: false,
+        }),
+      ).toMatchObject({ ok: true }),
+    )
+    expect(
+      definitions.querySelector('[data-prompt-definition="subject"] [data-prompt-editor-hint]'),
+    ).toBeNull()
+
+    const shotSnapshot = controller.getPromptBodySnapshot({
+      type: "definition",
+      id: shotIdentity,
+    })!
+    flushSync(() =>
+      expect(
+        controller.applyPromptBodyEdit({
+          target: shotSnapshot.target,
+          baseRevision: shotSnapshot.revision,
+          epoch: shotSnapshot.epoch,
+          parts: [{ type: "text", text: "wide shot" }],
+          editId: "definition-helper-shot-add",
+          composing: false,
+        }),
+      ).toMatchObject({ ok: true }),
+    )
+    expect(
+      definitions.querySelector('[data-prompt-definition="shot"] [data-prompt-editor-hint]'),
+    ).toBeNull()
+
+    const subjectFilledSnapshot = controller.getPromptBodySnapshot({
+      type: "definition",
+      id: subjectIdentity,
+    })!
+    flushSync(() =>
+      expect(
+        controller.applyPromptBodyEdit({
+          target: subjectFilledSnapshot.target,
+          baseRevision: subjectFilledSnapshot.revision,
+          epoch: subjectFilledSnapshot.epoch,
+          parts: [],
+          editId: "definition-helper-subject-clear",
+          composing: false,
+        }),
+      ).toMatchObject({ ok: true }),
+    )
+    expect(
+      definitions.querySelector('[data-prompt-definition="subject"] [data-prompt-editor-hint]'),
+    ).not.toBeNull()
+
+    const shotFilledSnapshot = controller.getPromptBodySnapshot({
+      type: "definition",
+      id: shotIdentity,
+    })!
+    flushSync(() =>
+      expect(
+        controller.applyPromptBodyEdit({
+          target: shotFilledSnapshot.target,
+          baseRevision: shotFilledSnapshot.revision,
+          epoch: shotFilledSnapshot.epoch,
+          parts: [],
+          editId: "definition-helper-shot-clear",
+          composing: false,
+        }),
+      ).toMatchObject({ ok: true }),
+    )
+    expect(
+      definitions.querySelector('[data-prompt-definition="shot"] [data-prompt-editor-hint]'),
+    ).not.toBeNull()
+
     definitionsMount.destroy()
     mount.destroy()
     controller.destroy()

@@ -318,6 +318,7 @@ export class ReferencePromptController {
     this.#bodyRevisions.set(key, nextRevision)
     this.#invalidateV6Snapshots()
     this.#publishView()
+    if (edit.target.type === "definition") this.#publishDefinitions()
     this.#notifyShots()
     this.#node.setDirtyCanvas(true, true)
     return { ok: true, revision: nextRevision, editId: edit.editId }

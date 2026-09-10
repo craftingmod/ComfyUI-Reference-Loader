@@ -138,6 +138,44 @@ describe("Reference Prompt v6 AST", () => {
     ])
   })
 
+  test("parses custom media aliases before Korean suffixes", () => {
+    const value = documentV6()
+    const references = [
+      {
+        referenceId: "image-a",
+        itemId: "image-a",
+        mediaKind: "image" as const,
+        ordinal: 1,
+        tag: "<Picture 1>",
+        label: "hero",
+        filename: "hero.png",
+      },
+    ]
+    expect(parsePromptPartsV6("@hero는 좋다", references, value)).toEqual([
+      { type: "mention", referenceId: "image-a", mediaKind: "image", label: "hero" },
+      { type: "text", text: "는 좋다" },
+    ])
+    expect(parsePromptPartsV6("@hero1", references, value)).toEqual([
+      { type: "text", text: "@hero1" },
+    ])
+  })
+
+  test("parses defined tags before Korean suffixes", () => {
+    const value = documentV6()
+    const subjectId = value.subjects[0]!.id
+    const taggedValue = {
+      ...value,
+      subjects: [{ ...value.subjects[0]!, tag: "subject_1" }],
+    }
+    expect(parsePromptPartsV6("#subject_1와 산책을 한다.", [], taggedValue)).toEqual([
+      { type: "definition-ref", definitionId: subjectId },
+      { type: "text", text: "와 산책을 한다." },
+    ])
+    expect(parsePromptPartsV6("#subject_10", [], taggedValue)).toEqual([
+      { type: "text", text: "#subject_10" },
+    ])
+  })
+
   test("rejects duplicate section titles in the v6 contract", () => {
     const value = documentV6()
     const result = validatePromptDocumentV6({

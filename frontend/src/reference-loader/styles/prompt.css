@@ -109,6 +109,8 @@
 }
 
 .rl-prompt-editor.is-raw {
+  width: 100%;
+  resize: vertical;
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   font-size: 11px;
 }

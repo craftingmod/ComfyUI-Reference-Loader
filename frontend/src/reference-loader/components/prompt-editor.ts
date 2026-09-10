@@ -1568,6 +1568,7 @@ export class ReferencePromptController {
   }
 
   #toggleView(): void {
+    this.#flushBodyEditors()
     if (this.#documentV6.view === "raw") {
       if (!this.#applyV6RawDraft()) return
       this.#documentV6 = { ...this.#documentV6, view: "structured" }

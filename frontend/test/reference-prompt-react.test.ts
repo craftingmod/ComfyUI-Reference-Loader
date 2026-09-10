@@ -133,6 +133,60 @@ describe("Reference Prompt React shell", () => {
     controller.destroy()
   })
 
+  test("preserves media mention IDs across Raw and Structured", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const controller = new ReferencePromptController(
+      node,
+      () => [
+        {
+          referenceId: "image-a",
+          itemId: "image-a",
+          mediaKind: "image",
+          ordinal: 1,
+          tag: "<Picture 1>",
+          label: "image1",
+          filename: "hero.png",
+        },
+      ],
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        sections: [
+          {
+            title: "scene",
+            parts: [
+              { type: "text", text: "Use " },
+              { type: "mention", referenceId: "image-a", mediaKind: "image", label: "image1" },
+              { type: "text", text: "." },
+            ],
+          },
+        ],
+      }),
+      { locale: "en" },
+    )
+    const mount = createPromptReact({ container: root, controller })
+    const toggle = () =>
+      root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click()
+
+    flushSync(toggle)
+    expect(controller.document.view).toBe("raw")
+    expect(root.querySelector<HTMLTextAreaElement>("[data-prompt-raw-editor]")?.value).toBe(
+      "scene:\nUse @image1.",
+    )
+
+    flushSync(toggle)
+    expect(controller.document.view).toBe("structured")
+    expect(controller.document.sections[0]?.parts).toEqual([
+      { type: "text", text: "Use " },
+      { type: "mention", referenceId: "image-a", mediaKind: "image", label: "image1" },
+      { type: "text", text: "." },
+    ])
+    expect(root.querySelector(".rl-prompt-lexical-reference")).not.toBeNull()
+
+    mount.destroy()
+    controller.destroy()
+  })
+
   test("keeps definitions in their separate React widget host", () => {
     const root = document.createElement("div")
     const definitions = document.createElement("div")
@@ -293,12 +347,12 @@ describe("Reference Prompt React shell", () => {
     const unsubscribe = controller.subscribeView(() => notifications++)
     notifications = 0
     const workspace = document.createElement("div")
-    controller.mountNativeHosts(workspace)
+    controller.mountPromptWorkspace(workspace)
     expect(notifications).toBeGreaterThan(0)
     const afterMount = controller.getViewSnapshot()
     expect(afterMount).not.toBe(first)
 
-    controller.unmountNativeHosts()
+    controller.unmountPromptWorkspace()
     expect(controller.getViewSnapshot().nativeHosts).toEqual({
       workspace: false,
       picker: false,
@@ -809,6 +863,11 @@ describe("Reference Prompt React shell", () => {
     const entry = root.querySelector<HTMLInputElement>("[data-prompt-section-entry]")!
     inputText(entry, "/style", "/")
     expect(root.querySelectorAll("[data-prompt-alias-index]").length).toBeGreaterThan(0)
+    expect(entry.getAttribute("placeholder")).toBeNull()
+    inputText(entry, "", null)
+    expect(entry.value).toBe("")
+    expect(entry.getAttribute("placeholder")).toBe("Add section: title_tag: or /alias")
+    inputText(entry, "/style", "/")
     expect(press(entry, "Enter").defaultPrevented).toBe(true)
     expect(entry.value).toBe("")
     expect(root.querySelector('[data-prompt-section="visual_style"]')).not.toBeNull()

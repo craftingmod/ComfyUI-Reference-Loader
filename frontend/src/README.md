@@ -13,19 +13,17 @@ extensions, settings, commands, widgets, and other UI behavior.
 
 ## Prompt editor responsibilities
 
-- `reference-loader/prompt-state.ts` owns the document format, parsing and compilation.
+- `reference-loader/prompt-v6.ts` owns the v6 document format, parsing and compilation.
 - `reference-loader/components/prompt-editor.ts` owns the live document, input events,
   autocomplete state, Shot drafts and ComfyUI graph transactions. Editable DOM is
   synchronized here before serialization and document changes.
-- `reference-loader/components/prompt-dom.ts` provides contenteditable text/chip
-  conversion, caret handling and shared tag visuals. It does not depend on ComfyUI.
-- `reference-loader/components/prompt-cards.ts` builds detached Section and
-  Subject/Shot cards from supplied state. It does not change that state, install
-  event handlers or retain a controller reference.
+- `reference-loader/components/prompt-dom.ts` provides shared colors, text
+  extraction, caret handling and contenteditable primitives. It does not depend
+  on ComfyUI.
 
-Keep document changes in the controller and document operations in `prompt-state.ts`;
-card builders should only describe the view. Preserve the distinction between the
-committed document and the Shot draft when displaying definitions.
+Keep document changes in the controller and v6 document operations in
+`prompt-v6.ts`. Preserve the distinction between the committed document and the
+Shot draft when displaying definitions.
 
 ## React ordinary Media surface
 
@@ -59,7 +57,9 @@ normal state updates.
 The incomplete-Guide recovery screen, Timeline interaction and Prompt editing stay
 native DOM. No React store owns a second copy of the saved Loader state.
 
-The Bun bundler includes React in the single browser ESM entry. Source and test
-tsconfigs include TSX with the automatic JSX runtime. `bun run build` selects the
-production React build; `bun run dev` selects development React with watch/rebuild
-and source maps. The watch command does not provide React Fast Refresh.
+The Bun bundler emits a small browser ESM bootstrap plus a lazy Reference Loader
+chunk. The React chunk is requested when the first Reference Loader custom widget
+is created. Source and test tsconfigs include TSX with the automatic JSX runtime.
+`bun run build` selects the production React build; `bun run dev` selects
+development React with watch/rebuild and source maps. The watch command does not
+provide React Fast Refresh.

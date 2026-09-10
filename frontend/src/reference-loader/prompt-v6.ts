@@ -562,6 +562,11 @@ function promptTagBoundary(value: string, index: number): boolean {
   return index === 0 || !/[\p{L}\p{N}_-]/u.test(value[index - 1] ?? "")
 }
 
+function promptTokenBoundary(value: string, index: number): boolean {
+  // Allow non-ASCII suffixes such as Korean particles after a known alias.
+  return index >= value.length || !/[A-Za-z0-9_-]/u.test(value[index] ?? "")
+}
+
 function sourcePartsV6(
   value: string,
   definitions: ReadonlyMap<string, string>,
@@ -574,21 +579,33 @@ function sourcePartsV6(
     if (previous?.type === "text") previous.text += text
     else parts.push({ type: "text", text })
   }
+  const orderedDefinitions = [...definitions.entries()].sort(
+    ([left], [right]) => right.length - left.length,
+  )
   const aliases = new Map<string, PromptReference>()
   for (const reference of references) {
-    aliases.set(`${reference.mediaKind}:${reference.label}`, reference)
-    aliases.set(`${reference.mediaKind}:${reference.tag}`, reference)
-    aliases.set(`${reference.mediaKind}:${reference.mediaKind}${reference.ordinal}`, reference)
+    for (const alias of [
+      reference.label,
+      reference.tag,
+      `${reference.mediaKind}${reference.ordinal}`,
+    ]) {
+      if (!aliases.has(alias)) aliases.set(alias, reference)
+    }
   }
+  const orderedAliases = [...aliases.entries()].sort(
+    ([left], [right]) => right.length - left.length,
+  )
   let textStart = 0
   let cursor = 0
   while (cursor < value.length) {
     if (value[cursor] === "#" && promptTagBoundary(value, cursor) && value[cursor - 1] !== "\\") {
-      let end = cursor + 1
-      while (end < value.length && /[\p{L}\p{N}_-]/u.test(value[end] ?? "")) end += 1
-      const tag = value.slice(cursor + 1, end)
-      const id = definitions.get(tag)
-      if (id) {
+      const match = orderedDefinitions.find(
+        ([tag]) =>
+          value.startsWith(tag, cursor + 1) && promptTokenBoundary(value, cursor + 1 + tag.length),
+      )
+      if (match) {
+        const [tag, id] = match
+        const end = cursor + 1 + tag.length
         appendText(value.slice(textStart, cursor))
         parts.push({ type: "definition-ref", definitionId: id })
         cursor = end
@@ -596,15 +613,15 @@ function sourcePartsV6(
         continue
       }
     }
-    if (value[cursor] === "@" && (cursor === 0 || /\s/u.test(value[cursor - 1] ?? ""))) {
-      let end = cursor + 1
-      while (end < value.length && !/\s|@/u.test(value[end] ?? "")) end += 1
-      const alias = value.slice(cursor + 1, end)
-      const reference = references.find(
-        (candidate) =>
-          aliases.get(`${candidate.mediaKind}:${alias}`)?.referenceId === candidate.referenceId,
+    if (value[cursor] === "@" && promptTagBoundary(value, cursor) && value[cursor - 1] !== "\\") {
+      const match = orderedAliases.find(
+        ([alias]) =>
+          value.startsWith(alias, cursor + 1) &&
+          promptTokenBoundary(value, cursor + 1 + alias.length),
       )
-      if (reference) {
+      if (match) {
+        const [alias, reference] = match
+        const end = cursor + 1 + alias.length
         appendText(value.slice(textStart, cursor))
         parts.push({
           type: "mention",

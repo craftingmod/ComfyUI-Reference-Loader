@@ -55,9 +55,9 @@ function placeCaretAtEnd(element: HTMLElement): void {
   selection?.addRange(range)
 }
 
-function inputText(element: HTMLElement, value: string, data: string | null): void {
-  element.textContent = value
-  placeCaretAtEnd(element)
+function inputText(element: HTMLInputElement, value: string, data: string | null): void {
+  element.value = value
+  element.focus()
   flushSync(() =>
     element.dispatchEvent(
       new InputEvent("input", { bubbles: true, inputType: "insertText", data }),
@@ -806,10 +806,11 @@ describe("Reference Prompt React shell", () => {
       {},
     )
     const mount = createPromptReact({ container: root, controller })
-    const entry = root.querySelector<HTMLElement>("[data-prompt-section-entry]")!
+    const entry = root.querySelector<HTMLInputElement>("[data-prompt-section-entry]")!
     inputText(entry, "/style", "/")
     expect(root.querySelectorAll("[data-prompt-alias-index]").length).toBeGreaterThan(0)
     expect(press(entry, "Enter").defaultPrevented).toBe(true)
+    expect(entry.value).toBe("")
     expect(root.querySelector('[data-prompt-section="visual_style"]')).not.toBeNull()
     expect(root.querySelectorAll("[data-prompt-section-body-host]")).toHaveLength(0)
 

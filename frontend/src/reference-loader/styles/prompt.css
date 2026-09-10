@@ -532,14 +532,16 @@
   overflow-wrap: anywhere;
 }
 
-.rl-prompt-section__body:empty::before,
-.rl-prompt-section-entry:empty::before {
+.rl-prompt-section__body:empty::before {
   color: var(--rl-muted);
   content: attr(data-placeholder);
   pointer-events: none;
 }
 
 .rl-prompt-section-entry {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
   min-height: 32px;
   padding: 6px 9px;
   overflow: hidden;
@@ -553,6 +555,11 @@
   font-size: 11px;
   line-height: 18px;
   white-space: nowrap;
+}
+
+.rl-prompt-section-entry::placeholder {
+  color: var(--rl-muted);
+  opacity: 1;
 }
 
 .rl-prompt-section-entry:focus {

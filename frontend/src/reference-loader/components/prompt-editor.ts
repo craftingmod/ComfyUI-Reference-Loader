@@ -37,7 +37,6 @@ import {
   SHOT_COLOR,
   sectionColor,
   subjectColor,
-  textContentWithBreaks,
 } from "./prompt-dom.ts"
 import type {
   PromptBodyEdit,
@@ -528,25 +527,30 @@ export class ReferencePromptController {
     this.#closePicker()
   }
 
-  handleReactSectionEntryInput(editor: HTMLElement, input?: PromptEditorInput): void {
-    if (this.#destroyed || !editor.matches("[data-prompt-section-entry]")) return
+  handleReactSectionEntryInput(
+    value: string,
+    entry: HTMLInputElement,
+    input?: PromptEditorInput,
+  ): void {
+    if (this.#destroyed || !entry.matches("[data-prompt-section-entry]")) return
     const isDeletion = input?.inputType?.startsWith("delete") ?? false
     if (isDeletion && this.#pickerMode === "alias") this.#closePicker()
-    else this.#updatePickerQuery(true)
+    else this.#updateSectionEntryPickerQuery(value, entry)
   }
 
-  handleReactSectionEntryKeydown(event: KeyboardEvent): void {
-    if (
-      this.#destroyed ||
-      !(event.target instanceof Element) ||
-      !event.target.closest("[data-prompt-section-entry]")
-    )
-      return
-    if (this.#handlePickerKeydown(event)) return
+  handleReactSectionEntryKeydown(
+    value: string,
+    entry: HTMLInputElement,
+    event: KeyboardEvent,
+  ): boolean {
+    if (this.#destroyed || !entry.matches("[data-prompt-section-entry]")) return false
+    const pickerWasOpen = this.#pickerMode === "alias"
+    if (this.#handlePickerKeydown(event)) return event.key === "Enter" && pickerWasOpen
     if (event.key === "Enter") {
       event.preventDefault()
-      this.#createSectionFromEntry()
+      return this.#createSectionFromEntry(value)
     }
+    return false
   }
 
   handleReactEditorPaste(event: ClipboardEvent): void {
@@ -1606,19 +1610,19 @@ export class ReferencePromptController {
     }
   }
 
-  #createSectionFromEntry(): void {
-    const entry = this.#workspaceRoot?.querySelector<HTMLElement>("[data-prompt-section-entry]")
-    if (!entry) return
-    const value = textContentWithBreaks(entry).trim()
-    const alias = value.match(/^\/([a-z]+)$/iu)?.[1]?.toLocaleLowerCase()
+  #createSectionFromEntry(value: string): boolean {
+    const normalizedValue = value.trim()
+    const alias = normalizedValue.match(/^\/([a-z]+)$/iu)?.[1]?.toLocaleLowerCase()
     const aliasTitle = this.#preset.aliases.find((option) => option.command === alias)?.title
     const title =
-      aliasTitle ?? (value.endsWith(":") ? normalizePromptSectionTitle(value) : undefined)
+      aliasTitle ??
+      (normalizedValue.endsWith(":") ? normalizePromptSectionTitle(normalizedValue) : undefined)
     if (!title) {
       this.#setHint(localize(PROMPT_MESSAGES.invalidTitle, this.#locale))
-      return
+      return false
     }
     this.#addOrFocusSection(title)
+    return true
   }
 
   #addOrFocusSection(title: string): void {
@@ -1890,17 +1894,6 @@ export class ReferencePromptController {
   }
 
   #updatePickerQuery(canOpenSubjectPicker = true): void {
-    const entry = this.#workspaceRoot?.querySelector<HTMLElement>("[data-prompt-section-entry]")
-    if (entry && document.activeElement === entry) {
-      const match = textContentWithBreaks(entry)
-        .trim()
-        .match(/^\/([a-z]*)$/iu)
-      if (match) {
-        this.#pickerAnchor = entry
-        this.#updateAliasPicker(match[1] ?? "")
-      } else this.#closePicker()
-      return
-    }
     const selection = globalThis.getSelection?.()
     if (!selection?.rangeCount || !selection.isCollapsed) {
       this.#closePicker()
@@ -1925,6 +1918,18 @@ export class ReferencePromptController {
     if (referenceMatch) this.#updateReferencePicker(match[1] ?? "")
     else if (canOpenSubjectPicker) this.#updateSubjectPicker(subjectMatch?.[1] ?? "", body)
     else this.#closePicker()
+  }
+
+  #updateSectionEntryPickerQuery(value: string, entry: HTMLInputElement): void {
+    if (document.activeElement !== entry) {
+      this.#closePicker()
+      return
+    }
+    const match = value.trim().match(/^\/([a-z]*)$/iu)
+    if (match) {
+      this.#pickerAnchor = entry
+      this.#updateAliasPicker(match[1] ?? "")
+    } else this.#closePicker()
   }
 
   #updateReferencePicker(query = ""): void {

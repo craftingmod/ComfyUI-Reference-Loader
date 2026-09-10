@@ -2,9 +2,11 @@ import {
   useCallback,
   useLayoutEffect,
   useRef,
+  useState,
   useSyncExternalStore,
   type CSSProperties,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type Ref,
   type ReactNode,
 } from "react"
@@ -67,8 +69,16 @@ export interface PromptReactActions extends PromptEditorActions {
   copyCompiled(): Promise<void>
   setPreset(value: unknown): void
   removeSection(title: string): void
-  handleReactSectionEntryInput(editor: HTMLElement, input?: PromptEditorInput): void
-  handleReactSectionEntryKeydown(event: KeyboardEvent): void
+  handleReactSectionEntryInput(
+    value: string,
+    entry: HTMLInputElement,
+    input?: PromptEditorInput,
+  ): void
+  handleReactSectionEntryKeydown(
+    value: string,
+    entry: HTMLInputElement,
+    event: KeyboardEvent,
+  ): boolean
   moveSection(title: string, delta: -1 | 1): void
   movePicker(delta: -1 | 1): void
   activatePickerOption(index?: number): void
@@ -358,31 +368,35 @@ function PromptSectionEntry({
   placeholder: string
   ariaLabel: string
 }): ReactNode {
-  const entryRef = useRef<HTMLDivElement>(null)
-  const handleInput = (event: FormEvent<HTMLDivElement>): void => {
+  const [value, setValue] = useState("")
+  const handleInput = (event: FormEvent<HTMLInputElement>): void => {
     const nativeEvent = event.nativeEvent as Event & Partial<PromptEditorInput>
     const input =
       typeof nativeEvent.inputType === "string" || nativeEvent.data !== undefined
         ? nativeEvent
         : undefined
-    actions.handleReactSectionEntryInput(event.currentTarget, input)
+    const nextValue = event.currentTarget.value
+    setValue(nextValue)
+    actions.handleReactSectionEntryInput(nextValue, event.currentTarget, input)
+  }
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
+    if (actions.handleReactSectionEntryKeydown(value, event.currentTarget, event.nativeEvent))
+      setValue("")
   }
   return (
     <>
       <div data-prompt-react-picker-slot="" />
-      <div
-        ref={entryRef}
+      <input
+        type="text"
         className="rl-prompt-section-entry"
         data-prompt-section-entry=""
         data-capture-wheel="true"
-        contentEditable="true"
-        suppressContentEditableWarning
-        role="textbox"
         spellCheck={false}
-        data-placeholder={placeholder}
+        placeholder={placeholder}
         aria-label={ariaLabel}
+        value={value}
         onInput={handleInput}
-        onKeyDown={(event) => actions.handleReactSectionEntryKeydown(event.nativeEvent)}
+        onKeyDown={handleKeyDown}
         onBlur={actions.handleReactEditorBlur}
       />
     </>
@@ -718,9 +732,10 @@ export function createPromptReact(options: PromptReactOptions): PromptReactMount
     rawDraftText: () => controller.rawDraftText,
     updateRawDraftText: (value) => controller.updateRawDraftText(value),
     removeSection: (title) => controller.removeSection(title),
-    handleReactSectionEntryInput: (editor, input) =>
-      controller.handleReactSectionEntryInput(editor, input),
-    handleReactSectionEntryKeydown: (event) => controller.handleReactSectionEntryKeydown(event),
+    handleReactSectionEntryInput: (value, entry, input) =>
+      controller.handleReactSectionEntryInput(value, entry, input),
+    handleReactSectionEntryKeydown: (value, entry, event) =>
+      controller.handleReactSectionEntryKeydown(value, entry, event),
     moveSection: (title, delta) => controller.moveSection(title, delta),
     movePicker: (delta) => controller.movePicker(delta),
     activatePickerOption: (index) => controller.activatePickerOption(index),

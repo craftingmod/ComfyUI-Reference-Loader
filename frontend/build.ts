@@ -13,7 +13,7 @@ export const buildConfig = {
   format: "esm",
   minify: true,
   define: { "process.env.NODE_ENV": '"production"' },
-  external: ["*/scripts/app.js", "*/scripts/api.js"],
+  external: ["*/scripts/app.js", "*/scripts/api.js", "*/scripts/changeTracker.js"],
   naming: {
     entry: "[name].[ext]",
     chunk: "[name]-[hash].[ext]",

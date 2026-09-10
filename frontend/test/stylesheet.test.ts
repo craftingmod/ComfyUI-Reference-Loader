@@ -295,6 +295,16 @@ describe("Reference Loader stylesheet", () => {
     expect(hintRule).toContain("overflow-wrap: anywhere;")
   })
 
+  it("makes the Raw Prompt textarea full width and vertically resizable", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
+    ).text()
+    const rawRule = css.match(/\.rl-prompt-editor\.is-raw\s*\{([^}]*)\}/)?.[1]
+
+    expect(rawRule).toContain("width: 100%;")
+    expect(rawRule).toContain("resize: vertical;")
+  })
+
   it("uses the green Shot accent in the Timeline lane", async () => {
     const css = await Bun.file(
       new URL("../src/reference-loader/styles/h3-timeline.css", import.meta.url),

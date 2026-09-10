@@ -392,7 +392,7 @@ function PromptSectionEntry({
         data-prompt-section-entry=""
         data-capture-wheel="true"
         spellCheck={false}
-        placeholder={placeholder}
+        placeholder={value.length === 0 ? placeholder : undefined}
         aria-label={ariaLabel}
         value={value}
         onInput={handleInput}
@@ -678,8 +678,8 @@ export function ReferencePromptReactRoot({
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 
   useLayoutEffect(() => {
-    controller.mountNativeHosts(workspaceRef.current ?? undefined)
-    return () => controller.unmountNativeHosts()
+    controller.mountPromptWorkspace(workspaceRef.current ?? undefined)
+    return () => controller.unmountPromptWorkspace()
   }, [controller])
 
   return (

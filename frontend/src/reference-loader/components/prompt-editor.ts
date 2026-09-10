@@ -447,15 +447,15 @@ export class ReferencePromptController {
     return () => this.#definitionsListeners.delete(listener)
   }
 
-  mountNativeHosts(workspace: HTMLElement | undefined): void {
+  mountPromptWorkspace(workspace: HTMLElement | undefined): void {
     if (this.#destroyed || this.#workspaceRoot === workspace) return
-    if (this.#workspaceRoot !== undefined) this.unmountNativeHosts()
+    if (this.#workspaceRoot !== undefined) this.unmountPromptWorkspace()
     this.#workspaceRoot = workspace
     this.#renderEditor()
     this.#publishView()
   }
 
-  unmountNativeHosts(): void {
+  unmountPromptWorkspace(): void {
     this.#closePicker()
     this.#workspaceRoot = undefined
     this.#pickerElement = undefined
@@ -1911,9 +1911,6 @@ export class ReferencePromptController {
     const subjectMatch = before.match(/#([^\s#]*)$/u)
     const match = referenceMatch ?? subjectMatch
     if (!match) return this.#closePicker()
-    const range = document.createRange()
-    range.setStart(container, caret.startOffset - (match[0]?.length ?? 0))
-    range.setEnd(container, caret.startOffset)
     this.#pickerAnchor = body.closest<HTMLElement>("[data-prompt-section]") ?? body
     if (referenceMatch) this.#updateReferencePicker(match[1] ?? "")
     else if (canOpenSubjectPicker) this.#updateSubjectPicker(subjectMatch?.[1] ?? "", body)

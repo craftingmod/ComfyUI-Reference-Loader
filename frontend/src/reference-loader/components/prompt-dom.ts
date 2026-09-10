@@ -15,7 +15,6 @@ const SECTION_COLOR_PALETTE = [
   "#9b94c9",
 ] as const
 
-const NATIVE_LINE_BLOCKS = new Set(["DIV", "P"])
 export const SHOT_COLOR = "#2f8f60"
 
 export function sectionColor(title: string): { color: string; index: number } {
@@ -49,45 +48,6 @@ export function normalizeDefinitionTagInput(input: HTMLInputElement): string {
     input.setSelectionRange(position(start), position(end))
   }
   return normalized
-}
-
-export function textContentWithBreaks(container: Node): string {
-  let value = ""
-  const appendStructuralBreak = (): void => {
-    if (value && !value.endsWith("\n")) value += "\n"
-  }
-  const visit = (node: Node): void => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      value += node.textContent ?? ""
-      return
-    }
-    if (!(node instanceof HTMLElement)) return
-    if (node.tagName === "BR") {
-      value += "\n"
-      return
-    }
-    visitChildren(node)
-  }
-  const visitChildren = (parent: Node): void => {
-    const children = Array.from(parent.childNodes)
-    children.forEach((child, index) => {
-      const block = child instanceof HTMLElement && NATIVE_LINE_BLOCKS.has(child.tagName)
-      if (block) appendStructuralBreak()
-      visit(child)
-      if (block && index < children.length - 1) appendStructuralBreak()
-    })
-  }
-  visitChildren(container)
-  return value
-}
-
-export function promptContentFingerprint(value: string): string {
-  let hash = 0x811c9dc5
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return `${value.length}:${hash >>> 0}`
 }
 
 export function closestPromptBody(

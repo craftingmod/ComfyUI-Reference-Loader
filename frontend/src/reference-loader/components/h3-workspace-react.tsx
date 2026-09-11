@@ -446,7 +446,12 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
       : h3.timeline.enabled
         ? "Ready"
         : "Guides are off"
-  const scope = h3.editScope === "shot" ? "Shot changes" : "Guide changes"
+  const scope =
+    h3.editScope === "shot"
+      ? "Shot changes"
+      : h3.shotDirty
+        ? "Guide + Shot changes"
+        : "Guide changes"
   return (
     <div className="rl-h3-workspace-container">
       <section

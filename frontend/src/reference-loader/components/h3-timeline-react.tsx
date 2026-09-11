@@ -368,11 +368,26 @@ export function H3TimelineReact({
   const [gestureActive, setGestureActive] = useState(false)
   const [preview, setPreview] = useState<{ id: string; frame: number }>()
   const [drop, setDrop] = useState<{ channel: "visual" | "audio"; frame: number }>()
+  const [trackWidth, setTrackWidth] = useState(0)
   const marks = useMemo(
     () => timelineMarks({ ...state, h3Timeline: h3.timeline }, runtime, h3.shots),
     [h3.shots, h3.timeline, runtime, state],
   )
   const extent = useMemo(() => timelineExtent(marks), [marks])
+
+  useLayoutEffect(() => {
+    const element = scroller.current
+    if (!element) return undefined
+    const updateWidth = (): void => {
+      const width = element.clientWidth
+      setTrackWidth((current) => (current === width ? current : width))
+    }
+    updateWidth()
+    if (typeof ResizeObserver === "undefined") return undefined
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [h3.collapsed])
 
   const cancelActiveGesture = useCallback((): void => {
     const gesture = gestureRef.current
@@ -601,7 +616,7 @@ export function H3TimelineReact({
   }
 
   const layoutWidth =
-    Math.max(MIN_TRACK_WIDTH, scroller.current?.clientWidth ?? MIN_TRACK_WIDTH) * zoom
+    Math.max(MIN_TRACK_WIDTH, trackWidth || scroller.current?.clientWidth || 0) * zoom
   const tickFrames = Math.max(
     H3_TIMELINE_FPS,
     Math.ceil(extent / Math.max(2, Math.floor(layoutWidth / 76)) / H3_TIMELINE_FPS) *
@@ -634,22 +649,30 @@ export function H3TimelineReact({
             <div className="rl-h3-timeline__ruler-axis">{ticks}</div>
           </div>
           {CHANNELS.map((channel) => {
-            const laneMarks = marks.filter(
-              (mark) => mark.channel === channel && mark.placement.kind !== "end",
-            )
+            const laneMarks = marks
+              .filter((mark) => mark.channel === channel && mark.placement.kind !== "end")
+              .sort((left, right) => {
+                const leftFrame = displayFrame(left, preview)
+                const rightFrame = displayFrame(right, preview)
+                return (
+                  (Number.isFinite(leftFrame) ? leftFrame : Number.POSITIVE_INFINITY) -
+                  (Number.isFinite(rightFrame) ? rightFrame : Number.POSITIVE_INFINITY)
+                )
+              })
             const occupied: number[] = []
+            const minMarkerFrames = Math.max(1, (extent * 88) / layoutWidth)
             const rows = laneMarks.map((mark) => {
               const frame = displayFrame(mark, preview)
               const visualWidth =
                 channel === "audio" && mark.frames !== undefined
-                  ? mark.frames
-                  : Math.max(1, (extent * 88) / layoutWidth)
+                  ? Math.max(mark.frames, minMarkerFrames)
+                  : minMarkerFrames
               let row = occupied.findIndex((end) => end <= frame)
               if (row < 0) row = occupied.length
               occupied[row] = frame + visualWidth
               return { mark, row }
             })
-            const laneHeight = Math.max(48, rows.length === 0 ? 48 : rows.length * 40 + 4)
+            const laneHeight = Math.max(48, occupied.length * 40 + 4)
             return (
               <div className="rl-h3-timeline__lane-row" key={channel}>
                 <div className="rl-h3-timeline__lane-label">{channelLabel(channel)}</div>
@@ -681,17 +704,26 @@ export function H3TimelineReact({
                     const frame = displayFrame(mark, preview)
                     const width =
                       channel === "audio" && mark.frames !== undefined
-                        ? `${(mark.frames / extent) * 100}%`
+                        ? `${
+                            (Math.min(
+                              Math.max(0, extent - frame),
+                              Math.max(mark.frames, minMarkerFrames),
+                            ) /
+                              extent) *
+                            100
+                          }%`
                         : undefined
                     return (
                       <span
                         key={`${mark.placement.guideId ?? mark.placement.kind}:${mark.shotTag ?? mark.label}`}
                         className="rl-h3-timeline__mark-position"
-                        style={{ left: `${(frame / extent) * 100}%`, top: `${row * 40 + 4}px` }}
+                        style={{
+                          left: `${(frame / extent) * 100}%`,
+                          top: `${row * 40 + 4}px`,
+                          ...(width ? { width } : {}),
+                        }}
                       >
-                        <span style={width ? { width } : undefined}>
-                          {markButton(mark, marks.indexOf(mark))}
-                        </span>
+                        <span>{markButton(mark, marks.indexOf(mark))}</span>
                       </span>
                     )
                   })}

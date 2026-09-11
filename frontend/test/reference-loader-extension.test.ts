@@ -28,6 +28,66 @@ import {
 import { createMediaItem, createEmptyLoaderState } from "../src/reference-loader/types.ts"
 
 describe("Reference Loader custom widget", () => {
+  test("shows Prompt Shots after ComfyUI restores the Prompt widget", () => {
+    let extension: ComfyExtension | undefined
+    const app: ComfyAppLike = {
+      registerExtension(candidate) {
+        extension = candidate
+      },
+    }
+    registerReferenceLoader(app, { fetchApi: async () => new Response("{}") })
+    const factories = extension?.getCustomWidgets?.()
+    const loaderFactory = factories?.[REFERENCE_LOADER_WIDGET_TYPE]
+    const promptFactory = factories?.[REFERENCE_PROMPT_WIDGET_TYPE]
+    const roots = new Map<string, HTMLElement>()
+    const widgets = new Map<string, ComfyWidget>()
+    let promptOptions: DomWidgetOptions | undefined
+    const node: ComfyNode = {
+      addDOMWidget(name, _type, element, options) {
+        roots.set(name, element)
+        if (name === "prompt") promptOptions = options
+        const widget = { name, value: "", options } as ComfyWidget
+        widgets.set(name, widget)
+        return widget
+      },
+      setDirtyCanvas: () => undefined,
+    }
+    const promptState = {
+      ...createEmptyPromptDocumentV6(),
+      shots: [
+        {
+          id: createPromptDefinitionId(),
+          tag: "opening",
+          frameIndex: 72,
+          parts: [],
+        },
+      ],
+    }
+
+    loaderFactory?.(
+      node,
+      "loader_state",
+      ["STRING", { default: serializeLoaderState(createEmptyLoaderState()) }],
+      app,
+    )
+    promptFactory?.(
+      node,
+      "prompt",
+      ["STRING", { default: serializePromptDocumentV6(createEmptyPromptDocumentV6()) }],
+      app,
+    )
+    expect(roots.get("loader_state")?.querySelector('[data-timeline-shot="opening"]')).toBeNull()
+
+    promptOptions?.setValue?.(serializePromptDocumentV6(promptState))
+
+    expect(
+      roots.get("loader_state")?.querySelector('[data-timeline-shot="opening"]'),
+    ).not.toBeNull()
+
+    widgets.get("loader_state")?.onRemove?.()
+    widgets.get("prompt")?.onRemove?.()
+  })
+
   test("renders Subjects and Shots as a separate widget before Prompt", () => {
     let extension: ComfyExtension | undefined
     const app: ComfyAppLike = {

@@ -675,6 +675,54 @@ describe("Reference Prompt React shell", () => {
     controller.destroy()
   })
 
+  test("refreshes an image preview in the initial Subjects and Shots mount", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const references: PromptReference[] = [
+      {
+        referenceId: "image-a",
+        itemId: "image-a",
+        mediaKind: "image",
+        ordinal: 1,
+        tag: "<Picture 1>",
+        label: "image1",
+        filename: "hero.png",
+      },
+    ]
+    const subjectId = createPromptDefinitionId()
+    const controller = new ReferencePromptController(
+      node,
+      () => references,
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        subjects: [
+          {
+            id: subjectId,
+            tag: "hero",
+            parts: [
+              { type: "mention", referenceId: "image-a", mediaKind: "image", label: "image1" },
+            ],
+          },
+        ],
+      }),
+      { locale: "en" },
+    )
+    controller.mountDefinitions(root)
+    const mount = createPromptDefinitionsReact({ container: root, controller })
+    const editor = root.querySelector<HTMLElement>("[data-prompt-definition-body]")!
+    expect(editor.querySelector(".rl-prompt-lexical-reference img")).toBeNull()
+
+    references[0]!.previewUrl = "/hero.webp"
+    flushSync(() => controller.refreshReferences())
+
+    expect(editor.querySelector(".rl-prompt-lexical-reference img")?.getAttribute("src")).toBe(
+      "/hero.webp",
+    )
+
+    mount.destroy()
+    controller.destroy()
+  })
+
   test("copies visible definition and media chips as authoring tags", () => {
     const root = document.createElement("div")
     document.body.append(root)

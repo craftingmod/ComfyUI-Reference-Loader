@@ -357,11 +357,6 @@ export class ReferenceLoaderController {
       this.render(true)
     },
     changeShot: (tag, frame) => {
-      if (this.#h3EditorDirty()) {
-        this.#status = "Apply or cancel Guide changes before editing a Shot."
-        this.render(true)
-        return
-      }
       this.#promptShotChange?.(tag, frame)
     },
     removeShot: (tag) => {
@@ -1084,34 +1079,34 @@ export class ReferenceLoaderController {
 
   #moveH3TimelineGuide(id: string, frameIndex: number): void {
     if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) return
-    if (this.#promptShotDirty) {
-      this.#status = "Apply or cancel Shot changes before moving a Guide."
-      this.render(true)
-      return
-    }
     let editor = this.#h3Editor
     if (!editor?.ownedGuideIds.has(id)) {
-      if (editor && this.#h3EditorDirty()) {
-        this.#status = "Apply or cancel the current Guide edit before moving another Guide."
-        this.render(true)
-        return
+      if (editor) {
+        const guide = editor.timeline.guides.find((candidate) => candidate.id === id)
+        if (!guide) return
+        editor.ownedGuideIds.add(id)
+        if (!editor.originalGuideFrames.has(id))
+          editor.originalGuideFrames.set(id, guide.frameIndex)
+      } else {
+        const timeline = cloneH3Timeline(this.state.h3Timeline)
+        if (!timeline.guides.some((guide) => guide.id === id)) return
+        editor = {
+          mediaId: undefined,
+          channel: "visual",
+          timeline,
+          initialTimeline: cloneH3Timeline(timeline),
+          ownedGuideIds: new Set(timeline.guides.map((guide) => guide.id)),
+          originalGuideFrames: new Map(
+            timeline.guides.map((guide) => [guide.id, guide.frameIndex]),
+          ),
+          removedGuideIds: new Set(),
+          allowTimelineOnly: true,
+          timelineEdit: true,
+          returnFocus: { guideId: id },
+        }
+        this.#h3Editor = editor
+        this.#h3Session += 1
       }
-      const timeline = cloneH3Timeline(this.state.h3Timeline)
-      if (!timeline.guides.some((guide) => guide.id === id)) return
-      editor = {
-        mediaId: undefined,
-        channel: "visual",
-        timeline,
-        initialTimeline: cloneH3Timeline(timeline),
-        ownedGuideIds: new Set(timeline.guides.map((guide) => guide.id)),
-        originalGuideFrames: new Map(timeline.guides.map((guide) => [guide.id, guide.frameIndex])),
-        removedGuideIds: new Set(),
-        allowTimelineOnly: true,
-        timelineEdit: true,
-        returnFocus: { guideId: id },
-      }
-      this.#h3Editor = editor
-      this.#h3Session += 1
     }
     editor.timeline = {
       ...editor.timeline,
@@ -1409,13 +1404,8 @@ export class ReferenceLoaderController {
 
   #applyH3Workspace(): void {
     if (this.#h3Editor) {
-      if (this.#promptShotDirty) {
-        this.#status = "Apply or cancel Shot changes before applying Guide changes."
-        this.render(true)
-        return
-      }
       this.#applyH3Editor()
-      return
+      if (this.#h3Editor) return
     }
     if (this.#promptShotDirty) this.#promptShotApply?.()
   }
@@ -1423,7 +1413,6 @@ export class ReferenceLoaderController {
   #cancelH3Workspace(): void {
     if (this.#h3Editor) {
       this.#closeH3Editor()
-      return
     }
     if (this.#promptShotDirty) this.#promptShotCancel?.()
   }

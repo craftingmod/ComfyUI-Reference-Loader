@@ -71,6 +71,42 @@ function mount() {
   return { root, controller }
 }
 
+function dirtyShot(controller: ReferenceLoaderController, frame = 25) {
+  let currentFrame = frame
+  let dirty = true
+  const publish = (): void => {
+    controller.setPromptShots(
+      [{ tag: "opening", frameIndex: currentFrame }],
+      (_tag, nextFrame) => {
+        currentFrame = nextFrame
+        dirty = true
+        publish()
+      },
+      undefined,
+      undefined,
+      () => {
+        dirty = false
+        publish()
+      },
+      () => {
+        currentFrame = 24
+        dirty = false
+        publish()
+      },
+      dirty,
+    )
+  }
+  publish()
+  return {
+    get frame(): number {
+      return currentFrame
+    },
+    get isDirty(): boolean {
+      return dirty
+    },
+  }
+}
+
 function key(root: HTMLElement, name: string, shiftKey = false) {
   root.querySelector('[data-timeline-guide="pair"]')!.dispatchEvent(
     new KeyboardEvent("keydown", {
@@ -150,6 +186,46 @@ describe("Guide timeline", () => {
     expect(draggedFrame(48, -640, 640, 240)).toBe(0)
     expect(draggedFrame(48, 640, 640, 240)).toBe(239)
     expect(draggedFrame(48, 64, 0, 240)).toBe(48)
+  })
+
+  test("sizes each timeline lane from overlapping placement rows", () => {
+    const { root, controller } = mount()
+    const state = fixture()
+    state.h3Timeline.guides = [
+      { id: "late", frameIndex: 180, visualId: "scene", audioId: null },
+      { id: "middle", frameIndex: 100, visualId: "scene", audioId: null },
+      { id: "early", frameIndex: 0, visualId: "scene", audioId: null },
+    ]
+    controller.restore(serializeLoaderState(state))
+
+    const visualLane = root.querySelector<HTMLElement>('[data-timeline-channel="visual"]')!
+    expect(visualLane.style.height).toBe("48px")
+
+    state.h3Timeline.guides.push({
+      id: "overlap",
+      frameIndex: 48,
+      visualId: "scene",
+      audioId: null,
+    })
+    controller.restore(serializeLoaderState(state))
+    expect(root.querySelector<HTMLElement>('[data-timeline-channel="visual"]')?.style.height).toBe(
+      "84px",
+    )
+  })
+
+  test("gives short audio markers the normal readable marker width", () => {
+    const { root, controller } = mount()
+    const state = fixture()
+    const voice = state.items.voice
+    if (voice?.kind !== "audio") throw new Error("Expected audio")
+    voice.crop = { start: 0, end: 1.125 }
+    controller.restore(serializeLoaderState(state))
+
+    const position = root.querySelector<HTMLElement>(
+      '[data-timeline-channel="audio"] .rl-h3-timeline__mark-position',
+    )
+    expect(position).not.toBeNull()
+    expect(Number.parseFloat(position?.style.width ?? "0")).toBeGreaterThan(11.25)
   })
 
   test("moves both channels in one draft, applies once, and restores through Undo and serialization", () => {
@@ -416,7 +492,7 @@ describe("Guide timeline", () => {
     expect(controller.state.h3Timeline.endImageId).toBe("scene")
   })
 
-  test("protects an unrelated dirty media draft and retains scroll on a frame edit", () => {
+  test("moves an unrelated Guide while preserving a dirty Media draft and retains scroll", () => {
     const { root, controller } = mount()
     const state = fixture()
     state.h3Timeline.guides.push({ id: "other", frameIndex: 120, visualId: null, audioId: "music" })
@@ -430,13 +506,17 @@ describe("Guide timeline", () => {
     root
       .querySelector('[data-timeline-guide="other"]')!
       .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
-    expect(root.querySelector(".rl-status")?.textContent).toContain("Apply or cancel")
+    expect(root.querySelector(".rl-status")?.textContent).not.toContain("Apply or cancel")
     expect(controller.state.h3Timeline.guides.map((guide) => guide.frameIndex)).toEqual([48, 120])
+    expect(
+      controller.getViewSnapshot().h3?.timeline.guides.map((guide) => guide.frameIndex),
+    ).toEqual([60, 121])
     expect(
       root.querySelector<HTMLInputElement>('[data-h3-inspector] [data-h3-draft-field="frame"]')
         ?.value,
     ).toBe("60")
-    root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')!.click()
+    root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
+    expect(controller.state.h3Timeline.guides.map((guide) => guide.frameIndex)).toEqual([60, 121])
     const zoom = root.querySelector<HTMLSelectElement>('[aria-label="Timeline zoom"]')!
     zoom.value = "4"
     zoom.dispatchEvent(new Event("change", { bubbles: true }))
@@ -445,6 +525,47 @@ describe("Guide timeline", () => {
     scroll.dispatchEvent(new Event("scroll"))
     key(root, "ArrowRight")
     expect(root.querySelector<HTMLElement>(".rl-h3-timeline__track-scroll")?.scrollLeft).toBe(250)
+  })
+
+  test("moves a Guide while a Shot draft is dirty and applies both drafts", () => {
+    const { root, controller } = mount()
+    const shot = dirtyShot(controller)
+    root
+      .querySelector('[data-timeline-guide="pair"]')!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
+
+    expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
+    expect(controller.getViewSnapshot().h3?.timeline.guides[0]?.frameIndex).toBe(49)
+    expect(shot.frame).toBe(25)
+    expect(shot.isDirty).toBe(true)
+
+    root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
+    expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(49)
+    expect(shot.isDirty).toBe(false)
+  })
+
+  test("moves a Shot while a Media Guide draft is dirty and applies both drafts", () => {
+    const { root, controller } = mount()
+    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')!.click()
+    const input = root.querySelector<HTMLInputElement>(
+      '[data-h3-inspector] [data-h3-draft-field="frame"]',
+    )!
+    input.value = "60"
+    flushSync(() => input.dispatchEvent(new Event("input", { bubbles: true })))
+    const shot = dirtyShot(controller)
+
+    root
+      .querySelector('[data-timeline-shot="opening"]')!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
+
+    expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
+    expect(controller.getViewSnapshot().h3?.timeline.guides[0]?.frameIndex).toBe(60)
+    expect(shot.frame).toBe(26)
+    expect(shot.isDirty).toBe(true)
+
+    root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
+    expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(60)
+    expect(shot.isDirty).toBe(false)
   })
 
   test("cancels pointer gestures on restore and rejects invalid whole-Guide input", () => {

@@ -843,6 +843,7 @@ export class ReferencePromptController {
       this.#closePicker()
       this.#renderEditor()
       this.#setHint()
+      this.#notifyShots()
       return
     }
     const parsed = deserializePromptDocumentV6(serialized)
@@ -860,6 +861,7 @@ export class ReferencePromptController {
     this.#closePicker()
     this.#renderEditor()
     this.#setHint(parsed.issues.join(" "))
+    this.#notifyShots()
   }
 
   setPreset(value: unknown): void {
@@ -887,6 +889,7 @@ export class ReferencePromptController {
       this.#v6RawReferenceFingerprint = this.#v6ReferenceFingerprint()
     }
     if (this.#pickerMode === "reference") this.#updateReferencePicker()
+    this.#publishDefinitions()
     this.#setHint()
   }
 

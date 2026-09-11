@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test"
 
+import { flushSync } from "react-dom"
+
 import type { ComfyNode } from "../src/comfyui.ts"
 import { ReferenceLoaderApi } from "../src/reference-loader/api.ts"
 import {
-  H3Timeline,
   draggedFrame,
   timelineMarks,
   timelineExtent,
@@ -82,22 +83,40 @@ function key(root: HTMLElement, name: string, shiftKey = false) {
 }
 
 function pointer(target: EventTarget, type: string, clientX: number) {
-  target.dispatchEvent(
-    new PointerEvent(type, { clientX, pointerId: 1, button: 0, bubbles: true, cancelable: true }),
-  )
+  flushSync(() => {
+    target.dispatchEvent(
+      new PointerEvent(type, {
+        clientX,
+        pointerId: 1,
+        button: 0,
+        isPrimary: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+  })
 }
 
 function mediaDrag(target: EventTarget, type: string, transfer: DataTransfer, clientX = 0) {
   const event = new DragEvent(type, { bubbles: true, cancelable: true })
   Object.defineProperty(event, "dataTransfer", { value: transfer })
   Object.defineProperty(event, "clientX", { value: clientX })
-  target.dispatchEvent(event)
+  flushSync(() => target.dispatchEvent(event))
   return event
 }
 
+function protectedLoaderDrag(): DataTransfer {
+  return {
+    types: ["application/x-reference-loader-item"],
+    files: [],
+    items: [],
+    getData: () => "",
+  } as unknown as DataTransfer
+}
+
 function sizeSurface(root: HTMLElement, width = 640) {
-  root.querySelector<HTMLElement>(".rl-time-axis__surface")!.getBoundingClientRect = () =>
-    new DOMRect(0, 0, width, 200)
+  for (const lane of root.querySelectorAll<HTMLElement>("[data-timeline-channel]"))
+    lane.getBoundingClientRect = () => new DOMRect(0, 0, width, 200)
 }
 
 describe("Guide timeline", () => {
@@ -138,7 +157,7 @@ describe("Guide timeline", () => {
     key(root, "ArrowRight", true)
     expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
     const marks = root.querySelectorAll('[data-timeline-guide="pair"] [data-timeline-time]')
-    expect([...marks].map((mark) => mark.textContent)).toEqual(["72f · 3.00s", "72f · 3.00s"])
+    expect([...marks].map((mark) => mark.textContent)).toEqual(["72f · 3.000s", "72f · 3.000s"])
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
     expect(controller.state.h3Timeline.guides).toEqual([
       { id: "pair", frameIndex: 72, visualId: "scene", audioId: "voice" },
@@ -152,73 +171,57 @@ describe("Guide timeline", () => {
   })
 
   test("keeps drag previews local, cancels on Escape, and cleans listeners on destroy", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const changes: number[] = []
-    const axis = new H3Timeline(
-      root,
-      fixture(),
-      new Map(),
-      { zoom: 1, scrollLeft: 0 },
-      {
-        select: () => undefined,
-        change: (_id, frame) => changes.push(frame),
-        remove: () => undefined,
-        canDrop: () => false,
-        drop: () => undefined,
-        settled: () => undefined,
-      },
-    )
-    cleanups.push(() => {
-      axis.destroy()
-      root.remove()
-    })
-    sizeSurface(root, 320)
-    pointer(root.querySelector('[data-timeline-guide="pair"]')!, "pointerdown", 64)
-    pointer(document, "pointermove", 96)
-    expect(axis.dragging).toBe(true)
-    expect(changes).toEqual([])
-    expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("72f · 3.00s")
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
-    pointer(document, "pointerup", 96)
-    expect(changes).toEqual([])
-    expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("48f · 2.00s")
+    const { root, controller } = mount()
     sizeSurface(root)
-    pointer(root.querySelector('[data-timeline-guide="pair"]')!, "pointerdown", 128)
+    const marker = root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!
+    pointer(marker, "pointerdown", 128)
+    pointer(document, "pointermove", 192)
+    expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
+    expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("72f · 3.000s")
+    flushSync(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    })
+    pointer(document, "pointerup", 192)
+    expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
+    expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("48f · 2.000s")
+
+    pointer(
+      root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!,
+      "pointerdown",
+      128,
+    )
     pointer(document, "pointermove", 192)
     pointer(document, "pointerup", 192)
-    expect(changes).toEqual([72])
-    pointer(root.querySelector('[data-timeline-guide="pair"]')!, "pointerdown", 128)
-    axis.destroy()
+    expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
+    expect(controller.getViewSnapshot().h3?.dirty).toBe(true)
+    controller.destroy()
     pointer(document, "pointermove", 240)
     pointer(document, "pointerup", 240)
-    expect(changes).toEqual([72])
+  })
+
+  test("keeps the lower Guide Frame field live while a marker is dragged", () => {
+    const { root, controller } = mount()
+    root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
+    const frame = root.querySelector<HTMLInputElement>('[aria-label="Guide frame"]')!
+    const marker = root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!
+    sizeSurface(root)
+
+    expect(frame.value).toBe("48")
+    pointer(marker, "pointerdown", 128)
+    pointer(document, "pointermove", 192)
+    expect(frame.value).toBe("72")
+    expect(frame.parentElement?.querySelector("small")?.textContent).toBe("3.000s")
+    expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
+
+    pointer(document, "pointercancel", 192)
+    expect(frame.value).toBe("48")
   })
 
   test("starts and continues a drag when a Nodes 2.0 wrapper stops bubbling", () => {
     const host = document.createElement("div")
-    const root = document.createElement("div")
+    const root = mount().root
     host.append(root)
     document.body.append(host)
-    const changes: number[] = []
-    const axis = new H3Timeline(
-      root,
-      fixture(),
-      new Map(),
-      { zoom: 1, scrollLeft: 0 },
-      {
-        select: () => undefined,
-        change: (_id, frame) => changes.push(frame),
-        remove: () => undefined,
-        canDrop: () => false,
-        drop: () => undefined,
-        settled: () => undefined,
-      },
-    )
-    cleanups.push(() => {
-      axis.destroy()
-      host.remove()
-    })
     sizeSurface(root)
     const mark = root.querySelector<HTMLElement>('[data-timeline-guide="pair"]')!
     mark.addEventListener("pointerdown", (event) => event.stopPropagation())
@@ -226,28 +229,33 @@ describe("Guide timeline", () => {
     pointer(mark, "pointerdown", 128)
     pointer(mark, "pointermove", 192)
     pointer(mark, "pointerup", 192)
-    expect(changes).toEqual([72])
+    expect(root.querySelector<HTMLElement>(".rl-h3-workspace__status-row")?.textContent).toContain(
+      "Unsaved changes",
+    )
+    host.remove()
   })
 
-  test("adds a dragged Image to the Timeline draft at the drop frame", () => {
+  test("adds a dragged Image to the Timeline draft at the drop frame", async () => {
     const { root, controller } = mount()
     sizeSurface(root)
     const transfer = new DataTransfer()
     const card = root.querySelector<HTMLElement>('.rl-card[data-id="scene"]')!
-    card
-      .querySelector<HTMLElement>(".rl-card__media")!
-      .dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))
+    pointer(card.querySelector<HTMLElement>(".rl-card__media")!, "pointerdown", 0)
     mediaDrag(card, "dragstart", transfer)
     const lane = root.querySelector<HTMLElement>('[data-timeline-channel="visual"]')!
-    mediaDrag(lane, "dragover", transfer, 192)
-    expect(root.querySelector(".rl-time-axis.is-guide-drop-target")).not.toBeNull()
+    // Native browsers expose the custom type during dragover but protect its
+    // payload until drop. The lane must still accept the dragover.
+    mediaDrag(lane, "dragover", protectedLoaderDrag(), 192)
+    await Promise.resolve()
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    expect(lane.classList.contains("is-drop-target")).toBe(true)
     mediaDrag(lane, "drop", transfer, 192)
 
     expect(controller.state.h3Timeline.guides).toHaveLength(1)
-    expect(root.querySelector(".rl-time-axis__draft")).not.toBeNull()
+    expect(controller.getViewSnapshot().h3?.dirty).toBe(true)
     expect(
       [...root.querySelectorAll<HTMLElement>("[data-timeline-guide] [data-timeline-time]")].some(
-        (element) => element.textContent === "72f · 3.00s",
+        (element) => element.textContent === "72f · 3.000s",
       ),
     ).toBe(true)
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
@@ -260,23 +268,97 @@ describe("Guide timeline", () => {
     })
   })
 
+  test("adds a dragged standalone Audio to the Timeline draft at the drop frame", async () => {
+    const { root, controller } = mount()
+    sizeSurface(root)
+    const transfer = new DataTransfer()
+    const card = root.querySelector<HTMLElement>('.rl-card[data-id="music"][data-channel="audio"]')!
+    pointer(card.querySelector<HTMLElement>(".rl-card__media")!, "pointerdown", 0)
+    mediaDrag(card, "dragstart", transfer)
+    expect(JSON.parse(transfer.getData("application/x-reference-loader-item"))).toMatchObject({
+      id: "music",
+      channel: "audio",
+    })
+    const lane = root.querySelector<HTMLElement>('[data-timeline-channel="audio"]')!
+    mediaDrag(lane, "dragover", protectedLoaderDrag(), 192)
+    await Promise.resolve()
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    expect(lane.classList.contains("is-drop-target")).toBe(true)
+    mediaDrag(lane, "drop", transfer, 192)
+
+    expect(controller.getViewSnapshot().h3?.timeline.guides).toContainEqual({
+      id: expect.any(String),
+      frameIndex: 72,
+      visualId: null,
+      audioId: "music",
+    })
+    expect(controller.getViewSnapshot().h3?.dirty).toBe(true)
+    root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
+    expect(controller.state.h3Timeline.guides).toContainEqual({
+      id: expect.any(String),
+      frameIndex: 72,
+      visualId: null,
+      audioId: "music",
+    })
+  })
+
   test("removes the selected Guide from the Timeline draft", () => {
     const { root, controller } = mount()
     const marker = root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!
     marker.click()
-    root.querySelector<HTMLButtonElement>("[data-timeline-remove]")!.click()
+    root
+      .querySelector<HTMLButtonElement>('[data-h3-element-remove][aria-label="Remove Guide"]')!
+      .click()
 
     expect(controller.state.h3Timeline.guides).toHaveLength(1)
+    expect(controller.getViewSnapshot().h3?.dirty).toBe(true)
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
     expect(controller.state.h3Timeline.guides).toEqual([])
+  })
+
+  test("shows the selected Guide controls beside End and in List rows", () => {
+    const { root } = mount()
+    const marker = root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!
+    marker.click()
+
+    const dock = root.querySelector<HTMLElement>("[data-h3-end-dock]")!
+    expect(dock.querySelector('[data-h3-inline-frame][aria-label="Guide frame"]')).not.toBeNull()
+    expect(dock.querySelector('[data-h3-element-remove][aria-label="Remove Guide"]')).not.toBeNull()
+    expect(
+      dock
+        .querySelector<HTMLElement>('[data-h3-inline-frame][aria-label="Guide frame"]')
+        ?.closest("[data-h3-element-controls]")
+        ?.lastElementChild?.classList.contains("rl-h3-element-controls__label"),
+    ).toBe(true)
+
+    flushSync(() => {
+      root
+        .querySelector<HTMLButtonElement>('[aria-label="Timeline view"] button:nth-child(2)')!
+        .click()
+    })
+    const row = root.querySelector<HTMLElement>("[data-h3-list-item]")!
+    expect(row.querySelector("[data-h3-element-controls]")).not.toBeNull()
+    expect(row.querySelector('[data-h3-inline-frame][aria-label="Guide frame"]')).not.toBeNull()
+  })
+
+  test("removes a selected End role through the timeline draft", () => {
+    const { root, controller } = mount()
+    root.querySelector<HTMLButtonElement>(".rl-h3-timeline__end-mark")!.click()
+    root
+      .querySelector<HTMLButtonElement>('[data-h3-element-remove][aria-label="Remove End"]')!
+      .click()
+
+    expect(controller.getViewSnapshot().h3?.timeline.endImageId).toBeNull()
+    expect(controller.getViewSnapshot().h3?.dirty).toBe(true)
+    root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
+    expect(controller.state.h3Timeline.endImageId).toBeNull()
   })
 
   test("removes the selected Guide with Backspace or Delete", () => {
     for (const keyName of ["Backspace", "Delete"]) {
       const { root, controller } = mount()
-      root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
       const marker = root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!
-      expect(document.activeElement).toBe(marker)
+      marker.focus()
       const event = new KeyboardEvent("keydown", {
         key: keyName,
         bubbles: true,
@@ -286,7 +368,7 @@ describe("Guide timeline", () => {
 
       expect(event.defaultPrevented).toBe(true)
       expect(controller.state.h3Timeline.guides).toHaveLength(1)
-      expect(root.querySelector(".rl-time-axis__draft")).not.toBeNull()
+      expect(controller.getViewSnapshot().h3?.dirty).toBe(true)
     }
   })
 
@@ -300,9 +382,9 @@ describe("Guide timeline", () => {
     expect(root.querySelector('[data-timeline-guide="pair"]')).toBe(original)
     pointer(document, "pointerup", 192)
     expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
-    expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("72f · 3.00s")
+    expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("72f · 3.000s")
     root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')!.click()
-    expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("48f · 2.00s")
+    expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("48f · 2.000s")
   })
 
   test("shares card draft frames with the timeline and preserves zoom across edits", () => {
@@ -310,17 +392,24 @@ describe("Guide timeline", () => {
     const zoom = root.querySelector<HTMLSelectElement>('[aria-label="Timeline zoom"]')!
     zoom.value = "4"
     zoom.dispatchEvent(new Event("change", { bubbles: true }))
-    root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
-    const input = root.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')!
+    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')!.click()
+    const input = root.querySelector<HTMLInputElement>(
+      '[data-h3-inspector] [data-h3-draft-field="frame"]',
+    )!
     input.value = "96"
-    input.dispatchEvent(new Event("input", { bubbles: true }))
-    expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("96f · 4.00s")
+    flushSync(() => input.dispatchEvent(new Event("input", { bubbles: true })))
+    expect(
+      [
+        ...root.querySelectorAll<HTMLElement>('[data-timeline-guide="pair"] [data-timeline-time]'),
+      ].every((element) => element.textContent === "96f · 4.000s"),
+    ).toBe(true)
     expect(root.querySelector<HTMLSelectElement>('[aria-label="Timeline zoom"]')?.value).toBe("4")
     root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')!.click()
     expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
-    key(root, "ArrowLeft")
-    const frame = root.querySelector<HTMLInputElement>('[aria-label="Selected Guide frame"]')!
+    root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
+    const frame = root.querySelector<HTMLInputElement>('[aria-label="Guide frame"]')!
     frame.value = "144"
+    flushSync(() => frame.dispatchEvent(new Event("input", { bubbles: true })))
     frame.dispatchEvent(new Event("change", { bubbles: true }))
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
     expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(144)
@@ -332,8 +421,10 @@ describe("Guide timeline", () => {
     const state = fixture()
     state.h3Timeline.guides.push({ id: "other", frameIndex: 120, visualId: null, audioId: "music" })
     controller.restore(serializeLoaderState(state))
-    root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
-    const input = root.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')!
+    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')!.click()
+    const input = root.querySelector<HTMLInputElement>(
+      '[data-h3-inspector] [data-h3-draft-field="frame"]',
+    )!
     input.value = "60"
     input.dispatchEvent(new Event("input", { bubbles: true }))
     root
@@ -341,16 +432,19 @@ describe("Guide timeline", () => {
       .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
     expect(root.querySelector(".rl-status")?.textContent).toContain("Apply or cancel")
     expect(controller.state.h3Timeline.guides.map((guide) => guide.frameIndex)).toEqual([48, 120])
-    expect(root.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')?.value).toBe("60")
+    expect(
+      root.querySelector<HTMLInputElement>('[data-h3-inspector] [data-h3-draft-field="frame"]')
+        ?.value,
+    ).toBe("60")
     root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')!.click()
     const zoom = root.querySelector<HTMLSelectElement>('[aria-label="Timeline zoom"]')!
     zoom.value = "4"
     zoom.dispatchEvent(new Event("change", { bubbles: true }))
-    const scroll = root.querySelector<HTMLElement>(".rl-time-axis__scroll")!
+    const scroll = root.querySelector<HTMLElement>(".rl-h3-timeline__track-scroll")!
     scroll.scrollLeft = 250
     scroll.dispatchEvent(new Event("scroll"))
     key(root, "ArrowRight")
-    expect(root.querySelector<HTMLElement>(".rl-time-axis__scroll")?.scrollLeft).toBe(250)
+    expect(root.querySelector<HTMLElement>(".rl-h3-timeline__track-scroll")?.scrollLeft).toBe(250)
   })
 
   test("cancels pointer gestures on restore and rejects invalid whole-Guide input", () => {
@@ -359,21 +453,25 @@ describe("Guide timeline", () => {
     pointer(root.querySelector('[data-timeline-guide="pair"]')!, "pointerdown", 128)
     pointer(document, "pointermove", 192)
     pointer(document, "pointercancel", 192)
-    expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("48f · 2.00s")
+    expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("48f · 2.000s")
     sizeSurface(root)
     pointer(root.querySelector('[data-timeline-guide="pair"]')!, "pointerdown", 128)
     pointer(document, "pointermove", 192)
     controller.restore(serializeLoaderState(fixture()))
     pointer(document, "pointerup", 192)
-    expect(root.querySelector(".rl-time-axis__draft")).toBeNull()
-    key(root, "ArrowRight")
-    const input = root.querySelector<HTMLInputElement>('[aria-label="Selected Guide frame"]')!
-    for (const invalid of ["", "-1", "1.5"]) {
+    expect(controller.getViewSnapshot().h3?.dirty).toBe(false)
+    root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
+    const input = root.querySelector<HTMLInputElement>('[aria-label="Guide frame"]')!
+    for (const invalid of ["", "-1", "1.5", "9007199254740992"]) {
       input.value = invalid
+      flushSync(() => input.dispatchEvent(new Event("input", { bubbles: true })))
       input.dispatchEvent(new Event("change", { bubbles: true }))
-      expect(input.validationMessage).toContain("whole frame")
+      expect(input.value).toBe(invalid)
+      expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
     }
-    expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("49f · 2.04s")
-    expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
+    expect(controller.getViewSnapshot().h3?.issue).toContain("frame")
+    expect(root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')?.disabled).toBe(
+      true,
+    )
   })
 })

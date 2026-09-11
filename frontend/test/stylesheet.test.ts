@@ -113,7 +113,6 @@ describe("Reference Loader stylesheet", () => {
       /\.rl-h3-editor__add-form select,\s*\.rl-h3-editor__add-form input\[type="number"\]\s*\{([^}]*)\}/,
     )?.[1]
     const actionRule = css.match(/\.rl-h3-editor__actions\s*\{([^}]*)\}/)?.[1]
-    const footerRule = css.match(/\.rl-h3-editor__footer\s*\{([^}]*)\}/)?.[1]
 
     expect(addFormRule).toContain("min-height: 26px;")
     expect(addFormRule).toContain("display: grid;")
@@ -125,35 +124,32 @@ describe("Reference Loader stylesheet", () => {
     expect(frameInputRule).toContain("flex: 0 0 50px;")
     expect(actionRule).toContain("justify-content: flex-end;")
     expect(actionRule).toContain("margin-top: auto;")
-    expect(footerRule).toContain("container-type: inline-size;")
     expect(css).toContain("@container (max-width: 320px)")
     expect(css).toContain("grid-template-columns: minmax(0, 1fr) auto;")
     expect(css).toContain("grid-column: 1 / -1;")
   })
 
-  it("lets the Guide editor grow vertically with its stack", async () => {
+  it("lets the React H3 workspace grow with its content", async () => {
     const css = await Bun.file(
       new URL("../src/reference-loader/styles/h3-timeline.css", import.meta.url),
     ).text()
-    const cardRule = css.match(/\.rl-card--h3-editor\s*\{([^}]*)\}/)?.[1]
-    const stackRule = css.match(/\.rl-h3-editor--stack\s*\{([^}]*)\}/)?.[1]
-    const placementsRule = css.match(/\.rl-h3-editor__placements\s*\{([^}]*)\}/)?.[1]
-    const bodyRule = css.match(/\.rl-card--h3-editor > \.rl-card__body\s*\{([^}]*)\}/)?.[1]
+    const workspaceRule = css.match(/\.rl-h3-workspace\s*\{([^}]*)\}/)?.[1]
+    const collapsedRule = css.match(/\.rl-h3-workspace\.is-collapsed\s*\{([^}]*)\}/)?.[1]
 
-    expect(cardRule).toContain("display: flex;")
-    expect(cardRule).toContain("flex-direction: column;")
-    expect(cardRule).toContain("overflow: visible;")
-    expect(stackRule).toContain("flex: 1 0 auto;")
-    expect(stackRule).toContain("overflow: visible;")
-    expect(placementsRule).toContain("overflow: visible;")
-    expect(placementsRule).not.toContain("overflow-y: auto;")
-    expect(bodyRule).toContain("margin-top: auto;")
-    expect(css).toContain(".rl-h3-editor__background")
-    expect(css).toContain("aspect-ratio: var(--rl-card-aspect, 4 / 3);")
-    expect(css).toContain("pointer-events: none;")
-    expect(bodyRule).toContain("background: var(--rl-bg);")
-    expect(bodyRule).toContain("backdrop-filter: none;")
-    expect(css).not.toContain(".rl-h3-editor__stack-header")
+    expect(workspaceRule).toContain("grid-template-rows: auto auto auto auto;")
+    expect(workspaceRule).not.toContain("height:")
+    expect(workspaceRule).not.toContain("max-height:")
+    expect(collapsedRule).toContain("grid-template-rows: auto;")
+    expect(collapsedRule).not.toContain("height:")
+    expect(css).toContain("overflow-x: auto;")
+    expect(css).toContain("overflow-y: hidden;")
+    expect(css).toContain(".rl-h3-inline-editor")
+    expect(css).not.toContain(".rl-h3-list-scroll")
+    expect(css).not.toContain("grid-template-columns: minmax(0, 1fr) 280px;")
+    expect(css).toContain(".rl-h3-timeline__mark.is-shot")
+    expect(css).not.toContain(".rl-time-axis")
+    expect(css).not.toContain(".rl-card--h3-editor")
+    expect(css).not.toContain(".rl-h3-editor__background")
   })
 
   afterEach(() => {
@@ -174,7 +170,7 @@ describe("Reference Loader stylesheet", () => {
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
     expect(first.href).toBe(
-      "https://example.test/extensions/comfyui-reference-loader/index.css?v=22",
+      "https://example.test/extensions/comfyui-reference-loader/index.css?v=23",
     )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })
@@ -309,7 +305,7 @@ describe("Reference Loader stylesheet", () => {
     const css = await Bun.file(
       new URL("../src/reference-loader/styles/h3-timeline.css", import.meta.url),
     ).text()
-    const shotRule = css.match(/\.rl-time-axis \.rl-time-axis__mark\.is-shot\s*\{([^}]*)\}/)?.[1]
+    const shotRule = css.match(/\.rl-h3-timeline__mark\.is-shot\s*\{([^}]*)\}/)?.[1]
 
     expect(shotRule).toContain("border-color: #2f8f60;")
     expect(shotRule).toContain("color: #b9f3d1;")

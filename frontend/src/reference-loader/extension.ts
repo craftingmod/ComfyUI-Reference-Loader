@@ -98,14 +98,12 @@ export function registerReferenceLoader(
         let removed = false
         const contentHeight = () => {
           const content = root.querySelector<HTMLElement>(
-            singleImage ? ".rl-single-image-panel" : ".rl-channels",
+            singleImage ? ".rl-single-image-panel" : "[data-loader-content]",
           )
-          // Root is the offset parent. Measure only through the final Media
-          // section, excluding any spare height assigned to the DOM widget.
-          return Math.max(
-            singleImage ? 250 : 360,
-            (content?.offsetTop ?? 0) + (content?.offsetHeight ?? 0) + 9,
-          )
+          const contentBottom = content ? content.offsetTop + content.offsetHeight : 0
+          // Root is the offset parent. The content wrapper includes Media and
+          // the Timeline workspace, excluding spare widget height.
+          return Math.max(singleImage ? 250 : 360, contentBottom + 9)
         }
         const widgetType = singleImage
           ? REFERENCE_IMAGE_LOADER_WIDGET_TYPE
@@ -391,6 +389,9 @@ function bindPromptReferences(node: ComfyNode): void {
       (tag, frame) => prompt.setShotFrameDraft(tag, frame),
       (tag) => prompt.focusShot(tag),
       (tag) => prompt.removeShot(tag),
+      () => prompt.applyShotDraft(),
+      () => prompt.cancelShotDraft(),
+      prompt.hasShotDraft,
     )
   })
   promptSubscriptions.set(node, () => {

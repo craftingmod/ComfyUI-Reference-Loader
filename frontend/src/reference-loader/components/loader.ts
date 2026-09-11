@@ -6,8 +6,6 @@ import { openTrimEditor } from "../editors/trim-editor.ts"
 import {
   cloneH3Timeline,
   guideUsesMedia,
-  h3Placements,
-  h3TimelineCounts,
   canUseAsH3Guide,
   mediaHasGuide,
   mediaGuideEnabled,
@@ -17,6 +15,7 @@ import {
   timelineMediaId,
   validateH3Timeline,
   type H3GuideChannel,
+  type H3TimelinePlacement,
 } from "../h3-media-guides.ts"
 import { LoaderStore, type LoaderDispatchOptions } from "../loader-store.ts"
 import type { PromptReference, PromptShot } from "../prompt-v6.ts"
@@ -39,22 +38,20 @@ import {
   sameLoaderViewSnapshot,
   samePromptReferences,
   type LoaderDisplayState,
+  type H3WorkspaceView,
   type LoaderViewSnapshot,
 } from "../view-model.ts"
 import { isSilentWaveform } from "../waveform.ts"
-import { createH3GuideEditor, type H3GuidePosition } from "./h3-guide-editor.tsx"
-import { H3Timeline, type TimelineView } from "./h3-timeline.ts"
+import type { H3GuidePosition } from "./h3-guide-editor.tsx"
 import {
+  clearFileDropFeedback,
   createLoaderReact,
+  mediaDropKinds,
+  setFileDropFeedback,
+  transferFiles,
   type LoaderReactActions,
   type LoaderReactMount,
 } from "./loader-react.tsx"
-
-function isH3ReactEvent(event: Event): boolean {
-  return event
-    .composedPath()
-    .some((target) => target instanceof HTMLElement && target.hasAttribute("data-h3-react-surface"))
-}
 
 interface PendingUpload {
   id: string
@@ -132,6 +129,14 @@ function loaderDragRaw(dataTransfer: DataTransfer | null): string | undefined {
   }
 }
 
+function hasLoaderDragType(dataTransfer: DataTransfer | null): boolean {
+  try {
+    return Boolean(dataTransfer && [...dataTransfer.types].includes(DRAG_MIME))
+  } catch {
+    return false
+  }
+}
+
 function readLoaderDragPayload(dataTransfer: DataTransfer | null): LoaderDragPayload | undefined {
   const raw = loaderDragRaw(dataTransfer)
   if (!raw) return undefined
@@ -153,11 +158,6 @@ function readLoaderDragPayload(dataTransfer: DataTransfer | null): LoaderDragPay
   }
 }
 
-function loaderDragBelongsTo(scope: string, dataTransfer: DataTransfer | null): boolean {
-  const raw = loaderDragRaw(dataTransfer)
-  return !raw || readLoaderDragPayload(dataTransfer)?.scope === scope
-}
-
 function mimeMediaKind(mime: string): MediaDropKind | undefined {
   const match = /^(image|audio|video)\//.exec(mime)
   return match?.[1] as MediaDropKind | undefined
@@ -175,30 +175,6 @@ function fileMediaKind(file: File): MediaDropKind | undefined {
   return undefined
 }
 
-function mediaDropKinds(dataTransfer: DataTransfer | null): MediaDropKind[] {
-  if (!dataTransfer) return []
-  const kinds = new Set<MediaDropKind>()
-  for (const file of dataTransfer.files) {
-    const kind = fileMediaKind(file)
-    if (kind) kinds.add(kind)
-  }
-  if (kinds.size === 0) {
-    for (const item of dataTransfer.items) {
-      const kind = mimeMediaKind(item.type)
-      if (kind) kinds.add(kind)
-    }
-  }
-  return [...kinds]
-}
-
-function isSingleMediaDrop(dataTransfer: DataTransfer | null): boolean {
-  if (!dataTransfer) return false
-  const files = [...dataTransfer.files]
-  if (files.length > 0) return files.length === 1
-  const fileItems = [...dataTransfer.items].filter((item) => item.kind === "file")
-  return fileItems.length === 1
-}
-
 function isSingleImageCandidate(file: File): boolean {
   const kind = fileMediaKind(file)
   return kind === undefined || kind === "image"
@@ -207,19 +183,6 @@ function isSingleImageCandidate(file: File): boolean {
 function hasFilePayload(dataTransfer: DataTransfer | null): boolean {
   if (!dataTransfer) return false
   return dataTransfer.files.length > 0 || [...dataTransfer.types].includes("Files")
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>'"]/g, (character) => {
-    const entities: Record<string, string> = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      "'": "&#39;",
-      '"': "&quot;",
-    }
-    return entities[character] ?? character
-  })
 }
 
 function filename(path: string): string {
@@ -278,26 +241,6 @@ function setPromptByOrderProperty(node: ComfyNode, promptByOrder: boolean): void
     ...node.properties,
     [NODE_PROPERTY_KEY]: { ...namespace, promptByOrder },
   }
-}
-
-function durationLabel(item: MediaItem, runtime: ItemRuntime | undefined): string {
-  const duration =
-    item.kind === "image"
-      ? undefined
-      : item.crop
-        ? item.crop.end - item.crop.start
-        : runtime?.metadata?.duration
-  return duration === undefined ? "" : `${duration.toFixed(duration < 10 ? 2 : 1)}s`
-}
-
-function megapixelLabel(item: MediaItem, runtime: ItemRuntime | undefined): string {
-  if (item.kind !== "image") return ""
-  const width = runtime?.metadata?.width
-  const height = runtime?.metadata?.height
-  if (width === undefined || height === undefined || width <= 0 || height <= 0) return ""
-  const megapixels = (width * height) / 1_000_000
-  if (megapixels < 0.01) return "<0.01 MP"
-  return `${Number(megapixels.toFixed(megapixels >= 10 ? 1 : 2))} MP`
 }
 
 function drawWaveform(
@@ -386,7 +329,6 @@ class RuntimeLoadLimiter {
 
 export class ReferenceLoaderController {
   readonly root: HTMLElement
-  #legacyRoot: HTMLElement
   #reactHost: HTMLElement
   #reactMount: LoaderReactMount | undefined
   #reactActions: LoaderReactActions = {
@@ -405,6 +347,56 @@ export class ReferenceLoaderController {
     previewAudio: (id) => this.previewAudio(id),
     previewVideo: (id) => this.previewVideo(id),
     move: (id, channel, delta) => this.moveItem(id, channel, delta),
+    movePlacement: (id, frame) => this.#moveH3TimelineGuide(id, frame),
+    selectPlacement: (placement, channel) => this.#selectH3Placement(placement, channel),
+    removePlacement: (id) => this.#removeH3TimelineGuide(id),
+    selectShot: (tag) => {
+      this.#h3SelectedShot = tag
+      this.#h3SelectedRole = undefined
+      this.#promptShotSelect?.(tag)
+      this.render(true)
+    },
+    changeShot: (tag, frame) => {
+      if (this.#h3EditorDirty()) {
+        this.#status = "Apply or cancel Guide changes before editing a Shot."
+        this.render(true)
+        return
+      }
+      this.#promptShotChange?.(tag, frame)
+    },
+    removeShot: (tag) => {
+      if (this.#h3EditorDirty()) {
+        this.#status = "Apply or cancel Guide changes before editing a Shot."
+        this.render(true)
+        return
+      }
+      this.#promptShotRemove?.(tag)
+    },
+    canDrop: (channel, dataTransfer) => {
+      if (this.#promptShotDirty) return false
+      if (this.#h3GuideDragSource(channel, dataTransfer)) return true
+      // Browsers keep custom drag data unreadable during dragover. The type is
+      // still exposed, so accept the event and validate the source on drop.
+      return hasLoaderDragType(dataTransfer) && !loaderDragRaw(dataTransfer)
+    },
+    drop: (channel, frame, dataTransfer) => this.#addH3GuideFromDrop(channel, frame, dataTransfer),
+    h3Toggle: () => this.#toggleH3Timeline(),
+    h3ToggleCollapsed: () => {
+      this.#h3Collapsed = !this.#h3Collapsed
+      this.render(true)
+    },
+    h3OpenMedia: (mediaId, channel, guideId) =>
+      this.#openH3EditorForMedia(mediaId, channel, guideId),
+    h3ToggleGuide: (id, channel) => this.#toggleH3Guide(id, channel),
+    h3SelectPlacement: (placement, channel) => this.#selectH3Placement(placement, channel),
+    h3InputFrame: (id, value) => this.#inputH3DraftFrame(id, value),
+    h3CommitFrame: (id, value) => this.#commitH3DraftFrame(id, value),
+    h3ChangeGuideSource: (id, channel, mediaId) => this.#changeH3DraftSource(id, channel, mediaId),
+    h3AddPlacement: (position, frame) => this.#addH3DraftPlacement(position, frame),
+    h3RemoveRole: (role) => this.#removeH3DraftRole(role),
+    h3RemovePlacement: (id) => this.#deleteH3DraftPlacement(id),
+    h3Apply: () => this.#applyH3Workspace(),
+    h3Cancel: () => this.#cancelH3Workspace(),
     reorder: (id, channel, toIndex) => this.reorderItem(id, channel, toIndex),
     edit: (id, channel) => this.editItem(id, channel),
     acceptsFileDrop: (dataTransfer) => this.acceptsFileDrop(dataTransfer),
@@ -431,15 +423,8 @@ export class ReferenceLoaderController {
   #modalController: AbortController | undefined
   #dragScope =
     globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  #drag: LoaderDragPayload | undefined
-  #armedDrag: { id: string; channel: LoaderChannel } | undefined
-  #dropTarget: HTMLElement | undefined
-  #fileDropTarget: HTMLElement | undefined
-  #composing = false
-  #renderPending = false
   #renderFrame: number | undefined
   #destroyed = false
-  #snapshotMenuOpen = false
   #changeEvents: LoaderChangeEvents
   #mode: ReferenceLoaderMode
   #referenceListeners = new Set<() => void>()
@@ -448,18 +433,17 @@ export class ReferenceLoaderController {
   #promptReferences: PromptReference[] = []
   #promptReferenceSourceKey = ""
   #h3Collapsed = true
-  #h3SummaryExpanded = false
-  #h3BodyId = `rl-h3-media-guides-body-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`
   #h3Editor: H3EditorState | undefined
-  #h3ReactEditor:
-    | { session: H3EditorState; view: ReturnType<typeof createH3GuideEditor> }
-    | undefined
-  #h3Axis: H3Timeline | undefined
-  #h3View: TimelineView = { zoom: 1, scrollLeft: 0 }
   #promptShots: readonly Pick<PromptShot, "tag" | "frameIndex">[] = []
   #promptShotChange: ((tag: string, frameIndex: number) => void) | undefined
   #promptShotRemove: ((tag: string) => void) | undefined
   #promptShotSelect: ((tag: string) => void) | undefined
+  #promptShotApply: (() => void) | undefined
+  #promptShotCancel: (() => void) | undefined
+  #promptShotDirty = false
+  #h3SelectedShot: string | undefined
+  #h3SelectedRole: "start" | "end" | undefined
+  #h3Session = 0
 
   constructor(
     root: HTMLElement,
@@ -470,17 +454,14 @@ export class ReferenceLoaderController {
     options: ReferenceLoaderControllerOptions = {},
   ) {
     this.root = root
-    this.#legacyRoot = document.createElement("div")
-    this.#legacyRoot.dataset.loaderLegacyRoot = ""
-    this.#legacyRoot.hidden = true
     this.#reactHost = document.createElement("div")
     this.#reactHost.dataset.loaderReactRoot = ""
-    this.#reactHost.hidden = true
-    this.root.replaceChildren(this.#legacyRoot, this.#reactHost)
+    this.root.replaceChildren(this.#reactHost)
     this.#node = node
     this.#api = api
     this.#changeEvents = changeEvents
     this.#mode = options.mode ?? "references"
+    this.#installRootDropEvents()
     const parsed = deserializeLoaderState(serialized)
     this.#store = new LoaderStore(this.#stateForMode(parsed.state))
     if (parsed.issues.length > 0) this.#status = parsed.issues.join(" ")
@@ -488,7 +469,6 @@ export class ReferenceLoaderController {
     this.#promptReferences = projectPromptReferences(this.state, this.#runtime)
     this.#promptReferenceSourceKey = promptReferenceSourceKey(this.state)
     this.#viewSnapshot = this.#buildViewSnapshot()
-    this.#installEvents()
     this.#unsubscribeAudioPreview = this.#audioPreview.subscribe(() => this.#syncPlaybackUi())
     this.#unsubscribeVideoPreview = this.#videoPreview.subscribe(() => this.#syncPlaybackUi())
     this.#hydrateRestoredRuntime()
@@ -548,12 +528,23 @@ export class ReferenceLoaderController {
     onChange?: (tag: string, frameIndex: number) => void,
     onSelect?: (tag: string) => void,
     onRemove?: (tag: string) => void,
+    onApply?: () => void,
+    onCancel?: () => void,
+    dirty = false,
   ): void {
     if (this.#destroyed) return
     this.#promptShots = shots.map((shot) => ({ tag: shot.tag, frameIndex: shot.frameIndex }))
     this.#promptShotChange = onChange
     this.#promptShotSelect = onSelect
     this.#promptShotRemove = onRemove
+    this.#promptShotApply = onApply
+    this.#promptShotCancel = onCancel
+    this.#promptShotDirty = dirty
+    if (
+      this.#h3SelectedShot &&
+      !this.#promptShots.some((shot) => shot.tag === this.#h3SelectedShot)
+    )
+      this.#h3SelectedShot = undefined
     this.render(true)
   }
 
@@ -587,8 +578,7 @@ export class ReferenceLoaderController {
     const changed = this.#dispatch(
       { type: "set-caption", id, caption, channel },
       {
-        mergeKey:
-          composing || this.#composing ? `ime:${channel}:${id}` : `caption:${channel}:${id}`,
+        mergeKey: composing ? `ime:${channel}:${id}` : `caption:${channel}:${id}`,
         render: false,
       },
     )
@@ -663,7 +653,6 @@ export class ReferenceLoaderController {
     } catch (error) {
       this.#status = error instanceof Error ? error.message : "Snapshot could not be saved."
     }
-    this.#setSnapshotMenu(false)
     this.render(true)
   }
 
@@ -780,8 +769,6 @@ export class ReferenceLoaderController {
 
   restore(serialized: unknown): void {
     if (this.#destroyed) return
-    this.#h3Axis?.destroy()
-    this.#h3View = { zoom: 1, scrollLeft: 0 }
     this.#audioPreview.stop()
     this.#videoPreview.stop()
     this.#modalController?.abort()
@@ -794,8 +781,10 @@ export class ReferenceLoaderController {
     this.#store.restore(this.#stateForMode(parsed.state))
     this.#selectedId = undefined
     this.#deferPreviews = false
+    this.#h3SelectedShot = undefined
+    this.#h3SelectedRole = undefined
     this.#h3Editor = undefined
-    this.#h3SummaryExpanded = false
+    this.#h3Session += 1
     this.#runtime.clear()
     this.#runtimeSequences.clear()
     this.#runtimeSequence = 0
@@ -843,9 +832,6 @@ export class ReferenceLoaderController {
   destroy(): void {
     if (this.#destroyed) return
     this.#destroyed = true
-    this.#h3ReactEditor?.view.destroy()
-    this.#h3ReactEditor = undefined
-    this.#h3Axis?.destroy()
     this.#cancelScheduledRender()
     this.#modalController?.abort()
     this.#stateController.abort()
@@ -864,12 +850,13 @@ export class ReferenceLoaderController {
     this.#promptShotChange = undefined
     this.#promptShotSelect = undefined
     this.#promptShotRemove = undefined
+    this.#promptShotApply = undefined
+    this.#promptShotCancel = undefined
+    this.#promptShotDirty = false
+    this.#h3SelectedShot = undefined
+    this.#h3SelectedRole = undefined
     this.#h3Editor = undefined
     this.#destroyReactMount()
-    this.#dropTarget = undefined
-    this.#setFileDropTarget(undefined)
-    this.root.classList.remove("is-dragging", "is-file-dragging")
-    delete this.root.dataset.fileDropKinds
     this.root.replaceChildren()
   }
 
@@ -877,92 +864,16 @@ export class ReferenceLoaderController {
     if (this.#destroyed) return
     if (this.#deferPreviews && !this.#hasFocusedCaption()) this.#deferPreviews = false
     this.#publishView()
-    if (this.#h3Axis?.dragging) {
-      this.#renderPending = true
-      return
-    }
     this.#cancelScheduledRender()
-    const active = document.activeElement
-    const activeH3EditorField =
-      (active instanceof HTMLInputElement || active instanceof HTMLSelectElement) &&
-      this.root.contains(active) &&
-      Boolean(active.closest("[data-h3-editor], [data-h3-axis]"))
-    if (
-      !force &&
-      (this.#composing ||
-        (active instanceof HTMLTextAreaElement && this.root.contains(active)) ||
-        activeH3EditorField)
-    ) {
-      this.#renderPending = true
-      return
-    }
-    this.#renderPending = false
     const state = this.state
-    const hasClearableState =
-      Object.keys(state.items).length > 0 ||
-      this.#pending.size > 0 ||
-      state.h3Timeline.enabled ||
-      state.h3Timeline.startImageId !== null ||
-      state.h3Timeline.endImageId !== null ||
-      state.h3Timeline.guides.length > 0
     this.root.style.setProperty("--rl-card-aspect", state.ui.cardAspectRatio)
     this.root.style.setProperty(
       "--rl-grid-columns",
       String(this.#mode === "single-image" ? 1 : state.ui.gridColumns),
     )
     this.root.style.setProperty("--rl-preview-fit", state.ui.previewFit)
-    if (this.#canRenderReact(state)) {
-      this.#h3ReactEditor?.view.destroy()
-      this.#h3ReactEditor = undefined
-      this.#h3Axis?.destroy()
-      this.#h3Axis = undefined
-      this.#renderReact()
-      return
-    }
-    this.#destroyReactMount()
-    this.#legacyRoot.hidden = false
-    const reactEditor = this.#h3ReactEditor
-    const activeReactField =
-      active instanceof HTMLElement &&
-      (reactEditor?.view.media.contains(active) || reactEditor?.view.body.contains(active))
-        ? active
-        : undefined
-    if (reactEditor && reactEditor.session !== this.#h3Editor) {
-      reactEditor.view.destroy()
-      this.#h3ReactEditor = undefined
-    }
-    this.#h3Axis?.destroy()
-    this.#legacyRoot.innerHTML = `
-      <div class="rl-media-topbar">
-        <header class="rl-media-header">
-          <div>
-            <strong data-media-title>Media</strong>
-            <small>Add, edit, and order image, video, and audio references.</small>
-          </div>
-          <span class="rl-toolbar__count">${Object.keys(state.items).length} reference${Object.keys(state.items).length === 1 ? "" : "s"}</span>
-        </header>
-        <section class="rl-toolbar" aria-label="Reference Loader toolbar">
-          <label class="rl-primary rl-file-button" aria-label="Add media" title="Add media">Add<input type="file" accept="image/*,audio/*,video/*" multiple></label>
-          <button type="button" data-action="undo" ${this.#store.canUndo ? "" : "disabled"} title="Undo (Ctrl+Z)">↶ Undo</button>
-          <button type="button" data-action="redo" ${this.#store.canRedo ? "" : "disabled"} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
-          <button type="button" class="rl-clear" data-action="clear" ${hasClearableState ? "" : "disabled"} title="Clear all references and Timeline Guides (Undo available)">Clear</button>
-          <span class="rl-snapshot"><button type="button" class="rl-snapshot__trigger" data-action="snapshot-menu" aria-haspopup="menu" aria-expanded="${String(this.#snapshotMenuOpen)}">Snapshot <span aria-hidden="true">▾</span></button><span class="rl-snapshot__menu" role="menu"${this.#snapshotMenuOpen ? "" : " hidden"}><button type="button" role="menuitem" data-action="snapshot-save" title="Save Loader and Prompt settings to JSON">Save</button><button type="button" role="menuitem" data-action="snapshot-load" title="Load Loader and Prompt settings from JSON">Load</button></span><input type="file" accept="application/json,.json" data-snapshot-input aria-label="Load snapshot" hidden></span>
-        </section>
-      </div>
-      ${this.#h3Markup(state)}
-      <p class="rl-status" role="status">${escapeHtml(this.#status)}</p>
-      ${this.#pendingMarkup()}
-      <div class="rl-channels">
-        ${this.#channelMarkup("image", "Images", state.imageOrder)}
-        ${this.#channelMarkup("video", "Videos", state.videoOrder)}
-        ${this.#channelMarkup("audio", "Audio", state.audioOrder)}
-      </div>`
-    this.#mountH3GuideEditor()
-    if (activeReactField?.isConnected && document.activeElement !== activeReactField)
-      activeReactField.focus({ preventScroll: true })
-    this.#mountH3Timeline()
-    this.#drawWaveforms()
-    this.#syncPlaybackUi()
+    void force
+    this.#renderReact()
   }
 
   #hydrateRestoredRuntime(force = false): void {
@@ -1002,7 +913,73 @@ export class ReferenceLoaderController {
       deferPreviews: this.#deferPreviews,
       canUndo: this.#store.canUndo,
       canRedo: this.#store.canRedo,
+      h3: this.#buildH3View(),
     })
+  }
+
+  #buildH3View(): H3WorkspaceView {
+    const editor = this.#h3Editor
+    const timeline = editor
+      ? this.#h3EditorTimeline(editor)
+      : cloneH3Timeline(this.state.h3Timeline)
+    const selectedGuide = editor?.selectedGuideId
+      ? timeline.guides.find((guide) => guide.id === editor.selectedGuideId)
+      : undefined
+    const parentId = (id: string): string => (id.endsWith(":audio") ? id.slice(0, -6) : id)
+    const recovery = Boolean(
+      editor &&
+      !editor.mediaId &&
+      !editor.timelineEdit &&
+      selectedGuide &&
+      ((!selectedGuide.visualId && !selectedGuide.audioId) ||
+        (selectedGuide.visualId !== null &&
+          selectedGuide.visualId !== undefined &&
+          !this.state.items[parentId(selectedGuide.visualId)]) ||
+        (selectedGuide.audioId !== null &&
+          selectedGuide.audioId !== undefined &&
+          !this.state.items[parentId(selectedGuide.audioId)])),
+    )
+    const selection = this.#h3SelectedRole
+      ? ({ kind: this.#h3SelectedRole } as const)
+      : editor?.mediaId
+        ? ({ kind: "source", mediaId: editor.mediaId, channel: editor.channel } as const)
+        : editor?.selectedGuideId
+          ? ({ kind: "guide", guideId: editor.selectedGuideId, channel: editor.channel } as const)
+          : this.#h3SelectedShot
+            ? ({ kind: "shot", tag: this.#h3SelectedShot } as const)
+            : undefined
+    const issue = editor ? this.#h3DraftIssue(editor) : undefined
+    const guideDirty = this.#h3EditorDirty()
+    return {
+      collapsed: this.#h3Collapsed,
+      selection,
+      editScope: editor
+        ? editor.mediaId
+          ? "source"
+          : "guide"
+        : this.#promptShotDirty
+          ? "shot"
+          : "none",
+      sessionId: this.#h3Session,
+      dirty: guideDirty || this.#promptShotDirty,
+      canApply: editor ? !issue : this.#promptShotDirty,
+      shotDirty: this.#promptShotDirty,
+      shotCanApply: this.#promptShotDirty,
+      issue,
+      draftError: editor?.draftError,
+      timeline,
+      editor: editor
+        ? {
+            mediaId: editor.mediaId,
+            channel: editor.channel,
+            selectedGuideId: editor.selectedGuideId,
+            timelineEdit: Boolean(editor.timelineEdit),
+            recovery,
+            ownedGuideIds: [...editor.ownedGuideIds],
+          }
+        : undefined,
+      shots: this.#promptShots,
+    }
   }
 
   #publishView(): void {
@@ -1026,20 +1003,6 @@ export class ReferenceLoaderController {
     return true
   }
 
-  #canRenderReact(state: LoaderState): boolean {
-    const timeline = state.h3Timeline
-    if (this.#mode === "single-image") return this.#h3Editor === undefined
-    return (
-      !this.#h3Editor &&
-      !timeline.enabled &&
-      timeline.startImageId === null &&
-      timeline.endImageId === null &&
-      timeline.guides.length === 0 &&
-      !(timeline.disabledVisualIds?.length ?? 0) &&
-      !(timeline.disabledAudioIds?.length ?? 0)
-    )
-  }
-
   #hasFocusedCaption(): boolean {
     const active = document.activeElement
     return (
@@ -1052,17 +1015,51 @@ export class ReferenceLoaderController {
   #destroyReactMount(): void {
     this.#reactMount?.destroy()
     this.#reactMount = undefined
-    this.#reactHost.hidden = true
-    this.#clearDropTarget()
-    this.#setFileDropTarget(undefined)
     this.root.classList.remove("is-dragging", "is-file-dragging")
     delete this.root.dataset.fileDropKinds
     delete this.root.dataset.fileDropTarget
   }
 
+  #installRootDropEvents(): void {
+    const signal = this.#destroyController.signal
+    this.root.addEventListener(
+      "dragover",
+      (event) => {
+        if (event.target !== this.root) return
+        if (!hasFilePayload(event.dataTransfer) || !this.acceptsFileDrop(event.dataTransfer)) {
+          clearFileDropFeedback(this.root)
+          return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        setFileDropFeedback(this.root, undefined, mediaDropKinds(event.dataTransfer))
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "copy"
+      },
+      { signal },
+    )
+    this.root.addEventListener(
+      "dragleave",
+      (event) => {
+        if (event.target !== this.root) return
+        clearFileDropFeedback(this.root)
+      },
+      { signal },
+    )
+    this.root.addEventListener(
+      "drop",
+      (event) => {
+        if (event.target !== this.root || !hasFilePayload(event.dataTransfer)) return
+        event.preventDefault()
+        event.stopPropagation()
+        clearFileDropFeedback(this.root)
+        const files = transferFiles(event.dataTransfer)
+        if (files.length > 0) void this.uploadFiles(files)
+      },
+      { signal },
+    )
+  }
+
   #renderReact(): void {
-    this.#legacyRoot.hidden = true
-    this.#reactHost.hidden = false
     const options = {
       container: this.#reactHost,
       surface: this.root,
@@ -1085,87 +1082,13 @@ export class ReferenceLoaderController {
     this.#syncPromptReferences()
   }
 
-  #pendingMarkup(): string {
-    if (this.#pending.size === 0) return ""
-    return `<div class="rl-pending" aria-label="Pending uploads">${[...this.#pending.values()]
-      .map(
-        (pending) =>
-          `<div><span class="rl-spinner" aria-hidden="true"></span><span>${escapeHtml(pending.file.name)}</span><small>Uploading…</small></div>`,
-      )
-      .join("")}</div>`
-  }
-
-  #h3Markup(state: LoaderState): string {
-    if (this.#h3Editor) state = { ...state, h3Timeline: this.#h3EditorTimeline(this.#h3Editor) }
-    const timeline = state.h3Timeline
-    const issue = this.#h3Editor ? this.#h3DraftIssue(this.#h3Editor) : undefined
-    const counts = h3TimelineCounts(state)
-    const summary = [
-      `${counts.mediaCount} media`,
-      `${counts.referenceCount} references`,
-      `${counts.placementCount} placements`,
-      counts.incompleteCount > 0 ? `${counts.incompleteCount} incomplete` : "",
-      `${this.#promptShots.length} shots`,
-      timeline.enabled ? "" : "Paused",
-    ]
-      .filter(Boolean)
-      .join(" · ")
-    const expandedSummary = this.#h3SummaryExpanded
-      ? this.#h3PlacementMarkup(state)
-      : `${this.#h3PlacementMarkup(state, 3)}${h3Placements(timeline).length > 3 ? `<button type="button" class="rl-h3-summary__more" data-h3-action="toggle-summary" aria-expanded="false">Show all placements (${h3Placements(timeline).length})</button>` : ""}`
-    return `<section class="rl-h3-timeline rl-h3-media-guides" data-h3-root>
-      <header class="rl-h3-timeline__header">
-        <button type="button" class="rl-h3-timeline__collapse" data-h3-action="collapse" aria-expanded="${String(!this.#h3Collapsed)}" aria-controls="${this.#h3BodyId}">${this.#h3Collapsed ? "▸" : "▾"} H3 Timeline Guides</button>
-        <span class="rl-h3-timeline__status${timeline.enabled ? " is-on" : ""}">${timeline.enabled ? "ON" : "OFF"}</span>
-        <span class="rl-h3-timeline__summary" title="${escapeHtml(summary)}">${escapeHtml(summary)}</span>
-        <button type="button" class="rl-h3-timeline__toggle${timeline.enabled ? " is-on" : ""}" data-h3-action="toggle" aria-pressed="${String(timeline.enabled)}">${timeline.enabled ? "Disable Media Guides" : "Enable Media Guides"}</button>
-      </header>
-      <div id="${this.#h3BodyId}" class="rl-h3-timeline__body"${this.#h3Collapsed ? " hidden" : ""}>
-        <p class="rl-h3-timeline__hint">24 fps · Media Guides are conditioning only. Shots are independent text markers and remain visible when Media Guides are OFF.</p>
-        <div class="rl-h3-media-counts" aria-label="Timeline counts"><span>Media ${counts.mediaCount}</span><span title="Enabled visual and audio channels count separately">References ${counts.referenceCount}</span><span>Placements ${counts.placementCount}</span>${counts.incompleteCount > 0 ? `<span class="is-error">Incomplete ${counts.incompleteCount}</span>` : ""}</div>
-        <div data-h3-axis></div>
-        ${this.#h3Editor ? `<div class="rl-time-axis__draft"><span>Unsaved Guide editor · Apply or Cancel</span><button type="button" data-h3-action="cancel-editor">Cancel</button><button type="button" data-h3-action="apply-editor"${issue ? " disabled" : ""}>Apply</button></div>${issue ? `<p class="rl-h3-editor__error" role="alert">${escapeHtml(issue)}</p>` : ""}` : ""}
-        <details class="rl-time-axis__list"><summary>Placement details</summary><div class="rl-h3-summary-list" aria-label="Timeline placements">${expandedSummary || '<span class="rl-h3-summary__empty">No placements yet. Open a Media card to add one.</span>'}</div></details>
-        ${!this.#h3Editor?.mediaId && this.#h3Editor && !this.#h3Editor.timelineEdit ? this.#h3RecoveryEditorMarkup(this.#h3Editor, issue) : ""}
-      </div>
-    </section>`
-  }
-
-  #mountH3Timeline(): void {
-    const host = this.root.querySelector<HTMLElement>("[data-h3-axis]")
-    if (!host) return
-    this.#h3Axis?.destroy()
-    const state = this.#h3Editor
-      ? { ...this.state, h3Timeline: this.#h3EditorTimeline(this.#h3Editor) }
-      : this.state
-    this.#h3Axis = new H3Timeline(host, state, this.#runtime, this.#h3View, {
-      shots: this.#promptShots,
-      select: (placement, channel) => {
-        if (this.#h3Editor?.timelineEdit && placement.guideId) {
-          this.#h3Editor.selectedGuideId = placement.guideId
-          this.#mountH3Timeline()
-          return
-        }
-        const id = channel === "visual" ? placement.visualId : placement.audioId
-        if (id) this.#openH3EditorForMedia(id, channel, placement.guideId, "edit", false, false)
-        else if (placement.guideId) this.#openH3EditorForGuide(placement.guideId)
-      },
-      change: (id, frame) => this.#moveH3TimelineGuide(id, frame),
-      remove: (id) => this.#removeH3TimelineGuide(id),
-      selectShot: (tag) => this.#promptShotSelect?.(tag),
-      changeShot: (tag, frame) => this.#promptShotChange?.(tag, frame),
-      removeShot: (tag) => this.#promptShotRemove?.(tag),
-      canDrop: (channel, dataTransfer) => Boolean(this.#h3GuideDragSource(channel, dataTransfer)),
-      drop: (channel, frame, dataTransfer) =>
-        this.#addH3GuideFromDrop(channel, frame, dataTransfer),
-      settled: () => {
-        if (this.#renderPending) this.render(true)
-      },
-    })
-  }
-
   #moveH3TimelineGuide(id: string, frameIndex: number): void {
     if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) return
+    if (this.#promptShotDirty) {
+      this.#status = "Apply or cancel Shot changes before moving a Guide."
+      this.render(true)
+      return
+    }
     let editor = this.#h3Editor
     if (!editor?.ownedGuideIds.has(id)) {
       if (editor && this.#h3EditorDirty()) {
@@ -1188,6 +1111,7 @@ export class ReferenceLoaderController {
         returnFocus: { guideId: id },
       }
       this.#h3Editor = editor
+      this.#h3Session += 1
     }
     editor.timeline = {
       ...editor.timeline,
@@ -1210,8 +1134,8 @@ export class ReferenceLoaderController {
     channel: H3GuideChannel,
     dataTransfer: DataTransfer | null,
   ): { id: string; item: MediaItem } | undefined {
-    if (!loaderDragBelongsTo(this.#dragScope, dataTransfer)) return undefined
-    const source = this.#drag ?? readLoaderDragPayload(dataTransfer)
+    if (this.#promptShotDirty) return undefined
+    const source = readLoaderDragPayload(dataTransfer)
     if (!source) return undefined
     if (source.scope !== this.#dragScope) return undefined
     const item = this.state.items[source.id]
@@ -1242,6 +1166,7 @@ export class ReferenceLoaderController {
       allowTimelineOnly: true,
       timelineEdit: true,
     }
+    this.#h3Session += 1
     this.#h3Collapsed = false
     return this.#h3Editor
   }
@@ -1251,6 +1176,11 @@ export class ReferenceLoaderController {
     frameIndex: number,
     dataTransfer: DataTransfer | null,
   ): void {
+    if (this.#promptShotDirty) {
+      this.#status = "Apply or cancel Shot changes before editing a Guide."
+      this.render(true)
+      return
+    }
     const source = this.#h3GuideDragSource(channel, dataTransfer)
     if (!source || !Number.isSafeInteger(frameIndex) || frameIndex < 0) return
     const editor = this.#ensureH3TimelineEditor()
@@ -1281,6 +1211,11 @@ export class ReferenceLoaderController {
   }
 
   #removeH3TimelineGuide(id: string): void {
+    if (this.#promptShotDirty) {
+      this.#status = "Apply or cancel Shot changes before editing a Guide."
+      this.render(true)
+      return
+    }
     const editor = this.#h3Editor
     if (
       !this.state.h3Timeline.guides.some((guide) => guide.id === id) &&
@@ -1299,39 +1234,6 @@ export class ReferenceLoaderController {
     this.render(true)
   }
 
-  #h3PlacementMarkup(state: LoaderState, limit?: number): string {
-    const placements = h3Placements(state.h3Timeline)
-    const visible = limit === undefined ? placements : placements.slice(0, limit)
-    return visible
-      .map((placement) => {
-        const sourceId = placement.visualId ?? placement.audioId ?? ""
-        const channel: H3GuideChannel =
-          placement.visualId !== null && placement.visualId !== undefined
-            ? "visual"
-            : placement.audioId !== null && placement.audioId !== undefined
-              ? "audio"
-              : "visual"
-        const frame = placement.frameIndex
-        const label =
-          placement.kind === "start"
-            ? "Start"
-            : placement.kind === "end"
-              ? "End"
-              : typeof frame === "number" && Number.isInteger(frame) && frame >= 0
-                ? `${frame}f · ${(frame / 24).toFixed(2)}s`
-                : "Unspecified frame"
-        const secondary = [
-          placement.visualId ? this.#h3MediaLabel(placement.visualId, "visual") : "",
-          placement.audioId ? this.#h3MediaLabel(placement.audioId, "audio") : "",
-          !placement.visualId && !placement.audioId ? "Media needed" : "",
-        ]
-          .filter(Boolean)
-          .join(" + ")
-        return `<button type="button" class="rl-h3-summary-item${!sourceId ? " is-incomplete" : ""}" data-h3-action="select-placement" data-h3-media-id="${escapeHtml(sourceId)}" data-h3-channel="${channel}"${placement.guideId ? ` data-h3-guide-id="${escapeHtml(placement.guideId)}"` : ""} title="${sourceId ? "Open the connected Media card" : "Open incomplete Guide"}"><span class="rl-h3-summary-item__preview">${sourceId ? this.#h3PreviewMarkup(sourceId, channel) : "?"}</span><span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(secondary)}</small></span></button>`
-      })
-      .join("")
-  }
-
   #h3MediaLabel(mediaId: string, channel: H3GuideChannel): string {
     const parentId =
       channel === "audio" && mediaId.endsWith(":audio") ? mediaId.slice(0, -6) : mediaId
@@ -1339,301 +1241,6 @@ export class ReferenceLoaderController {
     if (!item) return "Media needed"
     const kind = channel === "audio" ? "Audio" : item.kind === "video" ? "Video" : "Image"
     return `${kind} · ${itemFilename(item)}`
-  }
-
-  #h3PreviewMarkup(mediaId: string, channel: H3GuideChannel): string {
-    const parentId =
-      channel === "audio" && mediaId.endsWith(":audio") ? mediaId.slice(0, -6) : mediaId
-    const previewUrl = this.#runtime.get(parentId)?.previewUrl
-    if (channel === "visual" && previewUrl)
-      return `<img src="${escapeHtml(previewUrl)}" alt="" draggable="false">`
-    return `<span class="rl-h3-summary-item__icon" aria-hidden="true">${channel === "audio" ? "♫" : "▧"}</span>`
-  }
-
-  #channelMarkup(channel: LoaderChannel, label: string, order: string[]): string {
-    let outputIndex = 0
-    let guideIndex = 0
-    const guideChannel: H3GuideChannel = channel === "audio" ? "audio" : "visual"
-    const cards = order
-      .map((id, position) => {
-        const item = this.state.items[id]
-        const referenceIndex =
-          item && isChannelOutputEnabled(channel, item) ? ++outputIndex : undefined
-        const guideIndexForItem =
-          item &&
-          canUseAsH3Guide(item, guideChannel) &&
-          mediaGuideEnabled(
-            this.state.h3Timeline,
-            timelineMediaId(item, guideChannel),
-            guideChannel,
-          )
-            ? ++guideIndex
-            : undefined
-        return this.#cardMarkup(channel, id, position + 1, referenceIndex, guideIndexForItem)
-      })
-      .join("")
-    const accepts: Record<LoaderChannel, string> = {
-      image: "image/*",
-      video: "video/*",
-      audio: "audio/*",
-    }
-    const hasOpenCell = order.length > 0 && order.length % this.state.ui.gridColumns !== 0
-    const addLabel = `Add ${label.toLowerCase()}`
-    const addControl = `<label class="rl-grid-add ${hasOpenCell ? "is-tile" : "is-wide"}" data-media-kind="${channel}" title="${addLabel}">
-      <span class="rl-grid-add__icon" aria-hidden="true">+</span>${hasOpenCell ? "" : `<span>${addLabel}</span>`}
-      <input type="file" accept="${accepts[channel]}" data-upload-kind="${channel}" multiple aria-label="${addLabel}">
-    </label>`
-    const descriptions: Record<LoaderChannel, string> = {
-      image: "Image output and captions",
-      video: "Video output and captions",
-      audio: "Standalone and video sound",
-    }
-    return `<section class="rl-channel" data-channel="${channel}" aria-label="${label} references">
-      <header><div><strong>${label}</strong><span>${order.length}</span></div><small>${descriptions[channel]}</small></header>
-      <div class="rl-card-grid${cards ? "" : " is-empty"}" data-drop-zone="${channel}">${cards}${addControl}</div>
-    </section>`
-  }
-
-  #cardMarkup(
-    channel: LoaderChannel,
-    id: string,
-    replaceIndex: number,
-    outputIndex?: number,
-    guideIndex?: number,
-  ): string {
-    const item = this.state.items[id]
-    if (!item) return ""
-    const singleImage = this.#mode === "single-image"
-    const showCaptions = showCaptionsProperty(this.#node)
-    const runtime = this.#runtime.get(id)
-    const selected = this.#selectedId === id
-    const caption =
-      item.kind === "video" && channel === "audio"
-        ? (item.audioCaptionOverride ?? item.caption)
-        : item.caption
-    const media = this.#mediaMarkup(channel, item, runtime)
-    const loading = runtime?.applyingEdit
-      ? '<span class="rl-card__loading-overlay" role="status" aria-label="Applying image edit"><span class="rl-spinner" aria-hidden="true"></span></span>'
-      : runtime?.loading
-        ? `<span class="rl-spinner" title="Loading"></span>`
-        : ""
-    const error = runtime?.error
-      ? `<p class="rl-card__error" role="alert">${escapeHtml(runtime.error)}</p>`
-      : ""
-    const imageEnabled = item.kind === "image" ? item.imageEnabled : false
-    const videoEnabled = item.kind === "video" ? item.videoEnabled : false
-    const silentVideo = item.kind === "video" && runtime?.metadata?.hasAudio === false
-    const videoAudioEnabled = item.kind === "video" ? item.videoAudioEnabled && !silentVideo : false
-    const audioEnabled = isAudioItem(item) ? item.audioEnabled : false
-    const outputEnabled = isChannelOutputEnabled(channel, item)
-    const guideChannel: H3GuideChannel = channel === "audio" ? "audio" : "visual"
-    const guideMediaId = timelineMediaId(item, guideChannel)
-    const guideAvailable = canUseAsH3Guide(item, guideChannel)
-    const guideEnabled =
-      guideAvailable && mediaGuideEnabled(this.state.h3Timeline, guideMediaId, guideChannel)
-    const guideEditorActive =
-      this.#h3Editor?.mediaId === guideMediaId && this.#h3Editor.channel === guideChannel
-    const duration = durationLabel(item, runtime)
-    const megapixels = megapixelLabel(item, runtime)
-    const mediaFilename = itemFilename(item)
-    const playbackOwner = `grid:${id}`
-    const audioPlaybackActive =
-      this.#audioPreview.snapshot.owner === playbackOwner &&
-      (this.#audioPreview.snapshot.status === "playing" ||
-        this.#audioPreview.snapshot.status === "loading")
-    const videoPlaybackActive =
-      this.#videoPreview.snapshot.owner === playbackOwner &&
-      (this.#videoPreview.snapshot.status === "playing" ||
-        this.#videoPreview.snapshot.status === "loading")
-    const playbackDuration =
-      item.kind === "image" ? undefined : (runtime?.metadata?.duration ?? item.crop?.end)
-    const audioPlaybackDisabled = silentVideo || runtime?.loading || playbackDuration === undefined
-    const videoPlaybackDisabled = runtime?.loading || playbackDuration === undefined
-    const normalMediaMarkup = `<div class="rl-media-badges"><span class="rl-kind rl-kind--${item.kind}">${item.kind}</span>${outputIndex === undefined ? "" : `<span class="rl-output-index" title="${labelForCaption(channel)} output #${outputIndex}">#${outputIndex}</span>`}${guideIndex === undefined ? "" : `<span class="rl-guide-index" title="Guide #${guideIndex}">G#${guideIndex}</span>`}${megapixels ? `<span class="rl-megapixels" title="Current source resolution: ${megapixels}">${megapixels}</span>` : ""}${duration ? `<span class="rl-duration">${duration}</span>` : ""}</div><span class="rl-media-filename" title="${escapeHtml(mediaFilename)}">${escapeHtml(mediaFilename)}</span><button type="button" class="rl-remove" data-action="remove" aria-label="Remove reference" title="Delete reference">×</button>`
-    const normalBodyMarkup = `${this.#guideBadgeMarkup(item, guideChannel, guideMediaId, outputIndex, guideIndex)}
-        ${showCaptions ? `<textarea data-field="caption" data-capture-wheel="true" rows="2" maxlength="16384" placeholder="Caption" aria-label="${labelForCaption(channel)} caption">${escapeHtml(caption)}</textarea>` : ""}
-        <div class="rl-card__actions">
-        ${!singleImage && channel === "image" && item.kind === "image" ? `<button type="button" data-action="toggle-image" class="rl-output-button${imageEnabled ? " is-on" : ""}" aria-label="Toggle image output" aria-pressed="${String(imageEnabled)}">I</button>` : ""}
-        ${!singleImage && channel === "video" && item.kind === "video" ? `<button type="button" data-action="toggle-video" class="rl-output-button${videoEnabled ? " is-on" : ""}" aria-label="Toggle video output" aria-pressed="${String(videoEnabled)}">V</button>` : ""}
-        ${!singleImage && channel === "video" && item.kind === "video" ? `<button type="button" data-action="toggle-video-audio" class="rl-output-button${videoAudioEnabled ? " is-on" : ""}" aria-label="Include embedded audio in video output" aria-pressed="${String(videoAudioEnabled)}" title="${silentVideo ? "No embedded audio track" : videoAudioEnabled ? "VIDEO output includes embedded audio" : "VIDEO output is muted"}"${silentVideo ? " disabled" : ""}>VA</button>` : ""}
-        ${!singleImage && channel === "audio" && isAudioItem(item) ? `<button type="button" data-action="toggle-audio" class="rl-output-button${audioEnabled ? " is-on" : ""}" aria-label="Toggle audio output" aria-pressed="${String(audioEnabled)}"${silentVideo ? ' disabled title="No embedded audio track"' : ""}>A</button>` : ""}
-        ${this.#guideButtonMarkup(item, channel)}
-        ${channel === "video" && item.kind === "video" ? `<button type="button" data-action="preview-video" data-playback-owner="${escapeHtml(playbackOwner)}" class="rl-preview-media${videoPlaybackActive ? " is-playing" : ""}" aria-label="${videoPlaybackActive ? "Stop" : "Play"} video preview ${videoAudioEnabled ? "with audio" : "muted"}" title="${runtime?.loading || playbackDuration === undefined ? "Loading video preview" : videoPlaybackActive ? "Stop video preview" : videoAudioEnabled ? "Play trimmed video preview with audio" : "Play trimmed muted video preview"}"${videoPlaybackDisabled ? " disabled" : ""}>${videoPlaybackActive ? "■" : "▶"}</button>` : ""}
-        ${channel === "audio" && isAudioItem(item) ? `<button type="button" data-action="preview-audio" data-playback-owner="${escapeHtml(playbackOwner)}" class="rl-preview-media${audioPlaybackActive ? " is-playing" : ""}" aria-label="${audioPlaybackActive ? "Stop" : "Play"} audio preview" title="${silentVideo ? "No embedded audio track" : runtime?.loading || playbackDuration === undefined ? "Loading audio preview" : audioPlaybackActive ? "Stop audio preview" : "Play trimmed audio preview"}"${audioPlaybackDisabled ? " disabled" : ""}>${audioPlaybackActive ? "■" : "▶"}</button>` : ""}
-        ${singleImage ? "" : '<button type="button" data-action="move-back" aria-label="Move earlier" title="Move earlier (Alt+ArrowLeft)">←</button><button type="button" data-action="move-forward" aria-label="Move later" title="Move later (Alt+ArrowRight)">→</button>'}
-        <span class="rl-edit-actions">${this.#guideEditButtonMarkup(item, channel)}<button type="button" class="rl-edit-button" data-action="edit" aria-label="${singleImage ? "Edit image" : "Edit reference"}" title="${singleImage ? "Edit image" : "Edit reference"}"${runtime?.applyingEdit ? " disabled" : ""}><span aria-hidden="true">R</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16v4Z"></path><path d="m13.5 6.5 4 4"></path></svg></button></span>
-        </div>
-        ${error}`
-    const cardContent = guideEditorActive
-      ? `<div class="rl-h3-editor__background" aria-hidden="true"><div class="rl-card__media${channel === "image" && item.kind === "image" ? " is-transparent-preview" : ""}">${media}${loading}</div></div><div data-h3-react-media></div><div data-h3-react-body></div>`
-      : `<div class="rl-card__media${channel === "image" && item.kind === "image" ? " is-transparent-preview" : ""}" title="Double-click to edit">${media}${normalMediaMarkup}${loading}</div><div class="rl-card__body">${normalBodyMarkup}</div>`
-    return `<article class="rl-card${showCaptions && !guideEditorActive ? " rl-card--has-caption" : ""}${guideEditorActive ? " rl-card--h3-editor" : ""}${singleImage ? " rl-single-image-card" : ""}${selected ? " is-selected" : ""}${runtime?.error ? " has-error" : ""}${outputEnabled || guideEnabled ? "" : " is-output-disabled"}" data-id="${escapeHtml(id)}" data-channel="${channel}" data-media-kind="${item.kind}" data-replace-index="${replaceIndex}" data-output-enabled="${String(outputEnabled)}" data-guide-enabled="${String(guideEnabled || guideEditorActive)}" tabindex="0" draggable="${String(!singleImage && !guideEditorActive)}" aria-selected="${String(selected)}">${cardContent}</article>`
-  }
-
-  #guideBadgeMarkup(
-    item: MediaItem,
-    channel: H3GuideChannel,
-    mediaId: string,
-    referenceIndex?: number,
-    guideIndex?: number,
-  ): string {
-    const labels: string[] = []
-    const configured =
-      canUseAsH3Guide(item, channel) && mediaHasGuide(this.state.h3Timeline, mediaId, channel)
-    const active =
-      canUseAsH3Guide(item, channel) && mediaGuideEnabled(this.state.h3Timeline, mediaId, channel)
-    if (referenceIndex !== undefined) labels.push(`Ref #${referenceIndex}`)
-    if (guideIndex !== undefined) labels.push(`Guide #${guideIndex}`)
-    if (active) {
-      if (channel === "visual" && this.state.h3Timeline.startImageId === mediaId)
-        labels.push("Start")
-      const frameLabels = this.state.h3Timeline.guides
-        .filter((guide) => guideUsesMedia(guide, mediaId, channel))
-        .sort((left, right) => left.frameIndex - right.frameIndex)
-        .map((guide) => `${guide.frameIndex}f`)
-      labels.push(...frameLabels)
-      if (channel === "visual" && this.state.h3Timeline.endImageId === mediaId) labels.push("End")
-    }
-    if (configured && !active) labels.push("Guide off")
-    else if (
-      !this.state.h3Timeline.enabled &&
-      labels.some((label) => /^\d+f$/.test(label) || label === "Start" || label === "End")
-    )
-      labels.push("Paused")
-    if (labels.length === 0) return '<div class="rl-h3-card-badges" aria-hidden="true"></div>'
-    return `<div class="rl-h3-card-badges" aria-label="Reference order and media roles">${labels.map((label) => `<span class="rl-h3-card-badge${label.startsWith("Ref #") ? " is-reference" : label.startsWith("Guide #") ? " is-guide" : /^\d+f$/.test(label) || label === "Start" || label === "End" ? " is-order" : label === "Paused" || label === "Guide off" ? " is-paused" : ""}">${escapeHtml(label)}</span>`).join("")}</div>`
-  }
-
-  #guideButtonMarkup(item: MediaItem, channel: LoaderChannel): string {
-    if (this.#mode === "single-image") return ""
-    const guideChannel: H3GuideChannel = channel === "audio" ? "audio" : "visual"
-    const valid =
-      (channel === "image" && item.kind === "image") ||
-      (channel === "audio" && item.kind === "audio")
-    if (!valid) return ""
-    const mediaId = timelineMediaId(item, guideChannel)
-    const configured = mediaHasGuide(this.state.h3Timeline, mediaId, guideChannel)
-    const active = configured && mediaGuideEnabled(this.state.h3Timeline, mediaId, guideChannel)
-    return `<button type="button" data-action="toggle-h3-guide" data-id="${escapeHtml(item.id)}" data-h3-channel="${guideChannel}" class="rl-guide-button${active ? " is-on" : ""}" aria-label="Toggle Guide usage" aria-pressed="${String(active)}" title="${active ? "Disable Guide usage for this media" : configured ? "Enable saved Guide placements for this media" : "Enable Guide usage and choose a frame"}">G</button>`
-  }
-
-  #guideEditButtonMarkup(item: MediaItem, channel: LoaderChannel): string {
-    if (this.#mode === "single-image") return ""
-    const guideChannel: H3GuideChannel = channel === "audio" ? "audio" : "visual"
-    if (!canUseAsH3Guide(item, guideChannel)) return ""
-    const mediaId = timelineMediaId(item, guideChannel)
-    const active = this.#h3Editor?.mediaId === mediaId && this.#h3Editor.channel === guideChannel
-    return `<button type="button" class="rl-edit-button rl-edit-button--guide${active ? " is-on" : ""}" data-action="edit-h3-guide" data-id="${escapeHtml(item.id)}" data-h3-channel="${guideChannel}" aria-label="Edit Guide placements" title="Edit Guide placements"><span aria-hidden="true">G</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16v4Z"></path><path d="m13.5 6.5 4 4"></path></svg></button>`
-  }
-
-  #mountH3GuideEditor(): void {
-    const editor = this.#h3Editor
-    const media = this.root.querySelector<HTMLElement>("[data-h3-react-media]")
-    const body = this.root.querySelector<HTMLElement>("[data-h3-react-body]")
-    if (!editor?.mediaId || !media || !body) {
-      this.#h3ReactEditor?.view.destroy()
-      this.#h3ReactEditor = undefined
-      return
-    }
-    this.#h3ReactEditor ??= { session: editor, view: createH3GuideEditor() }
-    // Move the same containers back into the rebuilt board. React retains the
-    // keyed fields and the add form; the native renderer never edits their DOM.
-    media.replaceWith(this.#h3ReactEditor.view.media)
-    body.replaceWith(this.#h3ReactEditor.view.body)
-    this.#updateH3GuideEditor()
-  }
-
-  #updateH3GuideEditor(): void {
-    const editor = this.#h3Editor
-    const mounted = this.#h3ReactEditor
-    if (!editor?.mediaId || mounted?.session !== editor) return
-    const item = this.state.items[editor.mediaId]
-    if (!item) return
-    mounted.view.update({
-      sourceLabel: itemFilename(item),
-      channel: editor.channel,
-      start: editor.channel === "visual" && editor.timeline.startImageId === editor.mediaId,
-      end: editor.channel === "visual" && editor.timeline.endImageId === editor.mediaId,
-      guides: this.#h3EditorGuides(editor).map((guide) => {
-        const pairedId = editor.channel === "visual" ? guide.audioId : guide.visualId
-        return {
-          id: guide.id,
-          frameIndex: guide.frameIndex,
-          pairedLabel: pairedId
-            ? this.#h3MediaLabel(pairedId, editor.channel === "visual" ? "audio" : "visual")
-            : undefined,
-        }
-      }),
-      atGuideLimit: editor.timeline.guides.length >= 32,
-      issue: this.#h3DraftIssue(editor),
-      addError: editor.draftError,
-      onAdd: (position, frame) => this.#addH3DraftPlacement(position, frame),
-      onRemoveRole: (role) => this.#removeH3DraftRole(role),
-      onRemoveGuide: (id) => this.#deleteH3DraftPlacement(id),
-      onInputFrame: (id, value) => {
-        this.#inputH3DraftFrame(id, value)
-        this.#updateH3GuideEditor()
-      },
-      onCommitFrame: (id, value) => this.#commitH3DraftFrame(id, value),
-      onApply: () => this.#applyH3Editor(),
-      onCancel: () => this.#closeH3Editor(),
-    })
-  }
-
-  #h3RecoveryEditorMarkup(editor: H3EditorState, issue?: string): string {
-    const guides = [...editor.ownedGuideIds]
-      .map((id) => editor.timeline.guides.find((guide) => guide.id === id))
-      .filter((guide): guide is NonNullable<typeof guide> => guide !== undefined)
-      .map((guide) => this.#h3RecoveryGuideMarkup(guide))
-      .join("")
-    return `<section class="rl-h3-editor rl-h3-editor--recovery" data-h3-editor aria-label="Recover incomplete Timeline Guide"><div class="rl-h3-editor__header"><span class="rl-h3-editor__title">Recover incomplete Guide</span><button type="button" data-h3-action="cancel-editor" aria-label="Cancel Guide edit" title="Cancel Guide edit">×</button></div><p class="rl-h3-editor__hint">Choose the missing Image or standalone Audio source, or delete this incomplete Guide.</p><div class="rl-h3-editor__stack"><div class="rl-h3-editor__placements">${guides || '<p class="rl-h3-editor__empty">No incomplete Guide selected.</p>'}</div></div>${issue ? `<p class="rl-h3-editor__error" role="alert" data-h3-editor-error>${escapeHtml(issue)}</p>` : ""}<div class="rl-h3-editor__actions"><button type="button" data-h3-action="cancel-editor">Cancel</button><button type="button" data-h3-action="apply-editor"${issue ? " disabled" : ""}>Apply</button></div></section>`
-  }
-
-  #h3EditorGuides(editor: H3EditorState) {
-    return [...editor.ownedGuideIds]
-      .map((id) => editor.timeline.guides.find((guide) => guide.id === id))
-      .filter((guide): guide is NonNullable<typeof guide> => guide !== undefined)
-      .filter((guide) => guideUsesMedia(guide, editor.mediaId ?? "", editor.channel))
-      .sort((left, right) => {
-        if (!Number.isInteger(left.frameIndex) || !Number.isInteger(right.frameIndex)) return 0
-        return left.frameIndex - right.frameIndex
-      })
-  }
-
-  #h3RecoveryGuideMarkup(guide: {
-    id: string
-    frameIndex: number
-    visualId: string | null
-    audioId: string | null
-  }): string {
-    const visualOptions = this.#h3VisualOptions(guide.visualId)
-    const audioOptions = this.#h3AudioOptions(guide.audioId)
-    return `<article class="rl-h3-editor__placement rl-h3-editor__stack-row" data-h3-guide-id="${escapeHtml(guide.id)}"><div class="rl-h3-editor__placement-heading"><label><span>Frame</span><input type="number" min="0" step="1" value="${Number.isInteger(guide.frameIndex) ? String(guide.frameIndex) : ""}" data-h3-draft-field="frame" data-h3-guide-id="${escapeHtml(guide.id)}" aria-describedby="h3-frame-${escapeHtml(guide.id)}"></label><span id="h3-frame-${escapeHtml(guide.id)}" class="rl-h3-editor__seconds">${Number.isInteger(guide.frameIndex) ? `${(guide.frameIndex / 24).toFixed(2)}s` : ""}</span><button type="button" data-h3-action="delete-draft-placement" data-h3-delete-mode="entry" data-h3-guide-id="${escapeHtml(guide.id)}" aria-label="Delete incomplete Guide" title="Delete incomplete Guide">×</button></div><label><span>Visual source</span><select data-h3-draft-field="visual" data-h3-guide-id="${escapeHtml(guide.id)}">${visualOptions}</select></label><label><span>Audio source</span><select data-h3-draft-field="audio" data-h3-guide-id="${escapeHtml(guide.id)}">${audioOptions}</select></label></article>`
-  }
-
-  #h3VisualOptions(selected: string | null): string {
-    const options = [`<option value="">None</option>`]
-    for (const id of [...this.state.imageOrder, ...this.state.videoOrder]) {
-      const item = this.state.items[id]
-      if (!item || item.kind !== "image") continue
-      options.push(
-        `<option value="${escapeHtml(id)}"${selected === id ? " selected" : ""}>Image · ${escapeHtml(itemFilename(item))}</option>`,
-      )
-    }
-    return options.join("")
-  }
-
-  #h3AudioOptions(selected: string | null): string {
-    const options = [`<option value="">None</option>`]
-    for (const id of this.state.audioOrder) {
-      const item = this.state.items[id]
-      if (!item || item.kind !== "audio") continue
-      const sourceId = timelineMediaId(item, "audio")
-      options.push(
-        `<option value="${escapeHtml(sourceId)}"${selected === sourceId ? " selected" : ""}>Audio · ${escapeHtml(itemFilename(item))}</option>`,
-      )
-    }
-    return options.join("")
   }
 
   #h3DraftIssue(editor: H3EditorState): string | undefined {
@@ -1659,19 +1266,6 @@ export class ReferenceLoaderController {
     const hasGuide = mediaHasGuide(candidate, editor.mediaId, editor.channel)
     if (editor.requireGuide && !hasGuide) return "Add a frame placement or select Start/End."
     return validateH3Timeline(this.state, candidate, { allowIncomplete: true })[0]
-  }
-
-  #mediaMarkup(channel: LoaderChannel, item: MediaItem, runtime: ItemRuntime | undefined): string {
-    if ((channel === "image" || channel === "video") && runtime?.previewUrl) {
-      return `<img src="${escapeHtml(runtime.previewUrl)}" alt="" draggable="false">`
-    }
-    if (channel === "audio" && (item.kind === "audio" || item.kind === "video")) {
-      const noAudioTrack = item.kind === "video" && runtime?.metadata?.hasAudio === false
-      const silent = !noAudioTrack && isSilentWaveform(runtime?.waveform)
-      const status = noAudioTrack ? "No audio track" : silent ? "Silent" : undefined
-      return `<canvas data-waveform-id="${escapeHtml(item.id)}" aria-label="${status ? `${status} waveform` : "Waveform"}"></canvas>${status ? `<span class="rl-waveform-status" aria-hidden="true">${status}</span>` : ""}`
-    }
-    return `<div class="rl-placeholder" aria-hidden="true">▧</div>`
   }
 
   #drawWaveforms(): void {
@@ -1741,281 +1335,97 @@ export class ReferenceLoaderController {
     }
   }
 
-  #installEvents(): void {
-    const signal = this.#destroyController.signal
-    const legacyRoot = this.#legacyRoot
-    legacyRoot.addEventListener("click", (event) => this.#onClick(event), { signal })
-    legacyRoot.addEventListener("dblclick", (event) => this.#onDoubleClick(event), { signal })
-    legacyRoot.addEventListener("input", (event) => this.#onInput(event), { signal })
-    legacyRoot.addEventListener("change", (event) => this.#onChange(event), { signal })
-    legacyRoot.addEventListener("compositionstart", () => (this.#composing = true), { signal })
-    legacyRoot.addEventListener(
-      "compositionend",
-      () => {
-        this.#composing = false
-      },
-      { signal },
-    )
-    legacyRoot.addEventListener(
-      "focusout",
-      () => {
-        setTimeout(() => {
-          const snapshot = this.root.querySelector<HTMLElement>(".rl-snapshot")
-          if (
-            this.#snapshotMenuOpen &&
-            document.activeElement instanceof Node &&
-            !snapshot?.contains(document.activeElement)
-          )
-            this.#setSnapshotMenu(false)
-          if (
-            this.#renderPending &&
-            !(
-              (document.activeElement instanceof HTMLTextAreaElement ||
-                document.activeElement instanceof HTMLInputElement ||
-                document.activeElement instanceof HTMLSelectElement) &&
-              this.root.contains(document.activeElement) &&
-              (document.activeElement instanceof HTMLTextAreaElement ||
-                Boolean(document.activeElement.closest("[data-h3-editor]")))
-            )
-          ) {
-            this.render()
-          }
-        }, 0)
-      },
-      { signal },
-    )
-    legacyRoot.addEventListener("keydown", (event) => this.#onKeydown(event), { signal })
-    document.addEventListener(
-      "pointerdown",
-      (event) => {
-        if (
-          this.#snapshotMenuOpen &&
-          event.target instanceof Node &&
-          !this.root.querySelector(".rl-snapshot")?.contains(event.target)
-        )
-          this.#setSnapshotMenu(false)
-      },
-      { capture: true, signal },
-    )
-    legacyRoot.addEventListener(
-      "pointerdown",
-      (event) => {
-        const target = event.target as Element
-        const card = target.closest<HTMLElement>(".rl-card")
-        const interactive = target.closest(
-          "button, textarea, input, select, a, [contenteditable='true']",
-        )
-        this.#armedDrag =
-          !interactive && card?.dataset.id && card.dataset.channel
-            ? { id: card.dataset.id, channel: card.dataset.channel as LoaderChannel }
-            : undefined
-      },
-      { signal },
-    )
-    legacyRoot.addEventListener(
-      "pointerup",
-      () => {
-        if (!this.#drag) this.#armedDrag = undefined
-      },
-      { signal },
-    )
-    legacyRoot.addEventListener("dragstart", (event) => this.#onDragStart(event), { signal })
-    const onDragEnd = (event: DragEvent): void => {
-      if (event.currentTarget === this.root && event.target !== this.root) return
-      this.#clearDropTarget()
-      this.#drag = undefined
-      this.#armedDrag = undefined
-      this.root.classList.remove("is-dragging", "is-file-dragging")
-      this.#setFileDropGuide(null)
-      this.#setFileDropTarget(undefined)
+  #toggleH3Timeline(): void {
+    if (this.#h3EditorDirty()) {
+      this.#status = "Apply or cancel Guide changes before changing Timeline Guides."
+      this.render(true)
+      return
     }
-    legacyRoot.addEventListener("dragend", onDragEnd, { signal })
-    this.root.addEventListener("dragend", onDragEnd, { signal })
-    const onDragOver = (event: DragEvent): void => {
-      if (event.currentTarget === this.root && event.target !== this.root) return
-      const fileDrop = this.acceptsFileDrop(event.dataTransfer)
-      if (!fileDrop && !this.#drag) return
-      event.preventDefault()
-      this.root.classList.toggle("is-file-dragging", fileDrop)
-      this.#setFileDropGuide(fileDrop ? event.dataTransfer : null)
-      this.#updateFileDropTarget(fileDrop ? event : undefined)
-      if (event.dataTransfer) event.dataTransfer.dropEffect = fileDrop ? "copy" : "move"
-      this.#updateDropTarget(event)
+    if (this.#promptShotDirty) {
+      this.#status = "Apply or cancel Shot changes before changing Timeline Guides."
+      this.render(true)
+      return
     }
-    legacyRoot.addEventListener("dragover", onDragOver, { signal })
-    this.root.addEventListener("dragover", onDragOver, { signal })
-    const onDragLeave = (event: DragEvent): void => {
-      if (event.currentTarget === this.root && event.target !== this.root) return
-      const related = event.relatedTarget
-      if (!(related instanceof Node) || !this.root.contains(related)) {
-        this.#clearDropTarget()
-        this.root.classList.remove("is-file-dragging")
-        this.#setFileDropGuide(null)
-        this.#setFileDropTarget(undefined)
-      }
-    }
-    legacyRoot.addEventListener("dragleave", onDragLeave, { signal })
-    this.root.addEventListener("dragleave", onDragLeave, { signal })
-    const onDrop = (event: DragEvent): void => {
-      if (event.currentTarget === this.root && event.target !== this.root) return
-      this.#onDrop(event)
-    }
-    legacyRoot.addEventListener("drop", onDrop, { signal })
-    this.root.addEventListener("drop", onDrop, { signal })
+    this.#dispatch({ type: "toggle-h3-timeline", enabled: !this.state.h3Timeline.enabled })
   }
 
-  #onClick(event: MouseEvent): void {
-    if (isH3ReactEvent(event)) return
-    const h3Button = (event.target as Element).closest<HTMLElement>("[data-h3-action]")
-    if (h3Button && this.root.contains(h3Button)) {
-      this.#onH3Click(h3Button)
+  #selectH3Placement(placement: H3TimelinePlacement, channel: "visual" | "audio"): void {
+    if (this.#promptShotDirty) {
+      this.#status = "Apply or cancel Shot changes before editing a Guide."
+      this.render(true)
       return
     }
-    const button = (event.target as Element).closest<HTMLButtonElement>("button[data-action]")
-    if (!button) {
-      const card = (event.target as Element).closest<HTMLElement>(".rl-card")
-      if (card?.dataset.id && !(event.target instanceof HTMLTextAreaElement)) {
-        this.#selectItem(card.dataset.id)
-      }
-      return
-    }
-    const card = button.closest<HTMLElement>(".rl-card")
-    const id = card?.dataset.id || button.dataset.id
-    const channel = (card?.dataset.channel || button.dataset.channel) as LoaderChannel | undefined
-    switch (button.dataset.action) {
-      case "snapshot-menu":
-        this.#setSnapshotMenu(!this.#snapshotMenuOpen, this.#snapshotMenuOpen ? undefined : "first")
-        return
-      case "snapshot-save":
-        this.#setSnapshotMenu(false)
-        try {
-          this.#changeEvents.saveSnapshot?.()
-          this.#status = "Snapshot saved."
-        } catch (error) {
-          this.#status = error instanceof Error ? error.message : "Snapshot could not be saved."
-        }
+    if (placement.kind === "start" || placement.kind === "end") {
+      if (this.#h3EditorDirty()) {
+        this.#status = "Apply or cancel the current Guide edit before selecting Start or End."
         this.render(true)
         return
-      case "snapshot-load":
-        this.#setSnapshotMenu(false)
-        this.root.querySelector<HTMLInputElement>("[data-snapshot-input]")?.click()
-        return
-      case "undo":
-        if (!this.#store.canUndo) return
-        this.#recordGraphChange(() => {
-          this.#store.undo()
-        })
-        this.#changed(true)
-        return
-      case "redo":
-        if (!this.#store.canRedo) return
-        this.#recordGraphChange(() => {
-          this.#store.redo()
-        })
-        this.#changed(true)
-        return
-      case "clear":
-        this.#clearAll()
-        return
-      case "remove":
-        if (id && this.#audioPreview.snapshot.owner === `grid:${id}`) this.#audioPreview.stop()
-        if (id && this.#videoPreview.snapshot.owner === `grid:${id}`) this.#videoPreview.stop()
-        if (id) {
-          this.#runtime.delete(id)
-          this.#dispatch({ type: "remove", id })
-        }
-        return
-      case "toggle-image":
-        if (id) this.#toggleOutput(id, "image")
-        return
-      case "toggle-video":
-        if (id) this.#toggleOutput(id, "video")
-        return
-      case "toggle-video-audio":
-        if (id) this.#toggleVideoAudio(id)
-        return
-      case "toggle-audio":
-        if (id) this.#toggleOutput(id, "audio")
-        return
-      case "toggle-h3-guide":
-        if (id) this.#toggleH3Guide(id, button.dataset.h3Channel as H3GuideChannel | undefined)
-        return
-      case "edit-h3-guide":
-        if (id) this.#openH3Editor(id, button.dataset.h3Channel as H3GuideChannel | undefined)
-        return
-      case "preview-audio":
-        if (id) void this.#toggleAudioPreview(id)
-        return
-      case "preview-video":
-        if (id) void this.#toggleVideoPreview(id)
-        return
-      case "move-back":
-      case "move-forward":
-        if (id && channel)
-          this.#dispatch({
-            type: "move",
-            id,
-            channel,
-            delta: button.dataset.action === "move-back" ? -1 : 1,
-          })
-        return
-      case "edit":
-        if (id) void this.#editItem(id, channel)
+      }
+      if (this.#h3Editor) {
+        this.#h3Editor = undefined
+        this.#h3Session += 1
+      }
+      this.#h3SelectedShot = undefined
+      this.#h3SelectedRole = placement.kind
+      this.render(true)
+      return
     }
+    this.#h3SelectedShot = undefined
+    this.#h3SelectedRole = undefined
+    if (this.#h3Editor?.timelineEdit && placement.guideId) {
+      this.#h3Editor.selectedGuideId = placement.guideId
+      this.render(true)
+      return
+    }
+    if (placement.kind === "guide" && placement.guideId) {
+      this.#openH3EditorForGuide(placement.guideId)
+      return
+    }
+    const id = channel === "visual" ? placement.visualId : placement.audioId
+    if (id) this.#openH3EditorForMedia(id, channel, placement.guideId, "edit", false, false)
+    else if (placement.guideId) this.#openH3EditorForGuide(placement.guideId)
   }
 
-  #onH3Click(target: HTMLElement): void {
-    const action = target.dataset.h3Action
-    if (!action) return
-    if (action === "collapse") {
-      this.#h3Collapsed = !this.#h3Collapsed
-      this.render(true)
-      return
+  #changeH3DraftSource(id: string, channel: H3GuideChannel, mediaId: string | null): void {
+    const editor = this.#h3Editor
+    if (!editor) return
+    editor.timeline = {
+      ...editor.timeline,
+      guides: editor.timeline.guides.map((guide) =>
+        guide.id === id
+          ? channel === "visual"
+            ? { ...guide, visualId: mediaId }
+            : { ...guide, audioId: mediaId }
+          : guide,
+      ),
     }
-    if (action === "toggle") {
-      this.#dispatch({ type: "toggle-h3-timeline", enabled: !this.state.h3Timeline.enabled })
-      return
-    }
-    if (action === "toggle-summary") {
-      this.#h3SummaryExpanded = !this.#h3SummaryExpanded
-      this.render(true)
-      return
-    }
-    if (action === "cancel-editor") {
-      this.#closeH3Editor()
-      return
-    }
-    if (action === "apply-editor") {
+    const changedGuide = editor.timeline.guides.find((guide) => guide.id === id)
+    if (changedGuide && changedGuide.visualId === null && changedGuide.audioId === null)
+      editor.removedGuideIds.add(id)
+    else editor.removedGuideIds.delete(id)
+    editor.draftError = undefined
+    this.#renderH3PreservingFocus()
+  }
+
+  #applyH3Workspace(): void {
+    if (this.#h3Editor) {
+      if (this.#promptShotDirty) {
+        this.#status = "Apply or cancel Shot changes before applying Guide changes."
+        this.render(true)
+        return
+      }
       this.#applyH3Editor()
       return
     }
-    if (action === "delete-draft-placement" && target.dataset.h3GuideId) {
-      this.#deleteH3DraftPlacement(target.dataset.h3GuideId)
-      return
-    }
-    if (action === "select-placement") {
-      const mediaId = target.dataset.h3MediaId
-      const channel = target.dataset.h3Channel as H3GuideChannel | undefined
-      if (!channel) return
-      if (!mediaId && target.dataset.h3GuideId) {
-        this.#openH3EditorForGuide(target.dataset.h3GuideId)
-        return
-      }
-      if (!mediaId) return
-      this.#openH3EditorForMedia(mediaId, channel, target.dataset.h3GuideId)
-    }
+    if (this.#promptShotDirty) this.#promptShotApply?.()
   }
 
-  #openH3Editor(id: string, channel?: H3GuideChannel): void {
-    const item = this.state.items[id]
-    if (!item) return
-    const resolvedChannel: H3GuideChannel = channel ?? (item.kind === "audio" ? "audio" : "visual")
-    this.#openH3EditorForMedia(
-      timelineMediaId(item, resolvedChannel),
-      resolvedChannel,
-      undefined,
-      "edit",
-    )
+  #cancelH3Workspace(): void {
+    if (this.#h3Editor) {
+      this.#closeH3Editor()
+      return
+    }
+    if (this.#promptShotDirty) this.#promptShotCancel?.()
   }
 
   #openH3EditorForMedia(
@@ -2026,13 +1436,20 @@ export class ReferenceLoaderController {
     requireGuide = false,
     focusGuide = true,
   ): void {
+    this.#h3SelectedShot = undefined
+    this.#h3SelectedRole = undefined
+    if (this.#promptShotDirty) {
+      this.#status = "Apply or cancel Shot changes before editing a Guide."
+      this.render(true)
+      return
+    }
     if (!this.#canSwitchH3Editor(mediaId, channel)) return
     if (this.#h3Editor?.mediaId === mediaId && this.#h3Editor.channel === channel) {
       if (guideId) {
         this.#h3Editor.selectedGuideId = guideId
         if (focusGuide) this.#focusH3EditorGuide(guideId)
       }
-      this.#mountH3Timeline()
+      this.render(true)
       return
     }
     const itemId = mediaId.endsWith(":audio") ? mediaId.slice(0, -6) : mediaId
@@ -2048,7 +1465,6 @@ export class ReferenceLoaderController {
         .filter((guide) => guideUsesMedia(guide, mediaId, channel))
         .map((guide) => guide.id),
     )
-    this.#h3View.selectedId = guideId ?? [...ownedGuideIds][0]
     if (guideId) ownedGuideIds.add(guideId)
     this.#h3Editor = {
       mediaId,
@@ -2064,6 +1480,7 @@ export class ReferenceLoaderController {
       ...(guideId ? { selectedGuideId: guideId } : {}),
       returnFocus: { mediaId, channel, control },
     }
+    this.#h3Session += 1
     this.#selectedId = item.id
     this.#h3Collapsed = false
     this.render(true)
@@ -2071,6 +1488,13 @@ export class ReferenceLoaderController {
   }
 
   #openH3EditorForGuide(guideId: string): void {
+    this.#h3SelectedShot = undefined
+    this.#h3SelectedRole = undefined
+    if (this.#promptShotDirty) {
+      this.#status = "Apply or cancel Shot changes before editing a Guide."
+      this.render(true)
+      return
+    }
     if (
       this.#h3Editor &&
       !(this.#h3Editor.mediaId === undefined && this.#h3Editor.selectedGuideId === guideId) &&
@@ -2095,6 +1519,7 @@ export class ReferenceLoaderController {
       allowTimelineOnly: true,
       returnFocus: { guideId },
     }
+    this.#h3Session += 1
     this.#h3Collapsed = false
     this.render(true)
     this.#focusH3EditorGuide(guideId)
@@ -2128,6 +1553,16 @@ export class ReferenceLoaderController {
   }
 
   #toggleH3Guide(id: string, channel?: H3GuideChannel): void {
+    if (this.#promptShotDirty) {
+      this.#status = "Apply or cancel Shot changes before changing Guide usage."
+      this.render(true)
+      return
+    }
+    if (this.#h3EditorDirty()) {
+      this.#status = "Apply or cancel Guide changes before changing Guide usage."
+      this.render(true)
+      return
+    }
     const item = this.state.items[id]
     if (!item || !channel || !canUseAsH3Guide(item, channel)) return
     const mediaId = timelineMediaId(item, channel)
@@ -2189,7 +1624,7 @@ export class ReferenceLoaderController {
     const rawFrame = frame.trim()
     const frameIndex = rawFrame === "" ? Number.NaN : Number(rawFrame)
     if (rawFrame === "") editor.draftError = "Enter a non-negative integer output frame."
-    else if (!Number.isInteger(frameIndex) || frameIndex < 0)
+    else if (!Number.isSafeInteger(frameIndex) || frameIndex < 0)
       editor.draftError = "Output frame must be a non-negative integer."
     if (editor.draftError) {
       this.render(true)
@@ -2245,11 +1680,19 @@ export class ReferenceLoaderController {
   }
 
   #removeH3DraftRole(role: "start" | "end"): void {
-    const editor = this.#h3Editor
-    if (!editor?.mediaId || editor.channel !== "visual") return
+    if (this.#promptShotDirty) {
+      this.#status = "Apply or cancel Shot changes before editing a Guide."
+      this.render(true)
+      return
+    }
     const key = role === "start" ? "startImageId" : "endImageId"
-    if (editor.timeline[key] !== editor.mediaId) return
+    const current = this.#h3Editor ? this.#h3Editor.timeline[key] : this.state.h3Timeline[key]
+    if (current === null) return
+    const editor = this.#ensureH3TimelineEditor()
+    if (!editor) return
     editor.timeline = { ...editor.timeline, [key]: null }
+    this.#h3SelectedRole = role
+    this.#status = `${role === "start" ? "Start" : "End"} removed from the Timeline draft. Apply to save.`
     this.render(true)
   }
 
@@ -2289,6 +1732,9 @@ export class ReferenceLoaderController {
   #closeH3Editor(): void {
     const focus = this.#h3Editor?.returnFocus
     this.#h3Editor = undefined
+    this.#h3SelectedShot = undefined
+    this.#h3SelectedRole = undefined
+    this.#h3Session += 1
     this.render(true)
     if (focus?.mediaId && focus.channel) {
       const parentId = focus.mediaId.endsWith(":audio") ? focus.mediaId.slice(0, -6) : focus.mediaId
@@ -2322,38 +1768,10 @@ export class ReferenceLoaderController {
     }
   }
 
-  #onH3DraftChange(target: HTMLInputElement | HTMLSelectElement): void {
-    const editor = this.#h3Editor
-    if (!editor) return
-    const field = target.dataset.h3DraftField
-    const guideId = target.dataset.h3GuideId
-    if (field === "visual" || field === "audio") {
-      if (!guideId || !(target instanceof HTMLSelectElement)) return
-      const value = target.value || null
-      editor.timeline = {
-        ...editor.timeline,
-        guides: editor.timeline.guides.map((guide) =>
-          guide.id === guideId
-            ? field === "visual"
-              ? { ...guide, visualId: value }
-              : { ...guide, audioId: value }
-            : guide,
-        ),
-      }
-      const changedGuide = editor.timeline.guides.find((guide) => guide.id === guideId)
-      if (changedGuide && changedGuide.visualId === null && changedGuide.audioId === null)
-        editor.removedGuideIds.add(guideId)
-      else editor.removedGuideIds.delete(guideId)
-      this.#renderH3PreservingFocus()
-      return
-    }
-    if (field === "frame" && guideId && target instanceof HTMLInputElement)
-      this.#commitH3DraftFrame(guideId, target.value)
-  }
-
   #inputH3DraftFrame(guideId: string, value: string): void {
     const editor = this.#h3Editor
     if (!editor) return
+    editor.selectedGuideId = guideId
     const frameIndex = value === "" ? Number.NaN : Number(value)
     editor.timeline = {
       ...editor.timeline,
@@ -2361,15 +1779,16 @@ export class ReferenceLoaderController {
         guide.id === guideId ? { ...guide, frameIndex } : guide,
       ),
     }
-    this.#mountH3Timeline()
+    this.#publishView()
   }
 
   #commitH3DraftFrame(guideId: string, value: string): void {
     const editor = this.#h3Editor
     if (!editor) return
+    editor.selectedGuideId = guideId
     const rawFrame = value.trim()
     const frameIndex = rawFrame === "" ? Number.NaN : Number(rawFrame)
-    if (!Number.isInteger(frameIndex) || frameIndex < 0) {
+    if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) {
       editor.draftError = "Output frame must be a non-negative integer."
       this.#renderH3PreservingFocus()
       return
@@ -2487,6 +1906,7 @@ export class ReferenceLoaderController {
     if (issue) {
       this.#status = issue
       this.render(true)
+      if (editor.selectedGuideId) this.#focusH3EditorGuide(editor.selectedGuideId)
       return
     }
     const timeline = this.#h3EditorTimeline(editor)
@@ -2494,6 +1914,7 @@ export class ReferenceLoaderController {
     if (!mediaId) {
       if (!editor.allowTimelineOnly) return
       this.#h3Editor = undefined
+      this.#h3Session += 1
       this.#dispatch({ type: "set-h3-timeline", timeline })
       this.#status = "Timeline Guide settings applied."
       this.render(true)
@@ -2504,6 +1925,7 @@ export class ReferenceLoaderController {
     if (!item) return
     if (!canUseAsH3Guide(item, editor.channel)) return
     this.#h3Editor = undefined
+    this.#h3Session += 1
     this.#dispatch({
       type: "apply-h3-media-edit",
       mediaId,
@@ -2516,34 +1938,8 @@ export class ReferenceLoaderController {
     this.render(true)
   }
 
-  #onDoubleClick(event: MouseEvent): void {
-    const target = event.target as Element
-    if (target.closest("button, textarea, input, select, a, [contenteditable='true']")) return
-    if (
-      this.#mode === "single-image" &&
-      this.state.imageOrder.length === 0 &&
-      target.closest(".rl-single-image-preview")
-    ) {
-      this.root.querySelector<HTMLInputElement>('input[data-upload-kind="image"]')?.click()
-      return
-    }
-    const media = target.closest<HTMLElement>(".rl-card__media")
-    if (!media) return
-    const card = media.closest<HTMLElement>(".rl-card")
-    if (card?.dataset.id) {
-      void this.#editItem(card.dataset.id, card.dataset.channel as LoaderChannel | undefined)
-    }
-  }
-
   #selectItem(id: string): void {
     this.#selectedId = id
-    if (!this.#reactMount) {
-      for (const card of this.root.querySelectorAll<HTMLElement>(".rl-card")) {
-        const selected = card.dataset.id === id
-        card.classList.toggle("is-selected", selected)
-        card.setAttribute("aria-selected", String(selected))
-      }
-    }
     this.#publishView()
     this.#reactMount?.update()
   }
@@ -2648,41 +2044,6 @@ export class ReferenceLoaderController {
     }
   }
 
-  #onInput(event: Event): void {
-    if (isH3ReactEvent(event)) return
-    const h3Input = event.target
-    if (h3Input instanceof HTMLInputElement && h3Input.dataset.h3DraftField === "frame") {
-      const editor = this.#h3Editor
-      const guideId = h3Input.dataset.h3GuideId
-      if (!editor || !guideId) return
-      const frameIndex = h3Input.value === "" ? Number.NaN : Number(h3Input.value)
-      this.#inputH3DraftFrame(guideId, h3Input.value)
-      const seconds = h3Input
-        .closest<HTMLElement>("[data-h3-guide-id]")
-        ?.querySelector<HTMLElement>(".rl-h3-editor__seconds")
-      if (seconds)
-        seconds.textContent =
-          Number.isInteger(frameIndex) && frameIndex >= 0 ? `${(frameIndex / 24).toFixed(2)}s` : ""
-      return
-    }
-    const textarea = event.target
-    if (!(textarea instanceof HTMLTextAreaElement) || textarea.dataset.field !== "caption") return
-    const card = textarea.closest<HTMLElement>(".rl-card")
-    const id = card?.dataset.id
-    const channel = card?.dataset.channel as LoaderChannel | undefined
-    if (!id || !channel) return
-    const changed = this.#dispatch(
-      { type: "set-caption", id, caption: textarea.value, channel },
-      {
-        mergeKey: this.#composing ? `ime:${channel}:${id}` : `caption:${channel}:${id}`,
-        render: false,
-      },
-    )
-    if (!changed) return
-    this.#syncCaptionFields(id, textarea)
-    this.#node.setDirtyCanvas(true, true)
-  }
-
   #syncCaptionFields(id: string, source?: HTMLTextAreaElement): void {
     const item = this.state.items[id]
     if (!item) return
@@ -2700,35 +2061,6 @@ export class ReferenceLoaderController {
     }
   }
 
-  #onChange(event: Event): void {
-    if (isH3ReactEvent(event)) return
-    const input = event.target
-    if (
-      (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) &&
-      input.dataset.h3DraftField
-    ) {
-      this.#onH3DraftChange(input)
-      return
-    }
-    if (!(input instanceof HTMLInputElement) || input.type !== "file") return
-    if (input.hasAttribute("data-snapshot-input")) {
-      this.#setSnapshotMenu(false)
-      const file = input.files?.[0]
-      input.value = ""
-      if (file) void this.#loadSnapshot(file)
-      return
-    }
-    const expectedKind = input.dataset.uploadKind
-    const files = [...(input.files ?? [])].filter(
-      (file) =>
-        !expectedKind ||
-        fileMediaKind(file) === expectedKind ||
-        (this.#mode === "single-image" && expectedKind === "image" && isSingleImageCandidate(file)),
-    )
-    input.value = ""
-    void this.#uploadFiles(files)
-  }
-
   async #loadSnapshot(file: File): Promise<void> {
     try {
       const result = await this.#changeEvents.loadSnapshot?.(file)
@@ -2737,218 +2069,6 @@ export class ReferenceLoaderController {
       this.#status = error instanceof Error ? error.message : "Snapshot could not be loaded."
     }
     this.render(true)
-  }
-
-  #onKeydown(event: KeyboardEvent): void {
-    if (event.key === "Escape" && (event.target as Element).closest("[data-h3-editor]")) {
-      event.preventDefault()
-      this.#closeH3Editor()
-      return
-    }
-    const snapshot = (event.target as Element).closest<HTMLElement>(".rl-snapshot")
-    if (snapshot) {
-      const trigger = snapshot.querySelector<HTMLButtonElement>(".rl-snapshot__trigger")
-      const items = [...snapshot.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-      if (event.key === "Escape" && this.#snapshotMenuOpen) {
-        event.preventDefault()
-        this.#setSnapshotMenu(false)
-        trigger?.focus()
-        return
-      }
-      if (event.target === trigger && event.key === "ArrowDown") {
-        event.preventDefault()
-        this.#setSnapshotMenu(true, "first")
-        return
-      }
-      const index = items.indexOf(event.target as HTMLButtonElement)
-      if (index >= 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
-        event.preventDefault()
-        const delta = event.key === "ArrowDown" ? 1 : -1
-        items[(index + delta + items.length) % items.length]?.focus()
-        return
-      }
-    }
-    const card = (event.target as Element).closest<HTMLElement>(".rl-card")
-    if (card?.classList.contains("rl-card--h3-editor")) return
-    if (
-      event.altKey &&
-      card?.dataset.id &&
-      card.dataset.channel &&
-      ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
-    ) {
-      event.preventDefault()
-      const delta = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1
-      this.#dispatch({
-        type: "move",
-        id: card.dataset.id,
-        channel: card.dataset.channel as LoaderChannel,
-        delta,
-      })
-      return
-    }
-  }
-
-  #setSnapshotMenu(open: boolean, focus?: "first"): void {
-    this.#snapshotMenuOpen = open
-    const trigger = this.root.querySelector<HTMLButtonElement>(".rl-snapshot__trigger")
-    const menu = this.root.querySelector<HTMLElement>(".rl-snapshot__menu")
-    trigger?.setAttribute("aria-expanded", String(open))
-    if (menu) menu.hidden = !open
-    if (open && focus === "first")
-      menu?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
-  }
-
-  #onDragStart(event: DragEvent): void {
-    const card = (event.target as Element).closest<HTMLElement>(".rl-card")
-    if (
-      !card?.dataset.id ||
-      !card.dataset.channel ||
-      !this.#armedDrag ||
-      this.#armedDrag.id !== card.dataset.id ||
-      this.#armedDrag.channel !== card.dataset.channel
-    ) {
-      event.preventDefault()
-      return
-    }
-    this.#drag = {
-      scope: this.#dragScope,
-      id: card.dataset.id,
-      channel: card.dataset.channel as LoaderChannel,
-    }
-    event.dataTransfer?.setData(DRAG_MIME, JSON.stringify(this.#drag))
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = "copyMove"
-    this.root.classList.add("is-dragging")
-  }
-
-  #updateDropTarget(event: DragEvent): void {
-    const target = event.target
-    if (
-      !(target instanceof Element) ||
-      !this.#drag ||
-      !loaderDragBelongsTo(this.#dragScope, event.dataTransfer) ||
-      (event.dataTransfer?.files.length ?? 0) > 0
-    ) {
-      this.#clearDropTarget()
-      return
-    }
-    const zone = target.closest<HTMLElement>("[data-drop-zone]")
-    const card = target.closest<HTMLElement>(".rl-card")
-    const valid =
-      zone?.dataset.dropZone === this.#drag.channel &&
-      card?.dataset.channel === this.#drag.channel &&
-      card.dataset.id !== this.#drag.id
-    this.#setDropTarget(valid ? card : undefined)
-  }
-
-  #setDropTarget(card: HTMLElement | undefined): void {
-    if (this.#dropTarget === card) return
-    this.#dropTarget?.classList.remove("is-drop-target")
-    this.#dropTarget = card
-    this.#dropTarget?.classList.add("is-drop-target")
-  }
-
-  #clearDropTarget(): void {
-    this.#setDropTarget(undefined)
-  }
-
-  #setFileDropTarget(card: HTMLElement | undefined): void {
-    if (
-      this.#fileDropTarget === card &&
-      !(
-        card === undefined &&
-        (this.root.dataset.fileDropTarget !== undefined ||
-          this.root.querySelector(".is-file-drop-target") !== null)
-      )
-    )
-      return
-    this.#fileDropTarget?.classList.remove("is-file-drop-target")
-    this.#fileDropTarget = card
-    if (card) {
-      card.classList.add("is-file-drop-target")
-      this.root.dataset.fileDropTarget = card.classList.contains("rl-card") ? "replace" : "add"
-    } else {
-      for (const element of this.root.querySelectorAll<HTMLElement>(".is-file-drop-target"))
-        element.classList.remove("is-file-drop-target")
-      delete this.root.dataset.fileDropTarget
-    }
-  }
-
-  #setFileDropGuide(dataTransfer: DataTransfer | null): void {
-    const kinds = mediaDropKinds(dataTransfer).filter(
-      (kind) => this.#mode !== "single-image" || kind === "image",
-    )
-    if (kinds.length > 0) this.root.dataset.fileDropKinds = kinds.join(" ")
-    else delete this.root.dataset.fileDropKinds
-  }
-
-  #updateFileDropTarget(event: DragEvent | undefined): void {
-    if (!event || !isSingleMediaDrop(event.dataTransfer)) {
-      this.#setFileDropTarget(undefined)
-      return
-    }
-    const target = (event.target as Element).closest<HTMLElement>(
-      ".rl-card, .rl-grid-add, .rl-single-image-preview.is-empty",
-    )
-    const targetId = target?.dataset.id
-    const targetItem = targetId ? this.state.items[targetId] : undefined
-    const targetKind = target?.dataset.mediaKind ?? target?.dataset.dropZone
-    const kinds = mediaDropKinds(event.dataTransfer)
-    const valid =
-      target &&
-      (targetItem?.kind ?? targetKind) &&
-      kinds.length === 1 &&
-      kinds[0] === (targetItem?.kind ?? targetKind)
-        ? target
-        : undefined
-    this.#setFileDropTarget(valid)
-  }
-
-  #onDrop(event: DragEvent): void {
-    this.#clearDropTarget()
-    this.root.classList.remove("is-file-dragging")
-    this.#setFileDropGuide(null)
-    this.#setFileDropTarget(undefined)
-    const files = [...(event.dataTransfer?.files ?? [])]
-    if (files.length > 0) {
-      if (!this.acceptsFileDrop(event.dataTransfer)) return
-      event.preventDefault()
-      const target = (event.target as Element).closest<HTMLElement>(".rl-card")
-      const targetId = target?.dataset.id
-      const targetItem = targetId ? this.state.items[targetId] : undefined
-      if (
-        targetItem &&
-        target?.classList.contains("rl-card--h3-editor") &&
-        this.#h3Editor?.mediaId ===
-          timelineMediaId(targetItem, target.dataset.channel === "audio" ? "audio" : "visual")
-      ) {
-        this.#status = "Apply or cancel the current Guide edit before replacing this Media."
-        this.render(true)
-        return
-      }
-      const replaceId =
-        files.length === 1 &&
-        targetId &&
-        targetItem &&
-        fileMediaKind(files[0] as File) === targetItem.kind
-          ? targetId
-          : undefined
-      void this.addDroppedFiles(files, replaceId)
-      return
-    }
-    if (!loaderDragBelongsTo(this.#dragScope, event.dataTransfer)) return
-    const zone = (event.target as Element).closest<HTMLElement>("[data-drop-zone]")
-    const channel = zone?.dataset.dropZone as LoaderChannel | undefined
-    if (!channel || !this.#drag || this.#drag.channel !== channel) return
-    event.preventDefault()
-    const targetCard = (event.target as Element).closest<HTMLElement>(".rl-card")
-    const order =
-      channel === "image"
-        ? this.state.imageOrder
-        : channel === "video"
-          ? this.state.videoOrder
-          : this.state.audioOrder
-    const index = targetCard?.dataset.id ? order.indexOf(targetCard.dataset.id) : order.length
-    this.#dispatch({ type: "reorder", channel, id: this.#drag.id, toIndex: Math.max(0, index) })
   }
 
   async #uploadFiles(files: File[], replaceId?: string): Promise<void> {
@@ -3163,7 +2283,7 @@ export class ReferenceLoaderController {
         ...(proxy ? { previewUrl: proxy.url } : {}),
         ...(waveform ? { waveform: waveform.pairs } : {}),
       })
-      if (this.#canRenderReact(this.state) && this.#hasFocusedCaption()) this.#deferPreviews = true
+      if (this.#hasFocusedCaption()) this.#deferPreviews = true
       this.#publishRuntimeUpdate()
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return
@@ -3178,7 +2298,7 @@ export class ReferenceLoaderController {
         loading: false,
         error: error instanceof Error ? error.message : "Preview failed.",
       })
-      if (this.#canRenderReact(this.state) && this.#hasFocusedCaption()) this.#deferPreviews = true
+      if (this.#hasFocusedCaption()) this.#deferPreviews = true
       this.#publishRuntimeUpdate()
     } finally {
       release()
@@ -3484,14 +2604,4 @@ export class ReferenceLoaderController {
     this.#syncPromptReferences()
     this.#publishView()
   }
-}
-
-function labelForCaption(channel: LoaderChannel): string {
-  return channel === "image" ? "Image" : channel === "video" ? "Video" : "Audio"
-}
-
-function isChannelOutputEnabled(channel: LoaderChannel, item: MediaItem): boolean {
-  if (channel === "image") return item.kind === "image" && item.imageEnabled
-  if (channel === "video") return item.kind === "video" && item.videoEnabled
-  return isAudioItem(item) && item.audioEnabled
 }

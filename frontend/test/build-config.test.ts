@@ -23,7 +23,11 @@ describe("Bun build config", () => {
   })
 
   it("keeps ComfyUI runtime modules external and lets Bun emit CSS separately", () => {
-    expect(buildConfig.external).toEqual(["*/scripts/app.js", "*/scripts/api.js"])
+    expect(buildConfig.external).toEqual([
+      "*/scripts/app.js",
+      "*/scripts/api.js",
+      "*/scripts/changeTracker.js",
+    ])
     expect("loader" in buildConfig).toBe(false)
   })
 })

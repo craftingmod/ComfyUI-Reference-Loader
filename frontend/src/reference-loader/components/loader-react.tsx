@@ -22,6 +22,7 @@ import {
   type LoaderViewChannel,
   type LoaderViewSnapshot,
 } from "../view-model.ts"
+import { H3WorkspaceReact, type H3WorkspaceActions } from "./h3-workspace-react.tsx"
 
 const DRAG_MIME = "application/x-reference-loader-item"
 const MEDIA_EXTENSIONS = {
@@ -30,7 +31,7 @@ const MEDIA_EXTENSIONS = {
   video: new Set(["mp4", "mkv", "webm", "mov", "avi"]),
 } as const
 
-export interface LoaderReactActions {
+export interface LoaderReactActions extends H3WorkspaceActions {
   addFiles(files: readonly File[], replaceId?: string): Promise<boolean>
   saveSnapshot(): void
   loadSnapshot(file: File): Promise<void>
@@ -95,17 +96,17 @@ function mediaKind(file: File): LoaderViewChannel | undefined {
   return undefined
 }
 
-function hasFilePayload(dataTransfer: DataTransfer | null): boolean {
+export function hasFilePayload(dataTransfer: DataTransfer | null): boolean {
   return Boolean(
     dataTransfer && (dataTransfer.files.length > 0 || [...dataTransfer.types].includes("Files")),
   )
 }
 
-function transferFiles(dataTransfer: DataTransfer | null): File[] {
+export function transferFiles(dataTransfer: DataTransfer | null): File[] {
   return dataTransfer ? [...dataTransfer.files] : []
 }
 
-function mediaDropKinds(dataTransfer: DataTransfer | null): LoaderViewChannel[] {
+export function mediaDropKinds(dataTransfer: DataTransfer | null): LoaderViewChannel[] {
   if (!dataTransfer) return []
   const kinds = new Set<LoaderViewChannel>()
   for (const file of dataTransfer.files) {
@@ -121,7 +122,7 @@ function mediaDropKinds(dataTransfer: DataTransfer | null): LoaderViewChannel[] 
   return [...kinds]
 }
 
-function setFileDropFeedback(
+export function setFileDropFeedback(
   surface: HTMLElement,
   target: HTMLElement | undefined,
   kinds: readonly LoaderViewChannel[],
@@ -139,7 +140,7 @@ function setFileDropFeedback(
   surface.dataset.fileDropTarget = target.classList.contains("rl-card") ? "replace" : "add"
 }
 
-function clearFileDropFeedback(surface: HTMLElement): void {
+export function clearFileDropFeedback(surface: HTMLElement): void {
   setFileDropFeedback(surface, undefined, [])
 }
 
@@ -318,7 +319,15 @@ function LoaderToolbar({
   actions: LoaderReactActions
 }): ReactNode {
   const hasClearableState =
-    Object.keys(snapshot.state.items).length > 0 || snapshot.pending.length > 0
+    Object.keys(snapshot.state.items).length > 0 ||
+    snapshot.pending.length > 0 ||
+    Boolean(
+      snapshot.h3 &&
+      (snapshot.h3.timeline.enabled ||
+        snapshot.h3.timeline.startImageId ||
+        snapshot.h3.timeline.endImageId ||
+        snapshot.h3.timeline.guides.length > 0),
+    )
   const count = Object.keys(snapshot.state.items).length
   return (
     <div className="rl-media-topbar">
@@ -378,6 +387,20 @@ function LoaderToolbar({
         >
           Clear
         </button>
+        {snapshot.h3 ? (
+          <button
+            type="button"
+            data-action="toggle-h3-workspace"
+            aria-expanded={!snapshot.h3.collapsed}
+            title="Open H3 Guide Timeline"
+            onClick={(event) => {
+              stop(event)
+              actions.h3ToggleCollapsed()
+            }}
+          >
+            Timeline
+          </button>
+        ) : null}
         <SnapshotMenu actions={actions} />
       </section>
     </div>
@@ -452,7 +475,7 @@ function MediaCard({
       ? "is-drop-target"
       : "",
     card.error ? "has-error" : "",
-    card.outputEnabled ? "" : "is-output-disabled",
+    card.outputEnabled || card.guideEnabled ? "" : "is-output-disabled",
   ]
     .filter(Boolean)
     .join(" ")
@@ -529,7 +552,7 @@ function MediaCard({
       data-media-kind={card.kind}
       data-replace-index={card.replaceIndex}
       data-output-enabled={String(card.outputEnabled)}
-      data-guide-enabled="false"
+      data-guide-enabled={String(card.guideEnabled)}
       tabIndex={0}
       draggable
       aria-selected={card.selected}
@@ -581,6 +604,18 @@ function MediaCard({
         <LoadingState card={card} />
       </div>
       <div className="rl-card__body">
+        {card.guideLabels.length > 0 ? (
+          <div className="rl-h3-card-badges" aria-label="Guide roles">
+            {card.guideLabels.map((label) => (
+              <span
+                key={label}
+                className={`rl-h3-card-badge${label.startsWith("Ref #") ? " is-reference" : label.startsWith("Guide #") ? " is-guide" : label === "Guide off" || label === "Paused" ? " is-paused" : label === "Start" || label === "End" || /^\d+f$/.test(label) ? " is-order" : " is-guide"}`}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        ) : null}
         {showCaptions ? (
           <textarea
             data-field="caption"
@@ -655,6 +690,30 @@ function MediaCard({
               A
             </button>
           ) : null}
+          {card.guideAvailable && card.guideChannel ? (
+            <button
+              type="button"
+              data-action="toggle-h3-guide"
+              data-id={card.id}
+              data-h3-channel={card.guideChannel}
+              className={`rl-output-button rl-guide-button${card.guideEnabled ? " is-on" : ""}`}
+              aria-label="Toggle Guide usage"
+              aria-pressed={card.guideEnabled}
+              title={
+                card.guideEnabled
+                  ? "Disable Guide usage for this media"
+                  : card.guideConfigured
+                    ? "Enable saved Guide placements for this media"
+                    : "Enable Guide usage and choose a frame"
+              }
+              onClick={(event) => {
+                stop(event)
+                actions.h3ToggleGuide(card.id, card.guideChannel!)
+              }}
+            >
+              G
+            </button>
+          ) : null}
           {card.channel === "video" && card.kind === "video" ? (
             <button
               type="button"
@@ -720,6 +779,27 @@ function MediaCard({
             →
           </button>
           <span className="rl-edit-actions">
+            {card.guideAvailable && card.guideChannel ? (
+              <button
+                type="button"
+                className="rl-edit-button rl-edit-button--guide"
+                data-action="edit-h3-guide"
+                data-id={card.id}
+                data-h3-channel={card.guideChannel}
+                aria-label="Edit Guide placements"
+                title="Edit Guide placements"
+                onClick={(event) => {
+                  stop(event)
+                  actions.h3OpenMedia(card.guideMediaId ?? card.id, card.guideChannel!)
+                }}
+              >
+                <span aria-hidden="true">G</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M4 20h4L19 9l-4-4L4 16v4Z" />
+                  <path d="m13.5 6.5 4 4" />
+                </svg>
+              </button>
+            ) : null}
             <button
               type="button"
               className="rl-edit-button"
@@ -1239,7 +1319,7 @@ function ReferenceLoaderReactRoot({
       {mode === "single-image" ? (
         <SingleImagePanel snapshot={snapshot} actions={actions} surface={surface} />
       ) : (
-        <>
+        <div data-loader-content="">
           <LoaderToolbar snapshot={snapshot} actions={actions} />
           <p className="rl-status" role="status">
             {snapshot.status}
@@ -1257,7 +1337,8 @@ function ReferenceLoaderReactRoot({
               />
             ))}
           </div>
-        </>
+          <H3WorkspaceReact snapshot={snapshot} actions={actions} />
+        </div>
       )}
     </div>
   )

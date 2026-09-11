@@ -311,7 +311,7 @@ function sanitizeH3Timeline(
         !STABLE_ID_RE.test(id) ||
         seen.has(id) ||
         typeof frameIndex !== "number" ||
-        !Number.isInteger(frameIndex) ||
+        !Number.isSafeInteger(frameIndex) ||
         frameIndex < 0
       ) {
         issues.push(`${path} was discarded because its ID or frameIndex is invalid.`)

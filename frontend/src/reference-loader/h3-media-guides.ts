@@ -211,7 +211,7 @@ export function validateH3Timeline(
     const label = `Guide ${index + 1}`
     if (!guide.id || seenIds.has(guide.id)) issues.push(`${label} has a duplicate or empty ID.`)
     seenIds.add(guide.id)
-    if (!Number.isInteger(guide.frameIndex) || guide.frameIndex < 0)
+    if (!Number.isSafeInteger(guide.frameIndex) || guide.frameIndex < 0)
       issues.push(`${label} frame must be a non-negative integer.`)
     if (guide.visualId === null && guide.audioId === null && !options.allowIncomplete)
       issues.push(`${label} needs a visual or audio source.`)

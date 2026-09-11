@@ -713,6 +713,10 @@ export class ReferencePromptController {
     }))
   }
 
+  get hasShotDraft(): boolean {
+    return this.#v6ShotDraft !== undefined
+  }
+
   subscribeShots(listener: () => void): () => void {
     if (this.#destroyed) return () => undefined
     this.#shotListeners.add(listener)

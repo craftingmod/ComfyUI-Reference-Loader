@@ -194,13 +194,13 @@ describe("Reference Loader custom widget", () => {
     expect(valueSetCount).toBe(0)
     expect(domOptions?.getMinHeight?.()).toBe(360)
     expect(domOptions?.getMaxHeight?.()).toBe(360)
-    const channels = loaderRoot?.querySelector(".rl-channels")
-    expect(channels).toBeDefined()
-    Object.defineProperty(channels as HTMLElement, "offsetTop", {
+    const content = loaderRoot?.querySelector("[data-loader-content]")
+    expect(content).toBeDefined()
+    Object.defineProperty(content as HTMLElement, "offsetTop", {
       configurable: true,
       value: 91,
     })
-    Object.defineProperty(channels as HTMLElement, "offsetHeight", {
+    Object.defineProperty(content as HTMLElement, "offsetHeight", {
       configurable: true,
       value: 620,
     })

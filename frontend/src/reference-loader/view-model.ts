@@ -1,5 +1,18 @@
+import {
+  canUseAsH3Guide,
+  mediaGuideEnabled,
+  mediaHasGuide,
+  timelineMediaId,
+  type H3GuideChannel,
+} from "./h3-media-guides.ts"
 import type { PromptReference } from "./prompt-v6.ts"
-import { isAudioItem, type ItemRuntime, type LoaderState, type MediaItem } from "./types.ts"
+import {
+  isAudioItem,
+  type H3TimelineState,
+  type ItemRuntime,
+  type LoaderState,
+  type MediaItem,
+} from "./types.ts"
 import { isSilentWaveform } from "./waveform.ts"
 
 export type LoaderViewChannel = "image" | "video" | "audio"
@@ -20,6 +33,38 @@ export interface PendingUploadView {
   filename: string
 }
 
+export type H3Selection =
+  | { kind: "source"; mediaId: string; channel: H3GuideChannel }
+  | { kind: "guide"; guideId: string; channel: H3GuideChannel }
+  | { kind: "start" | "end" }
+  | { kind: "shot"; tag: string }
+  | undefined
+
+export interface H3EditorView {
+  readonly mediaId: string | undefined
+  readonly channel: H3GuideChannel
+  readonly selectedGuideId: string | undefined
+  readonly timelineEdit: boolean
+  readonly recovery: boolean
+  readonly ownedGuideIds: readonly string[]
+}
+
+export interface H3WorkspaceView {
+  readonly collapsed: boolean
+  readonly selection: H3Selection
+  readonly editScope: "none" | "source" | "guide" | "shot"
+  readonly sessionId: number
+  readonly dirty: boolean
+  readonly canApply: boolean
+  readonly shotDirty: boolean
+  readonly shotCanApply: boolean
+  readonly issue: string | undefined
+  readonly draftError: string | undefined
+  readonly timeline: H3TimelineState
+  readonly editor: H3EditorView | undefined
+  readonly shots: readonly { tag: string; frameIndex: number }[]
+}
+
 export interface LoaderViewSnapshot {
   readonly state: LoaderState
   readonly display: LoaderDisplayState
@@ -30,6 +75,7 @@ export interface LoaderViewSnapshot {
   readonly deferPreviews: boolean
   readonly canUndo: boolean
   readonly canRedo: boolean
+  readonly h3: H3WorkspaceView | undefined
 }
 
 export interface LoaderViewInput {
@@ -42,6 +88,7 @@ export interface LoaderViewInput {
   deferPreviews?: boolean
   canUndo: boolean
   canRedo: boolean
+  h3?: H3WorkspaceView
 }
 
 export interface LoaderCardView {
@@ -69,6 +116,12 @@ export interface LoaderCardView {
   readonly playbackDuration: number | undefined
   readonly durationLabel: string
   readonly megapixelLabel: string
+  readonly guideChannel: H3GuideChannel | undefined
+  readonly guideMediaId: string | undefined
+  readonly guideAvailable: boolean
+  readonly guideConfigured: boolean
+  readonly guideEnabled: boolean
+  readonly guideLabels: readonly string[]
 }
 
 export interface LoaderChannelView {
@@ -146,6 +199,32 @@ function outputIndexFor(
   return item && channelOutputEnabled(channel, item) ? outputIndex : undefined
 }
 
+function guideIndexFor(
+  snapshot: LoaderViewSnapshot,
+  channel: LoaderViewChannel,
+  orderIndex: number,
+): number | undefined {
+  const order = channelOrder(snapshot.state, channel)
+  const guideChannel: H3GuideChannel = channel === "audio" ? "audio" : "visual"
+  let guideIndex = 0
+  for (let index = 0; index <= orderIndex; index += 1) {
+    const item = snapshot.state.items[order[index] ?? ""]
+    if (!item || !canUseAsH3Guide(item, guideChannel)) continue
+    const mediaId = timelineMediaId(item, guideChannel)
+    if (!mediaGuideEnabled(snapshot.state.h3Timeline, mediaId, guideChannel)) continue
+    guideIndex += 1
+  }
+  const item = snapshot.state.items[order[orderIndex] ?? ""]
+  if (!item || !canUseAsH3Guide(item, guideChannel)) return undefined
+  return mediaGuideEnabled(
+    snapshot.state.h3Timeline,
+    timelineMediaId(item, guideChannel),
+    guideChannel,
+  )
+    ? guideIndex
+    : undefined
+}
+
 function cardView(
   snapshot: LoaderViewSnapshot,
   channel: LoaderViewChannel,
@@ -171,13 +250,44 @@ function cardView(
       : item.caption
   const playbackDuration =
     item.kind === "image" ? undefined : (runtime?.metadata?.duration ?? item.crop?.end)
+  const outputIndex = outputIndexFor(snapshot.state, channel, orderIndex)
+  const guideChannel: H3GuideChannel = channel === "audio" ? "audio" : "visual"
+  const guideAvailable = canUseAsH3Guide(item, guideChannel)
+  const guideMediaId = guideAvailable ? timelineMediaId(item, guideChannel) : undefined
+  const guideConfigured = Boolean(
+    guideMediaId && mediaHasGuide(snapshot.state.h3Timeline, guideMediaId, guideChannel),
+  )
+  const guideEnabled = Boolean(
+    guideMediaId && mediaGuideEnabled(snapshot.state.h3Timeline, guideMediaId, guideChannel),
+  )
+  const guideLabels: string[] = outputIndex === undefined ? [] : [`Ref #${outputIndex}`]
+  const guideIndex = guideEnabled ? guideIndexFor(snapshot, channel, orderIndex) : undefined
+  if (guideIndex !== undefined) guideLabels.push(`Guide #${guideIndex}`)
+  if (guideAvailable && guideMediaId && guideEnabled) {
+    if (guideChannel === "visual" && snapshot.state.h3Timeline.startImageId === guideMediaId)
+      guideLabels.push("Start")
+    guideLabels.push(
+      ...snapshot.state.h3Timeline.guides
+        .filter((guide) =>
+          guideChannel === "visual"
+            ? guide.visualId === guideMediaId
+            : guide.audioId === guideMediaId,
+        )
+        .sort((left, right) => left.frameIndex - right.frameIndex)
+        .map((guide) => `${guide.frameIndex}f`),
+    )
+    if (guideChannel === "visual" && snapshot.state.h3Timeline.endImageId === guideMediaId)
+      guideLabels.push("End")
+  }
+  if (guideConfigured && !guideEnabled) guideLabels.push("Guide off")
+  else if (!snapshot.state.h3Timeline.enabled && guideLabels.length > 0) guideLabels.push("Paused")
   return {
     id,
     kind: item.kind,
     channel,
     replaceIndex: orderIndex + 1,
     sourceRevision: item.source.revision,
-    outputIndex: outputIndexFor(snapshot.state, channel, orderIndex),
+    outputIndex,
     filename: itemFilename(item),
     caption,
     selected: snapshot.selectedId === id,
@@ -196,6 +306,12 @@ function cardView(
     playbackDuration,
     durationLabel: durationLabel(item, runtime),
     megapixelLabel: megapixelLabel(item, runtime),
+    guideChannel: guideAvailable ? guideChannel : undefined,
+    guideMediaId,
+    guideAvailable,
+    guideConfigured,
+    guideEnabled,
+    guideLabels,
   }
 }
 
@@ -239,6 +355,7 @@ export function createLoaderViewSnapshot(input: LoaderViewInput): LoaderViewSnap
     deferPreviews: input.deferPreviews === true,
     canUndo: input.canUndo,
     canRedo: input.canRedo,
+    h3: input.h3,
   }
 }
 
@@ -286,6 +403,7 @@ export function sameLoaderViewSnapshot(
     previous.canRedo !== next.canRedo
   )
     return false
+  if (!sameH3WorkspaceView(previous.h3, next.h3)) return false
   const previousDisplay = previous.display
   const nextDisplay = next.display
   if (
@@ -307,6 +425,34 @@ export function sameLoaderViewSnapshot(
   return next.pending.every(
     ({ id, filename }, index) =>
       previous.pending[index]?.id === id && previous.pending[index]?.filename === filename,
+  )
+}
+
+function sameH3WorkspaceView(
+  previous: H3WorkspaceView | undefined,
+  next: H3WorkspaceView | undefined,
+): boolean {
+  if (!previous || !next) return previous === next
+  if (
+    previous.collapsed !== next.collapsed ||
+    previous.editScope !== next.editScope ||
+    previous.sessionId !== next.sessionId ||
+    previous.dirty !== next.dirty ||
+    previous.canApply !== next.canApply ||
+    previous.shotDirty !== next.shotDirty ||
+    previous.shotCanApply !== next.shotCanApply ||
+    previous.issue !== next.issue ||
+    previous.draftError !== next.draftError ||
+    JSON.stringify(previous.selection) !== JSON.stringify(next.selection) ||
+    JSON.stringify(previous.timeline) !== JSON.stringify(next.timeline) ||
+    JSON.stringify(previous.editor) !== JSON.stringify(next.editor)
+  )
+    return false
+  if (previous.shots.length !== next.shots.length) return false
+  return next.shots.every(
+    (shot, index) =>
+      previous.shots[index]?.tag === shot.tag &&
+      previous.shots[index]?.frameIndex === shot.frameIndex,
   )
 }
 

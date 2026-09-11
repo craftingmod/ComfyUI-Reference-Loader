@@ -46,41 +46,44 @@ function enter(input: HTMLInputElement, value: string) {
   })
 }
 
-describe("React Guide card boundary", () => {
-  test("retains containers, keyed fields, focus and form state across a board update", () => {
+function position(root: HTMLElement, value: "start" | "guide" | "end") {
+  const input = root.querySelector<HTMLInputElement>(
+    `[data-h3-add-field="position"][value="${value}"]`,
+  )
+  if (!input) throw new Error(`Missing Guide position ${value}.`)
+  input.click()
+  return input
+}
+
+describe("React Guide inspector boundary", () => {
+  test("retains the workspace, keyed fields, focus, and form state across a board update", () => {
     const { root, controller } = mount()
     const before = controller.serialize()
-    const media = root.querySelector("[data-h3-card-editor]")!
-    const footer = root.querySelector(".rl-card__body[data-h3-react-surface]")!
-    const guide = root.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')!
+    const workspace = root.querySelector<HTMLElement>("[data-h3-workspace]")!
+    const inspector = root.querySelector<HTMLElement>("[data-h3-inspector]")!
+    const guide = inspector.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')!
     const add = root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')!
-    const position = root.querySelector<HTMLSelectElement>('[data-h3-add-field="position"]')!
+
     enter(guide, "72")
     guide.dispatchEvent(new Event("change", { bubbles: true }))
     enter(add, "96")
-    flushSync(() => {
-      position.value = "start"
-      position.dispatchEvent(new Event("change", { bubbles: true }))
-    })
-    position.focus()
+    position(root, "start").focus()
 
     // Shot updates use the same full-board render path as external controller changes.
     controller.setPromptShots([{ tag: "shot", frameIndex: 120 }])
-    expect(root.querySelector("[data-h3-card-editor]")).toBe(media)
-    expect(root.querySelector(".rl-card__body[data-h3-react-surface]")).toBe(footer)
-    expect(root.querySelector('[data-h3-draft-field="frame"]')).toBe(guide)
+    expect(root.querySelector<HTMLElement>("[data-h3-workspace]")).toBe(workspace)
+    expect(root.querySelector<HTMLElement>("[data-h3-inspector]")).toBe(inspector)
+    expect(inspector.querySelector('[data-h3-draft-field="frame"]')).toBe(guide)
     expect(root.querySelector('[data-h3-add-field="frame"]')).toBe(add)
     expect(guide.value).toBe("72")
     expect(add.value).toBe("96")
-    expect(position.value).toBe("start")
-    expect(document.activeElement).toBe(position)
+    expect(document.activeElement).toBe(
+      root.querySelector('[data-h3-add-field="position"][value="start"]'),
+    )
     expect(add.disabled).toBe(true)
     expect(controller.serialize()).toBe(before)
 
-    flushSync(() => {
-      position.value = "guide"
-      position.dispatchEvent(new Event("change", { bubbles: true }))
-    })
+    position(root, "guide")
     expect(add.disabled).toBe(false)
     expect(root.querySelector("[data-h3-add-seconds]")?.textContent).toBe("(4.00s)")
     root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')!.click()
@@ -90,29 +93,31 @@ describe("React Guide card boundary", () => {
     expect(controller.serialize()).toBe(before)
   })
 
-  test("isolates node instances and cleans up roots and native commit listeners on session end", () => {
+  test("isolates node instances and cleans up the permanent roots on restore and destroy", () => {
     const first = mount()
     const second = mount()
-    const media = first.root.querySelector("[data-h3-card-editor]")!
-    const footer = first.root.querySelector(".rl-card__body[data-h3-react-surface]")!
-    const frame = first.root.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')!
+    const firstSurface = first.root.querySelector<HTMLElement>("[data-loader-react-surface]")!
+    const secondSurface = second.root.querySelector<HTMLElement>("[data-loader-react-surface]")!
+    const firstInspector = first.root.querySelector<HTMLElement>("[data-h3-inspector]")!
+    const frame = firstInspector.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')!
     const secondFrame = second.root.querySelector<HTMLInputElement>(
-      '[data-h3-draft-field="frame"]',
+      '[data-h3-inspector] [data-h3-draft-field="frame"]',
     )!
     expect(frame.getAttribute("aria-describedby")).not.toBe(
       secondFrame.getAttribute("aria-describedby"),
     )
+
     const add = first.root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')!
     enter(add, "144")
+    enter(frame, "72")
     expect(second.root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')!.value).toBe(
       "",
     )
     first.root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')!.click()
-    expect(media.childNodes.length).toBe(0)
-    expect(footer.childNodes.length).toBe(0)
+    expect(first.root.querySelector("[data-h3-inspector][data-h3-editor]")).toBeNull()
 
     first.open()
-    expect(first.root.querySelector("[data-h3-card-editor]")).not.toBe(media)
+    expect(first.root.querySelector<HTMLElement>("[data-loader-react-surface]")).toBe(firstSurface)
     expect(first.root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')!.value).toBe(
       "",
     )
@@ -122,13 +127,14 @@ describe("React Guide card boundary", () => {
       "48",
     )
 
-    const restoredMedia = first.root.querySelector("[data-h3-card-editor]")!
     first.controller.restore(first.controller.serialize())
-    expect(restoredMedia.childNodes.length).toBe(0)
-    expect(first.root.querySelector("[data-h3-react-surface]")).toBeNull()
-    const secondMedia = second.root.querySelector("[data-h3-card-editor]")!
+    expect(first.root.querySelector<HTMLElement>("[data-loader-react-surface]")).toBe(firstSurface)
+    expect(first.root.querySelector("[data-h3-inspector][data-h3-editor]")).toBeNull()
+
     second.controller.destroy()
-    expect(secondMedia.childNodes.length).toBe(0)
     expect(second.root.childNodes.length).toBe(0)
+    expect(secondSurface.isConnected).toBe(false)
+    first.controller.destroy()
+    expect(first.root.childNodes.length).toBe(0)
   })
 })

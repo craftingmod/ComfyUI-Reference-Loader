@@ -1,5 +1,14 @@
+import { createElement } from "react"
+import { flushSync } from "react-dom"
+import { createRoot, type Root } from "react-dom/client"
+
 import { LocalHistory } from "../history.ts"
 import type { ImageEditRecipe, ImageItem, NormalizedCrop } from "../types.ts"
+import {
+  ImageEditorDialog,
+  type ImageEditorReactOptions,
+  type ImageEditorReactRefs,
+} from "./image-editor-react.tsx"
 
 export type MaskBrushTool = "erase" | "restore"
 export type CropHandle = "north-west" | "north-east" | "south-west" | "south-east"
@@ -204,20 +213,6 @@ function clamp(value: number, minimum: number, maximum: number): number {
 function cssPercentage(value: number): string {
   const percentage = Math.abs(value) < 1e-10 ? 0 : value * 100
   return `${percentage}%`
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(
-    /[&<>'"]/g,
-    (character) =>
-      ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        "'": "&#39;",
-        '"': "&quot;",
-      })[character] ?? character,
-  )
 }
 
 function filename(path: string): string {
@@ -592,71 +587,37 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     const dialog = document.createElement("dialog")
     const captionLabel = options.captionLabel ?? "Caption"
     const captionPlaceholder = options.captionPlaceholder ?? captionLabel
-    const captionField =
-      options.showCaption === false
-        ? ""
-        : `<label class="rl-modal__caption">${escapeHtml(captionLabel)}<textarea data-field="caption" data-capture-wheel="true" rows="2" maxlength="16384" placeholder="${escapeHtml(captionPlaceholder)}">${escapeHtml(options.item.caption)}</textarea></label>`
-    const mediaColumnClass = `rl-editor-media-column${options.showCaption === false ? " is-captionless" : ""}`
     dialog.className = "rl-modal rl-image-editor"
     dialog.setAttribute("aria-label", "Image reference editor")
-    dialog.innerHTML = `
-      <form method="dialog" class="rl-modal__panel">
-        <header><div><strong>Image editor</strong><small>Crop, mask, flip, and background changes are non-destructive.</small><small class="rl-modal__filename" title="${escapeHtml(options.item.source.path)}">File: ${escapeHtml(options.item.sourceFilename || filename(options.item.source.path))}</small></div><button type="button" data-action="cancel" aria-label="Close">×</button></header>
-        <div class="rl-editor-layout">
-          <div class="${mediaColumnClass}">
-            <div class="rl-editor-preview"><div class="rl-editor-stage"><div class="rl-editor-visual"><img alt="Selected reference preview"><canvas aria-label="Editable keep mask"></canvas></div><div class="rl-crop-overlay" aria-label="Crop viewport; drag inside to move the crop, drag outside or use Ctrl-drag to pan, and use the mouse wheel to zoom"><button type="button" data-crop-handle="north-west" aria-label="Resize crop from top left"></button><button type="button" data-crop-handle="north-east" aria-label="Resize crop from top right"></button><button type="button" data-crop-handle="south-west" aria-label="Resize crop from bottom left"></button><button type="button" data-crop-handle="south-east" aria-label="Resize crop from bottom right"></button></div><div class="rl-mask-brush-preview" data-mask-tool="erase" aria-hidden="true" hidden></div></div></div>
-            ${captionField}
-          </div>
-          <div class="rl-editor-controls">
-            <fieldset class="rl-interaction-modes"><legend>Interaction</legend>
-              <button type="button" data-action="mode-view" aria-pressed="true">View</button>
-              <button type="button" data-action="mode-crop" aria-pressed="false">Crop</button>
-              <button type="button" data-action="mode-mask" aria-pressed="false">Mask</button>
-            </fieldset>
-            <fieldset class="rl-viewport-values" hidden aria-hidden="true"><legend>Viewport</legend>
-              <label>Zoom <input data-field="zoom" type="range" min="1" max="3" step="0.05"></label>
-              <label>Pan X <input data-field="pan-x" type="range" min="-100" max="100" step="1"></label>
-              <label>Pan Y <input data-field="pan-y" type="range" min="-100" max="100" step="1"></label>
-            </fieldset>
-            <fieldset><legend>Crop in source pixels <span data-crop-dimensions></span></legend>
-              <label class="rl-control-wide">Aspect ratio<select data-field="crop-aspect"><option value="custom">Custom</option><option value="original">Original</option><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="3:4">3:4</option><option value="3:2">3:2</option><option value="2:3">2:3</option><option value="16:9">16:9</option><option value="9:16">9:16</option></select></label>
-              <label>X <input data-field="x" type="number" min="0" step="1" inputmode="numeric"></label>
-              <label>Y <input data-field="y" type="number" min="0" step="1" inputmode="numeric"></label>
-              <label>Width <input data-field="width" type="number" min="1" step="1" inputmode="numeric"></label>
-              <label>Height <input data-field="height" type="number" min="1" step="1" inputmode="numeric"></label>
-            </fieldset>
-            <fieldset><legend>Keep mask</legend>
-              <button type="button" data-action="erase" aria-pressed="true">Erase</button>
-              <button type="button" data-action="restore" aria-pressed="false">Restore</button>
-              <label>Brush size <input data-field="brush-size" type="range" min="4" max="200" step="1"></label>
-              <label>Opacity <input data-field="brush-opacity" type="range" min="0.05" max="1" step="0.05"></label>
-              <button type="button" class="rl-control-wide" data-action="invert-mask">Invert mask</button>
-            </fieldset>
-            <fieldset><legend>Transform</legend>
-              <button type="button" data-action="flip-x">Flip horizontal</button>
-              <button type="button" data-action="flip-y">Flip vertical</button>
-            </fieldset>
-            <fieldset><legend>Background</legend>
-              <button type="button" class="rl-control-wide" data-action="remove-background" aria-pressed="false">Remove background (rembg)</button>
-              <small class="rl-editor-note" data-background-status>Optional server dependency. Click to generate a preview; the first run may download a model.</small>
-              <select data-field="background-mode"><option value="transparent">Transparent</option><option value="solid">Solid color</option></select>
-              <input data-field="background-color" type="color" aria-label="Background color">
-            </fieldset>
-            <div class="rl-editor-history"><button type="button" data-action="undo">Undo</button><button type="button" data-action="redo">Redo</button><button type="button" data-action="reset-view">Reset view</button></div>
-            <p class="rl-modal__error" role="alert" hidden></p>
-            <footer class="rl-image-editor-actions"><button type="button" class="rl-restore-original" data-action="restore-original"${isMaterializedEdit(options.item) ? "" : " hidden"}>Restore original</button><button type="button" data-action="cancel">Cancel</button><button type="button" class="rl-button rl-button--primary rl-primary" data-action="apply">Apply</button></footer>
-          </div>
-        </div>
-      </form>`
-
-    const image = dialog.querySelector<HTMLImageElement>("img")
-    const stage = dialog.querySelector<HTMLElement>(".rl-editor-stage")
-    const visual = dialog.querySelector<HTMLElement>(".rl-editor-visual")
-    const maskCanvas = dialog.querySelector<HTMLCanvasElement>("canvas")
-    const cropOverlay = dialog.querySelector<HTMLElement>(".rl-crop-overlay")
-    const maskBrushPreview = dialog.querySelector<HTMLElement>(".rl-mask-brush-preview")
     // At most ~20 MiB of 512px RGBA mask snapshots, plus lightweight recipe references.
     const history = new LocalHistory(createInitialImageDraft(options.item), 20)
+    let refs: ImageEditorReactRefs | undefined
+    let root: Root | undefined
+    const reactOptions: ImageEditorReactOptions = {
+      filename: options.item.sourceFilename || filename(options.item.source.path),
+      sourcePath: options.item.source.path,
+      caption: options.item.caption,
+      captionLabel,
+      captionPlaceholder,
+      showCaption: options.showCaption !== false,
+      materialized: isMaterializedEdit(options.item),
+      initialDraft: history.value,
+      onAction: (action) => handleAction(action),
+      onInput: (field, value) => handleInput(field, value),
+      onChange: (field, value) => handleChange(field, value),
+      onReady(nextRefs) {
+        refs = nextRefs
+      },
+    }
+    document.body.append(dialog)
+    root = createRoot(dialog)
+    flushSync(() => root?.render(createElement(ImageEditorDialog, { options: reactOptions })))
+    const image = refs?.image
+    const stage = refs?.stage
+    const visual = refs?.visual
+    const maskCanvas = refs?.maskCanvas
+    const cropOverlay = refs?.cropOverlay
+    const maskBrushPreview = refs?.maskBrushPreview
     let settled = false
     let canvasReady = false
     let resolvedImageWidth = options.imageWidth
@@ -675,7 +636,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     let altMaskTool = false
 
     const getInput = (field: string): HTMLInputElement | HTMLSelectElement | null =>
-      dialog.querySelector(`[data-field="${field}"]`)
+      refs?.fields[field] ?? null
 
     const initializeCanvas = (): void => {
       if (!maskCanvas || !image) return
@@ -775,7 +736,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         cropAspect.value = draft.cropAspect
         cropAspect.disabled = interactionMode !== "crop"
       }
-      const cropDimensions = dialog.querySelector<HTMLElement>("[data-crop-dimensions]")
+      const cropDimensions = refs?.cropDimensions
       if (cropDimensions) cropDimensions.textContent = `(${sourceWidth} × ${sourceHeight})`
       for (const [field, value] of [
         ["zoom", draft.zoom],
@@ -811,29 +772,21 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         color.value = draft.backgroundColor
         color.toggleAttribute("disabled", draft.backgroundMode !== "solid")
       }
-      dialog
-        .querySelector<HTMLButtonElement>('[data-action="erase"]')
-        ?.setAttribute("aria-pressed", String(draft.tool === "erase"))
-      dialog
-        .querySelector<HTMLButtonElement>('[data-action="restore"]')
-        ?.setAttribute("aria-pressed", String(draft.tool === "restore"))
-      dialog
-        .querySelector<HTMLButtonElement>('[data-action="mode-view"]')
-        ?.setAttribute("aria-pressed", String(interactionMode === "view"))
-      dialog
-        .querySelector<HTMLButtonElement>('[data-action="mode-crop"]')
-        ?.setAttribute("aria-pressed", String(interactionMode === "crop"))
-      dialog
-        .querySelector<HTMLButtonElement>('[data-action="mode-mask"]')
-        ?.setAttribute("aria-pressed", String(interactionMode === "mask"))
-      for (const control of dialog.querySelectorAll<HTMLInputElement | HTMLButtonElement>(
-        '[data-action="erase"], [data-action="restore"], [data-action="invert-mask"], [data-field="brush-size"], [data-field="brush-opacity"]',
-      )) {
-        control.disabled = interactionMode !== "mask"
+      refs?.erase.setAttribute("aria-pressed", String(draft.tool === "erase"))
+      refs?.restore.setAttribute("aria-pressed", String(draft.tool === "restore"))
+      refs?.modeView.setAttribute("aria-pressed", String(interactionMode === "view"))
+      refs?.modeCrop.setAttribute("aria-pressed", String(interactionMode === "crop"))
+      refs?.modeMask.setAttribute("aria-pressed", String(interactionMode === "mask"))
+      for (const control of [
+        refs?.erase,
+        refs?.restore,
+        refs?.invertMask,
+        getInput("brush-size"),
+        getInput("brush-opacity"),
+      ]) {
+        if (control) control.disabled = interactionMode !== "mask"
       }
-      const removeBackground = dialog.querySelector<HTMLButtonElement>(
-        '[data-action="remove-background"]',
-      )
+      const removeBackground = refs?.removeBackground
       if (removeBackground) {
         removeBackground.setAttribute("aria-pressed", String(draft.removeBackground))
         removeBackground.setAttribute("aria-busy", String(backgroundPreviewLoading))
@@ -843,7 +796,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
             ? "Background removed (previewed)"
             : "Remove background (rembg)"
       }
-      const backgroundStatus = dialog.querySelector<HTMLElement>("[data-background-status]")
+      const backgroundStatus = refs?.backgroundStatus
       if (backgroundStatus) {
         backgroundStatus.textContent = backgroundPreviewLoading
           ? "Generating a full-resolution foreground preview…"
@@ -908,18 +861,16 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         cropOverlay.style.top = cssPercentage(cropFrame.y)
         cropOverlay.style.width = cssPercentage(cropFrame.width)
         cropOverlay.style.height = cssPercentage(cropFrame.height)
-        for (const handle of cropOverlay.querySelectorAll<HTMLButtonElement>(
-          "[data-crop-handle]",
-        )) {
+        for (const handle of refs?.cropHandles ?? []) {
           const cropHandle = handle.dataset.cropHandle as CropHandle
           const visible = !clippedSelection || isCropHandleVisible(cropFrame, cropHandle)
           handle.hidden = interactionMode !== "crop" || !cropFocused || !visible
           handle.disabled = !canvasReady || interactionMode !== "crop" || !cropFocused || !visible
         }
       }
-      const undo = dialog.querySelector<HTMLButtonElement>('[data-action="undo"]')
-      const redo = dialog.querySelector<HTMLButtonElement>('[data-action="redo"]')
-      const apply = dialog.querySelector<HTMLButtonElement>('[data-action="apply"]')
+      const undo = refs?.undo
+      const redo = refs?.redo
+      const apply = refs?.apply
       if (undo) undo.disabled = !history.canUndo
       if (redo) redo.disabled = !history.canRedo
       if (apply)
@@ -955,13 +906,14 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       globalThis.removeEventListener("keyup", onMaskModifierKeyUp, true)
       globalThis.removeEventListener("blur", onWindowBlur)
       options.signal?.removeEventListener("abort", onAbort)
+      root?.unmount()
       dialog.remove()
       resolve(value)
     }
     const onAbort = (): void => finish(null)
 
     const showError = (error: unknown): void => {
-      const message = dialog.querySelector<HTMLElement>(".rl-modal__error")
+      const message = refs?.error
       if (!message) return
       message.hidden = false
       message.textContent =
@@ -969,7 +921,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     }
 
     const clearError = (): void => {
-      const message = dialog.querySelector<HTMLElement>(".rl-modal__error")
+      const message = refs?.error
       if (message) message.hidden = true
     }
 
@@ -1403,21 +1355,11 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       { passive: false },
     )
 
-    dialog.addEventListener("click", (event) => {
-      if (event.target === dialog) {
-        if (!history.canUndo && !history.canRedo) finish(null)
-        return
-      }
-      const button = (event.target as Element).closest<HTMLButtonElement>("button[data-action]")
-      if (!button) return
-      const action = button.dataset.action
+    function handleAction(action: string): void {
       const draft = history.value
       if (action === "cancel") finish(null)
       else if (action === "restore-original") {
-        const caption =
-          dialog
-            .querySelector<HTMLTextAreaElement>('textarea[data-field="caption"]')
-            ?.value.slice(0, 16_384) ?? options.item.caption
+        const caption = refs?.caption?.value.slice(0, 16_384) ?? options.item.caption
         finish({ action: "restore-original", caption })
       } else if (action === "mode-view" || action === "mode-crop" || action === "mode-mask") {
         const interactionMode: ImageEditorInteractionMode =
@@ -1484,7 +1426,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         if (cropSelection === "clipped") cropSelection = cropSelectionModeForFrame(next.cropFrame)
         render()
       } else if (action === "apply") {
-        button.disabled = true
+        if (refs?.apply) refs.apply.disabled = true
         void (async () => {
           try {
             const edit = recipeFromDraft(options.item, history.value)
@@ -1492,54 +1434,41 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
               history.value.maskTouched && maskCanvas
                 ? await canvasFile(maskCanvas, `${options.item.id}-mask.png`)
                 : undefined
-            const caption =
-              dialog
-                .querySelector<HTMLTextAreaElement>('textarea[data-field="caption"]')
-                ?.value.slice(0, 16_384) ?? options.item.caption
+            const caption = refs?.caption?.value.slice(0, 16_384) ?? options.item.caption
             finish({ action: "apply", edit, caption, ...(maskFile ? { maskFile } : {}) })
           } catch (error) {
-            button.disabled = false
+            if (refs?.apply) refs.apply.disabled = false
             showError(error instanceof Error ? error : new Error("The mask could not be prepared."))
           }
         })()
       }
+    }
+
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog && !history.canUndo && !history.canRedo) finish(null)
     })
 
-    dialog.addEventListener("input", (event) => {
-      const target = event.target
-      if (!(target instanceof HTMLInputElement)) return
-      const value = Number(target.value)
+    function handleInput(field: string, value: number): void {
       if (!Number.isFinite(value)) return
       const draft = history.value
       const updateViewport = (next: ImageEditorDraft): void => {
         if (draft.interactionMode === "view") history.replace(next)
         else history.commit(next)
       }
-      if (target.dataset.field === "zoom")
-        updateViewport(withViewport(draft, { zoom: clamp(value, 1, 3) }))
-      else if (target.dataset.field === "pan-x")
-        updateViewport(withViewport(draft, { panX: value }))
-      else if (target.dataset.field === "pan-y")
-        updateViewport(withViewport(draft, { panY: value }))
-      else if (target.dataset.field === "brush-size")
-        history.commit({ ...draft, brushSize: clamp(value, 4, 200) })
-      else if (target.dataset.field === "brush-opacity")
+      if (field === "zoom") updateViewport(withViewport(draft, { zoom: clamp(value, 1, 3) }))
+      else if (field === "pan-x") updateViewport(withViewport(draft, { panX: value }))
+      else if (field === "pan-y") updateViewport(withViewport(draft, { panY: value }))
+      else if (field === "brush-size") history.commit({ ...draft, brushSize: clamp(value, 4, 200) })
+      else if (field === "brush-opacity")
         history.commit({ ...draft, brushOpacity: clamp(value, 0.05, 1) })
       else return
       render()
-    })
+    }
 
-    dialog.addEventListener("change", (event) => {
-      const target = event.target
-      if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return
-      const field = target.dataset.field
+    function handleChange(field: string, value: string): void {
       const draft = history.value
-      if (
-        field === "crop-aspect" &&
-        target instanceof HTMLSelectElement &&
-        isCropAspectPreset(target.value)
-      ) {
-        const cropAspect = target.value
+      if (field === "crop-aspect" && isCropAspectPreset(value)) {
+        const cropAspect = value
         const aspectRatio = cropAspectRatioValue(cropAspect, sourceWidth, sourceHeight)
         const crop =
           aspectRatio === undefined
@@ -1554,15 +1483,12 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         cropSelection === "clipped"
       ) {
         cropSelection = cropSelectionModeForFrame(draft.cropFrame)
-      } else if (
-        field === "background-mode" &&
-        (target.value === "solid" || target.value === "transparent")
-      ) {
-        history.commit({ ...draft, backgroundMode: target.value })
-      } else if (field === "background-color" && /^#[\da-f]{6}$/i.test(target.value)) {
-        history.commit({ ...draft, backgroundColor: target.value })
+      } else if (field === "background-mode" && (value === "solid" || value === "transparent")) {
+        history.commit({ ...draft, backgroundMode: value })
+      } else if (field === "background-color" && /^#[\da-f]{6}$/i.test(value)) {
+        history.commit({ ...draft, backgroundColor: value })
       } else if (field === "x" || field === "y" || field === "width" || field === "height") {
-        const number = Number(target.value)
+        const number = Number(value)
         if (!Number.isFinite(number)) return
         const pixelCrop = normalizedCropToPixels(draft.crop, sourceWidth, sourceHeight)
         const aspectRatio = cropAspectRatioValue(draft.cropAspect, sourceWidth, sourceHeight)
@@ -1578,7 +1504,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         history.commit({ ...draft, crop, cropFrame: frameFromCrop(draft, crop) })
       }
       render()
-    })
+    }
     dialog.addEventListener("cancel", (event) => {
       event.preventDefault()
       finish(null)
@@ -1598,7 +1524,6 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     } else {
       initializeCanvas()
     }
-    document.body.append(dialog)
     render()
     if (
       options.imageMetadata &&
@@ -1619,5 +1544,6 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     if (history.value.removeBackground) ensureBackgroundPreview()
     if (typeof dialog.showModal === "function") dialog.showModal()
     else dialog.setAttribute("open", "")
+    if (options.signal?.aborted) finish(null)
   })
 }

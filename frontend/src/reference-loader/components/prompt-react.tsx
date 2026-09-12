@@ -5,7 +5,7 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
-  type FormEvent,
+  type InputEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type Ref,
   type ReactNode,
@@ -369,7 +369,7 @@ function PromptSectionEntry({
   ariaLabel: string
 }): ReactNode {
   const [value, setValue] = useState("")
-  const handleInput = (event: FormEvent<HTMLInputElement>): void => {
+  const handleInput = (event: InputEvent<HTMLInputElement>): void => {
     const nativeEvent = event.nativeEvent as Event & Partial<PromptEditorInput>
     const input =
       typeof nativeEvent.inputType === "string" || nativeEvent.data !== undefined

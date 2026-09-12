@@ -1708,3 +1708,64 @@ describe("trim editor details", () => {
     expect(await result).toBeNull()
   })
 })
+
+describe("React editor shell lifecycle", () => {
+  test("keeps editor islands outside the loader root and cleans them on abort", async () => {
+    const loaderRoot = document.createElement("div")
+    loaderRoot.dataset.loaderReactSurface = ""
+    document.body.append(loaderRoot)
+    const imageAbort = new AbortController()
+    const imageResult = openImageEditor({
+      item: {
+        id: "react-island",
+        kind: "image",
+        source: {
+          path: "reference_loader/sources/island.png",
+          mime: "image/png",
+          sha256: "a".repeat(64),
+        },
+        originalSource: {
+          path: "reference_loader/sources/island.png",
+          mime: "image/png",
+          sha256: "a".repeat(64),
+        },
+        caption: "island",
+        imageEnabled: true,
+      },
+      imageWidth: 100,
+      imageHeight: 100,
+      signal: imageAbort.signal,
+    })
+    const imageDialog = document.querySelector<HTMLDialogElement>(".rl-image-editor")
+    const imageCanvas = imageDialog?.querySelector("canvas")
+    expect(imageDialog?.parentElement).toBe(document.body)
+    expect(loaderRoot.contains(imageDialog)).toBe(false)
+    document.querySelector<HTMLButtonElement>('.rl-image-editor [data-action="mode-crop"]')?.click()
+    expect(imageDialog?.querySelector("canvas")).toBe(imageCanvas)
+    imageAbort.abort()
+    expect(await imageResult).toBeNull()
+    expect(imageDialog?.isConnected).toBe(false)
+
+    const trimAbort = new AbortController()
+    const trimResult = openTrimEditor({
+      kind: "audio",
+      filename: "island.wav",
+      duration: 2,
+      caption: "island",
+      waveform: [[0, 1]],
+      signal: trimAbort.signal,
+    })
+    const trimDialog = document.querySelector<HTMLDialogElement>(".rl-trim-editor")
+    const trimCanvas = trimDialog?.querySelector("canvas")
+    expect(trimDialog?.parentElement).toBe(document.body)
+    expect(loaderRoot.contains(trimDialog)).toBe(false)
+    document
+      .querySelector<HTMLInputElement>('.rl-trim-editor [data-field="range-start"]')
+      ?.dispatchEvent(new Event("input", { bubbles: true }))
+    expect(trimDialog?.querySelector("canvas")).toBe(trimCanvas)
+    trimAbort.abort()
+    expect(await trimResult).toBeNull()
+    expect(trimDialog?.isConnected).toBe(false)
+    loaderRoot.remove()
+  })
+})

@@ -6,7 +6,7 @@ import {
   useSyncExternalStore,
   type ChangeEvent,
   type DragEvent,
-  type FormEvent,
+  type InputEvent,
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
@@ -512,13 +512,13 @@ function MediaCard({
     stop(event)
     actions.remove(card.id)
   }
-  const captionInput = (event: FormEvent<HTMLTextAreaElement>): void => {
+  const captionInput = (event: InputEvent<HTMLTextAreaElement>): void => {
     stop(event)
     actions.setCaption(
       card.id,
       card.channel,
       event.currentTarget.value,
-      (event.nativeEvent as InputEvent).isComposing === true,
+      event.nativeEvent.isComposing === true,
     )
   }
   const edit = (event: MouseEvent<HTMLButtonElement>): void => {

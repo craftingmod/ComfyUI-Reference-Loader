@@ -245,9 +245,13 @@ describe("Reference Loader stylesheet", () => {
     const cards = await Bun.file(
       new URL("../src/reference-loader/styles/cards.css", import.meta.url),
     ).text()
-    const prompt = await Bun.file(
-      new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
-    ).text()
+    const prompt = (
+      await Promise.all(
+        ["prompt.css", "prompt-editor.css"].map((file) =>
+          Bun.file(new URL(`../src/reference-loader/styles/${file}`, import.meta.url)).text(),
+        ),
+      )
+    ).join("\n")
 
     for (const selector of [
       ".rl-h3-timeline {",
@@ -277,6 +281,65 @@ describe("Reference Loader stylesheet", () => {
     }
   })
 
+  it("keeps Prompt and native editor surface ownership explicit", async () => {
+    const prompt = await Bun.file(
+      new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
+    ).text()
+    const promptEditor = await Bun.file(
+      new URL("../src/reference-loader/styles/prompt-editor.css", import.meta.url),
+    ).text()
+    const nativeEditor = await Bun.file(
+      new URL("../src/reference-loader/styles/native-editor.css", import.meta.url),
+    ).text()
+    const imageEditor = await Bun.file(
+      new URL("../src/reference-loader/styles/image-editor.css", import.meta.url),
+    ).text()
+    const trimEditor = await Bun.file(
+      new URL("../src/reference-loader/styles/trim-editor.css", import.meta.url),
+    ).text()
+    const index = await Bun.file(
+      new URL("../src/reference-loader/styles/index.css", import.meta.url),
+    ).text()
+
+    expect(prompt).toContain(".rl-prompt-definition")
+    expect(prompt).toContain(".rl-prompt-section")
+    expect(prompt).not.toContain(".rl-prompt-editor {")
+    expect(prompt).not.toContain(".rl-prompt-mention {")
+    expect(prompt).not.toContain(".rl-prompt-picker {")
+    expect(promptEditor).toContain(".rl-prompt-editor {")
+    expect(promptEditor).toContain(".rl-prompt-mention {")
+    expect(promptEditor).toContain(".rl-prompt-picker {")
+    expect(promptEditor).not.toContain(".rl-prompt-definition {")
+
+    expect(nativeEditor).toContain(".rl-modal {")
+    expect(nativeEditor).toContain(".rl-editor-history {")
+    expect(nativeEditor).toContain(".rl-modal__error {")
+    expect(nativeEditor).not.toContain(".rl-editor-stage")
+    expect(imageEditor).toContain(".rl-editor-stage")
+    expect(imageEditor).toContain("@media (max-width: 760px)")
+    expect(imageEditor).not.toContain(".rl-modal {")
+    expect(trimEditor).toContain(".rl-trim-range")
+    expect(trimEditor).toContain(".rl-trim-footer")
+    expect(trimEditor).toContain(".rl-playback-error")
+    expect(trimEditor).not.toContain(".rl-editor-layout")
+
+    expect(index.indexOf('@import "./prompt.css";')).toBeLessThan(
+      index.indexOf('@import "./prompt-editor.css";'),
+    )
+    expect(index.indexOf('@import "./prompt-editor.css";')).toBeLessThan(
+      index.indexOf('@import "./h3-editor.css";'),
+    )
+    expect(index.indexOf('@import "./h3-workspace.css";')).toBeLessThan(
+      index.indexOf('@import "./native-editor.css";'),
+    )
+    expect(index.indexOf('@import "./native-editor.css";')).toBeLessThan(
+      index.indexOf('@import "./image-editor.css";'),
+    )
+    expect(index.indexOf('@import "./image-editor.css";')).toBeLessThan(
+      index.indexOf('@import "./trim-editor.css";'),
+    )
+  })
+
   afterEach(() => {
     document.getElementById(STYLESHEET_ID)?.remove()
   })
@@ -295,14 +358,14 @@ describe("Reference Loader stylesheet", () => {
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
     expect(first.href).toBe(
-      "https://example.test/extensions/comfyui-reference-loader/index.css?v=26",
+      "https://example.test/extensions/comfyui-reference-loader/index.css?v=27",
     )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })
 
   it("aligns image and audio prompt mentions independently of their child baseline", async () => {
     const css = await Bun.file(
-      new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
+      new URL("../src/reference-loader/styles/prompt-editor.css", import.meta.url),
     ).text()
     const mentionRule = css.match(/\.rl-prompt-mention\s*\{([^}]*)\}/)?.[1]
 
@@ -313,7 +376,7 @@ describe("Reference Loader stylesheet", () => {
 
   it("lays autocomplete out inline at its active DOM anchor", async () => {
     const css = await Bun.file(
-      new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
+      new URL("../src/reference-loader/styles/prompt-editor.css", import.meta.url),
     ).text()
     const pickerRule = css.match(/\.rl-prompt-picker\s*\{([^}]*)\}/)?.[1]
 
@@ -347,9 +410,13 @@ describe("Reference Loader stylesheet", () => {
   })
 
   it("renders Subject and Shot cards with colored toolbars", async () => {
-    const css = await Bun.file(
+    const prompt = await Bun.file(
       new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
     ).text()
+    const promptEditor = await Bun.file(
+      new URL("../src/reference-loader/styles/prompt-editor.css", import.meta.url),
+    ).text()
+    const css = `${prompt}\n${promptEditor}`
     const definitionRule = css.match(/\.rl-prompt-definition\s*\{([^}]*)\}/)?.[1]
     const identityRule = css.match(/\.rl-prompt-definition__identity\s*\{([^}]*)\}/)?.[1]
     const tagRule = css.match(/\.rl-prompt-definition__tag\s*\{([^}]*)\}/)?.[1]
@@ -396,14 +463,19 @@ describe("Reference Loader stylesheet", () => {
   })
 
   it("resets Lexical paragraph margins and styles the empty-editor helper", async () => {
-    const css = await Bun.file(
+    const promptEditor = await Bun.file(
+      new URL("../src/reference-loader/styles/prompt-editor.css", import.meta.url),
+    ).text()
+    const prompt = await Bun.file(
       new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
     ).text()
-    const paragraphRule = css.match(/\.reference-prompt \.rl-prompt-editor > p\s*\{([^}]*)\}/)?.[1]
-    const definitionsParagraphRule = css.match(
+    const paragraphRule = promptEditor.match(
+      /\.reference-prompt \.rl-prompt-editor > p\s*\{([^}]*)\}/,
+    )?.[1]
+    const definitionsParagraphRule = prompt.match(
       /\.reference-prompt-definitions p\s*\{([^}]*)\}/,
     )?.[1]
-    const hintRule = css.match(/\.rl-prompt-editor__hint\s*\{([^}]*)\}/)?.[1]
+    const hintRule = promptEditor.match(/\.rl-prompt-editor__hint\s*\{([^}]*)\}/)?.[1]
 
     expect(paragraphRule).toContain("margin: 0;")
     expect(definitionsParagraphRule).toContain("margin-block-start: 0px;")
@@ -415,7 +487,7 @@ describe("Reference Loader stylesheet", () => {
 
   it("makes the Raw Prompt textarea full width and vertically resizable", async () => {
     const css = await Bun.file(
-      new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
+      new URL("../src/reference-loader/styles/prompt-editor.css", import.meta.url),
     ).text()
     const rawRule = css.match(/\.rl-prompt-editor\.is-raw\s*\{([^}]*)\}/)?.[1]
 

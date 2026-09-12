@@ -1,67 +1,5 @@
-.rl-modal {
-  width: min(950px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
-  margin: auto;
-  padding: 0;
-  border: 1px solid var(--rl-border);
-  border-radius: 9px;
-  background: var(--rl-bg);
-  color: var(--rl-text);
-  box-shadow: 0 18px 70px #000b;
-}
 .rl-image-editor {
   width: min(1280px, calc(100vw - 32px));
-}
-.rl-modal::backdrop {
-  background: #070910c8;
-  backdrop-filter: blur(3px);
-}
-.rl-modal__panel {
-  display: grid;
-  gap: 12px;
-  max-height: calc(100vh - 34px);
-  overflow: auto;
-  padding: 14px;
-}
-.rl-modal header,
-.rl-modal footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.rl-modal header > div {
-  display: grid;
-  gap: 2px;
-}
-.rl-modal header small {
-  color: var(--rl-muted);
-}
-.rl-modal__caption {
-  display: grid;
-  gap: 4px;
-}
-.rl-modal__caption textarea {
-  width: 100%;
-  min-height: 48px;
-  resize: vertical;
-  border: 1px solid var(--rl-border);
-  border-radius: 5px;
-  background: var(--rl-panel);
-  color: var(--rl-text);
-  padding: 6px;
-}
-.rl-modal header > button {
-  min-width: 30px;
-  font-size: 20px;
-}
-.rl-modal footer {
-  justify-content: flex-end;
-  padding-top: 9px;
-  border-top: 1px solid var(--rl-border);
-}
-.rl-modal button {
-  padding: 5px 10px;
 }
 .rl-editor-layout {
   display: grid;
@@ -290,39 +228,15 @@
 .rl-editor-note {
   color: var(--rl-muted);
 }
-.rl-editor-controls label,
-.rl-trim-fields label {
-  display: grid;
-  gap: 3px;
-  color: var(--rl-muted);
-}
-.rl-editor-controls input,
-.rl-editor-controls select,
-.rl-trim-fields input {
-  min-width: 0;
-  width: 100%;
-  padding: 5px;
-  border: 1px solid var(--rl-border);
-  border-radius: 4px;
-  background: var(--rl-panel);
-  color: var(--rl-text);
-}
-.rl-editor-history {
-  display: flex;
-  gap: 5px;
-}
-.rl-trim-footer {
-  flex-wrap: wrap;
-}
-.rl-trim-footer .rl-editor-history {
-  margin-right: auto;
-}
 .rl-image-editor-actions {
   flex-wrap: wrap;
   margin-top: auto;
 }
-.rl-modal__error,
-.rl-playback-error {
-  margin: 0;
-  color: var(--rl-danger);
+@media (max-width: 760px) {
+  .rl-editor-layout {
+    grid-template-columns: 1fr;
+  }
+  .rl-editor-preview {
+    min-height: 240px;
+  }
 }

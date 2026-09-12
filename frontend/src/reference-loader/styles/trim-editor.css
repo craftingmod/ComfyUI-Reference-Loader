@@ -166,12 +166,13 @@
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
-
-@media (max-width: 760px) {
-  .rl-editor-layout {
-    grid-template-columns: 1fr;
-  }
-  .rl-editor-preview {
-    min-height: 240px;
-  }
+.rl-trim-footer {
+  flex-wrap: wrap;
+}
+.rl-trim-footer .rl-editor-history {
+  margin-right: auto;
+}
+.rl-playback-error {
+  margin: 0;
+  color: var(--rl-danger);
 }

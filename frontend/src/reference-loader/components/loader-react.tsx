@@ -341,7 +341,11 @@ function LoaderToolbar({
         </span>
       </header>
       <section className="rl-toolbar" aria-label="Reference Loader toolbar">
-        <label className="rl-primary rl-file-button" aria-label="Add media" title="Add media">
+        <label
+          className="rl-button rl-button--primary rl-primary rl-file-button"
+          aria-label="Add media"
+          title="Add media"
+        >
           Add
           <input
             type="file"
@@ -593,7 +597,7 @@ function MediaCard({
         </span>
         <button
           type="button"
-          className="rl-remove"
+          className="rl-button rl-button--remove rl-remove"
           data-action="remove"
           aria-label="Remove reference"
           title="Delete reference"
@@ -633,7 +637,7 @@ function MediaCard({
             <button
               type="button"
               data-action="toggle-image"
-              className={`rl-output-button${card.imageEnabled ? " is-on" : ""}`}
+              className={`rl-button rl-button--output rl-button--card-action rl-output-button${card.imageEnabled ? " is-on" : ""}`}
               aria-label="Toggle image output"
               aria-pressed={card.imageEnabled}
               onClick={toggle("image")}
@@ -646,7 +650,7 @@ function MediaCard({
               <button
                 type="button"
                 data-action="toggle-video"
-                className={`rl-output-button${card.videoEnabled ? " is-on" : ""}`}
+                className={`rl-button rl-button--output rl-button--card-action rl-output-button${card.videoEnabled ? " is-on" : ""}`}
                 aria-label="Toggle video output"
                 aria-pressed={card.videoEnabled}
                 onClick={toggle("video")}
@@ -656,7 +660,7 @@ function MediaCard({
               <button
                 type="button"
                 data-action="toggle-video-audio"
-                className={`rl-output-button${card.videoAudioEnabled ? " is-on" : ""}`}
+                className={`rl-button rl-button--output rl-button--card-action rl-output-button${card.videoAudioEnabled ? " is-on" : ""}`}
                 aria-label="Include embedded audio in video output"
                 aria-pressed={card.videoAudioEnabled}
                 title={
@@ -680,7 +684,7 @@ function MediaCard({
             <button
               type="button"
               data-action="toggle-audio"
-              className={`rl-output-button${card.audioEnabled ? " is-on" : ""}`}
+              className={`rl-button rl-button--output rl-button--card-action rl-output-button${card.audioEnabled ? " is-on" : ""}`}
               aria-label="Toggle audio output"
               aria-pressed={card.audioEnabled}
               disabled={card.silentVideo}
@@ -696,7 +700,7 @@ function MediaCard({
               data-action="toggle-h3-guide"
               data-id={card.id}
               data-h3-channel={card.guideChannel}
-              className={`rl-output-button rl-guide-button${card.guideEnabled ? " is-on" : ""}`}
+              className={`rl-button rl-button--guide rl-button--card-action rl-output-button rl-guide-button${card.guideEnabled ? " is-on" : ""}`}
               aria-label="Toggle Guide usage"
               aria-pressed={card.guideEnabled}
               title={
@@ -719,7 +723,7 @@ function MediaCard({
               type="button"
               data-action="preview-video"
               data-playback-owner={`grid:${card.id}`}
-              className="rl-preview-media"
+              className="rl-button rl-button--preview rl-button--card-action rl-preview-media"
               aria-label={`Play video preview ${card.videoAudioEnabled ? "with audio" : "muted"}`}
               title={
                 card.loading || card.playbackDuration === undefined
@@ -739,7 +743,7 @@ function MediaCard({
               type="button"
               data-action="preview-audio"
               data-playback-owner={`grid:${card.id}`}
-              className="rl-preview-media"
+              className="rl-button rl-button--preview rl-button--card-action rl-preview-media"
               aria-label="Play audio preview"
               title={
                 card.silentVideo || card.loading || card.playbackDuration === undefined
@@ -756,6 +760,7 @@ function MediaCard({
           ) : null}
           <button
             type="button"
+            className="rl-button rl-button--card-action"
             data-action="move-back"
             aria-label="Move earlier"
             title="Move earlier (Alt+ArrowLeft)"
@@ -768,6 +773,7 @@ function MediaCard({
           </button>
           <button
             type="button"
+            className="rl-button rl-button--card-action"
             data-action="move-forward"
             aria-label="Move later"
             title="Move later (Alt+ArrowRight)"
@@ -782,7 +788,7 @@ function MediaCard({
             {card.guideAvailable && card.guideChannel ? (
               <button
                 type="button"
-                className="rl-edit-button rl-edit-button--guide"
+                className="rl-button rl-button--guide-edit rl-button--card-action rl-edit-button rl-edit-button--guide"
                 data-action="edit-h3-guide"
                 data-id={card.id}
                 data-h3-channel={card.guideChannel}
@@ -802,7 +808,7 @@ function MediaCard({
             ) : null}
             <button
               type="button"
-              className="rl-edit-button"
+              className="rl-button rl-button--edit rl-button--card-action rl-edit-button"
               data-action="edit"
               aria-label="Edit reference"
               title="Edit reference"

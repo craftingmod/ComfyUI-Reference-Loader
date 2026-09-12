@@ -644,7 +644,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
             </fieldset>
             <div class="rl-editor-history"><button type="button" data-action="undo">Undo</button><button type="button" data-action="redo">Redo</button><button type="button" data-action="reset-view">Reset view</button></div>
             <p class="rl-modal__error" role="alert" hidden></p>
-            <footer class="rl-image-editor-actions"><button type="button" class="rl-restore-original" data-action="restore-original"${isMaterializedEdit(options.item) ? "" : " hidden"}>Restore original</button><button type="button" data-action="cancel">Cancel</button><button type="button" class="rl-primary" data-action="apply">Apply</button></footer>
+            <footer class="rl-image-editor-actions"><button type="button" class="rl-restore-original" data-action="restore-original"${isMaterializedEdit(options.item) ? "" : " hidden"}>Restore original</button><button type="button" data-action="cancel">Cancel</button><button type="button" class="rl-button rl-button--primary rl-primary" data-action="apply">Apply</button></footer>
           </div>
         </div>
       </form>`

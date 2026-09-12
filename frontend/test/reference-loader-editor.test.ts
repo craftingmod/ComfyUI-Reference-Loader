@@ -1570,6 +1570,12 @@ describe("trim editor details", () => {
     )
     const caption = document.querySelector<HTMLElement>(".rl-trim-editor .rl-modal__caption")
     const footer = document.querySelector<HTMLElement>(".rl-trim-editor .rl-trim-footer")
+    expect(footer?.querySelector('[data-action="apply"]')?.classList.contains("rl-button")).toBe(
+      true,
+    )
+    expect(
+      footer?.querySelector('[data-action="apply"]')?.classList.contains("rl-button--primary"),
+    ).toBe(true)
     expect(caption?.previousElementSibling?.classList.contains("rl-modal__error")).toBe(true)
     expect(caption?.nextElementSibling).toBe(footer)
     expect(footer?.querySelector(".rl-editor-history")?.getAttribute("aria-label")).toBe(

@@ -23,7 +23,9 @@ describe("Reference Loader stylesheet", () => {
     expect(base).toContain("[data-loader-react-surface]")
     expect(base).not.toContain(".rl-primary")
     expect(controls).toContain(".reference-loader button:focus-visible")
-    expect(controls).toContain(".rl-primary")
+    expect(controls).toContain(".rl-button.rl-button--primary")
+    expect(controls).not.toContain("!important")
+    expect(controls).not.toContain(".rl-primary {")
     expect(controls).not.toContain(".reference-image-loader")
 
     expect(index.indexOf('@import "./tokens.css";')).toBeLessThan(
@@ -50,6 +52,35 @@ describe("Reference Loader stylesheet", () => {
     expect(css).toContain("margin-left: auto")
     expect(css).toContain(".rl-snapshot")
     expect(css).toContain(".rl-snapshot__menu[hidden]")
+  })
+
+  it("keeps button appearance variants opt-in and leaves card layout in cards.css", async () => {
+    const controls = await Bun.file(
+      new URL("../src/reference-loader/styles/controls.css", import.meta.url),
+    ).text()
+    const cards = await Bun.file(
+      new URL("../src/reference-loader/styles/cards.css", import.meta.url),
+    ).text()
+
+    for (const variant of [
+      "primary",
+      "remove",
+      "edit",
+      "guide-edit",
+      "output",
+      "guide",
+      "preview",
+      "card-action",
+    ]) {
+      expect(controls).toContain(`.rl-button.rl-button--${variant}`)
+    }
+    expect(controls).toContain(":where(.is-on:not(:disabled))")
+    expect(controls).toContain(":where(.is-playing:not(:disabled))")
+    expect(controls).toContain(".rl-button.rl-button--card-action:where(:disabled)")
+    expect(controls).not.toContain("!important")
+    expect(cards).toContain(".rl-remove")
+    expect(cards).toContain(".rl-edit-button svg")
+    expect(cards).not.toContain("!important")
   })
 
   it("shows an overlay while external media files are dragged over the loader", async () => {
@@ -225,7 +256,8 @@ describe("Reference Loader stylesheet", () => {
     expect(timeline).not.toContain(".rl-h3-editor")
     expect(timeline).not.toContain(".rl-h3-workspace")
     expect(cards).toContain(".rl-h3-card-badges")
-    expect(cards).toContain(".rl-guide-button.is-on")
+    expect(cards).not.toContain(".rl-guide-button.is-on")
+    expect(workspace).toContain(".rl-h3-workspace__footer button")
     expect(index.indexOf('@import "./h3-editor.css";')).toBeLessThan(
       index.indexOf('@import "./h3-timeline.css";'),
     )
@@ -358,7 +390,7 @@ describe("Reference Loader stylesheet", () => {
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
     expect(first.href).toBe(
-      "https://example.test/extensions/comfyui-reference-loader/index.css?v=27",
+      "https://example.test/extensions/comfyui-reference-loader/index.css?v=28",
     )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })

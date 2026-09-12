@@ -17,11 +17,11 @@
   font: inherit;
 }
 
-.reference-loader button,
-.reference-prompt button,
-.reference-prompt-definitions button,
-.rl-file-button,
-.rl-modal button {
+.reference-loader button:not(:where(.rl-button)),
+.reference-prompt button:not(:where(.rl-button)),
+.reference-prompt-definitions button:not(:where(.rl-button)),
+.rl-file-button:not(:where(.rl-button)),
+.rl-modal button:not(:where(.rl-button)) {
   min-height: 26px;
   border: 1px solid var(--rl-border);
   border-radius: 5px;
@@ -29,17 +29,17 @@
   color: var(--rl-text);
   cursor: pointer;
 }
-.reference-loader button:hover:not(:disabled),
-.reference-prompt button:hover:not(:disabled),
-.reference-prompt-definitions button:hover:not(:disabled),
-.rl-file-button:hover,
-.rl-modal button:hover:not(:disabled) {
+.reference-loader button:not(:where(.rl-button)):hover:not(:disabled),
+.reference-prompt button:not(:where(.rl-button)):hover:not(:disabled),
+.reference-prompt-definitions button:not(:where(.rl-button)):hover:not(:disabled),
+.rl-file-button:not(:where(.rl-button)):hover,
+.rl-modal button:not(:where(.rl-button)):hover:not(:disabled) {
   border-color: var(--rl-accent);
 }
-.reference-loader button:disabled,
-.reference-prompt button:disabled,
-.reference-prompt-definitions button:disabled,
-.rl-modal button:disabled {
+.reference-loader button:not(:where(.rl-button)):disabled,
+.reference-prompt button:not(:where(.rl-button)):disabled,
+.reference-prompt-definitions button:not(:where(.rl-button)):disabled,
+.rl-modal button:not(:where(.rl-button)):disabled {
   cursor: default;
   opacity: 0.42;
 }
@@ -60,8 +60,131 @@
   outline: 2px solid var(--rl-accent);
   outline-offset: 1px;
 }
-.rl-primary {
-  background: color-mix(in srgb, var(--rl-accent) 72%, #162239) !important;
-  border-color: color-mix(in srgb, var(--rl-accent) 80%, #fff) !important;
-  color: #fff !important;
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal) .rl-button {
+  min-height: 26px;
+  border: 1px solid var(--rl-border);
+  border-radius: 5px;
+  background: var(--rl-panel);
+  color: var(--rl-text);
+  cursor: pointer;
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button:where(:hover:not(:disabled)) {
+  border-color: var(--rl-accent);
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--card-action {
+  min-width: 26px;
+  padding: 2px 5px;
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--primary {
+  background: color-mix(in srgb, var(--rl-accent) 72%, #162239);
+  border-color: color-mix(in srgb, var(--rl-accent) 80%, #fff);
+  color: #fff;
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--primary:where(:hover:not(:disabled)) {
+  border-color: color-mix(in srgb, var(--rl-accent) 80%, #fff);
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--remove {
+  background: #05070bcc;
+  border-color: color-mix(in srgb, var(--rl-danger) 65%, var(--rl-border));
+  color: var(--rl-danger);
+  font-weight: 800;
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--remove:where(:hover:not(:disabled)) {
+  background: color-mix(in srgb, var(--rl-danger) 38%, var(--rl-panel));
+  border-color: var(--rl-danger);
+  color: #fff;
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--edit {
+  background: color-mix(in srgb, var(--rl-edit) 10%, var(--rl-panel));
+  border-color: color-mix(in srgb, var(--rl-edit) 55%, var(--rl-border));
+  color: var(--rl-edit);
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--edit:where(:hover:not(:disabled)) {
+  background: color-mix(in srgb, var(--rl-edit) 25%, var(--rl-panel));
+  border-color: var(--rl-edit);
+  color: #effff5;
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--guide-edit {
+  background: color-mix(in srgb, var(--rl-guide-edit) 10%, var(--rl-panel));
+  border-color: color-mix(in srgb, var(--rl-guide-edit) 55%, var(--rl-border));
+  color: var(--rl-guide-edit);
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--guide-edit:where(:hover:not(:disabled)) {
+  background: color-mix(in srgb, var(--rl-guide-edit) 25%, var(--rl-panel));
+  border-color: var(--rl-guide-edit);
+  color: #fff7e8;
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--output {
+  color: var(--rl-text);
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--output:where(.is-on:not(:disabled)) {
+  background: color-mix(in srgb, var(--rl-output) 10%, var(--rl-panel));
+  border-color: var(--rl-output);
+  color: var(--rl-output);
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--output:where(:hover:not(:disabled)) {
+  border-color: var(--rl-accent);
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--guide {
+  color: var(--rl-text);
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--guide:where(.is-on:not(:disabled)) {
+  background: color-mix(in srgb, var(--rl-guide) 10%, var(--rl-panel));
+  border-color: var(--rl-guide);
+  color: var(--rl-guide);
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--guide:where(:hover:not(:disabled)) {
+  border-color: var(--rl-accent);
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--preview:where(.is-playing:not(:disabled)) {
+  background: color-mix(in srgb, var(--rl-accent) 42%, var(--rl-panel));
+  border-color: var(--rl-accent);
+  color: #fff;
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--card-action:where(:disabled) {
+  background: var(--rl-panel);
+  border-color: var(--rl-border);
+  color: var(--rl-muted);
 }

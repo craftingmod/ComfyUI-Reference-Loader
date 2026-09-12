@@ -130,7 +130,13 @@ describe("Reference Loader Media Timeline integration", () => {
     expect(
       root.querySelector('.rl-card[data-id="scene"] .rl-h3-card-badge.is-reference')?.textContent,
     ).toBe("Ref #1")
-    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
+    const guideEdit = root.querySelector<HTMLButtonElement>(
+      '[data-action="edit-h3-guide"][data-id="scene"]',
+    )
+    expect(guideEdit?.classList.contains("rl-button--guide-edit")).toBe(true)
+    expect(guideEdit?.classList.contains("rl-button--edit")).toBe(false)
+    expect(guideEdit?.classList.contains("rl-button--card-action")).toBe(true)
+    guideEdit?.click()
     expect(workspace?.classList.contains("is-collapsed")).toBe(false)
     expect(document.activeElement).toBe(root.querySelector('[data-h3-action="collapse"]'))
     expect(
@@ -184,6 +190,12 @@ describe("Reference Loader Media Timeline integration", () => {
       root.querySelector('.rl-card[data-id="scene"]')?.classList.contains("is-output-disabled"),
     ).toBe(false)
     expect(root.querySelector('.rl-card[data-id="scene"] .rl-h3-card-badges')).not.toBeNull()
+    const guideToggle = root.querySelector<HTMLButtonElement>(
+      '.rl-card[data-id="scene"] [data-action="toggle-h3-guide"]',
+    )
+    expect(guideToggle?.classList.contains("rl-button--guide")).toBe(true)
+    expect(guideToggle?.classList.contains("rl-button--output")).toBe(false)
+    expect(guideToggle?.classList.contains("rl-button--card-action")).toBe(true)
     controller.destroy()
     root.remove()
   })

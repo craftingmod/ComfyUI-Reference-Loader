@@ -33,6 +33,7 @@ describe("Reference Loader DOM lifecycle", () => {
     expect(root.querySelector(".rl-media-topbar > .rl-media-header")).not.toBeNull()
     expect(root.querySelector(".rl-media-topbar > .rl-toolbar")).not.toBeNull()
     expect(root.querySelector(".rl-toolbar .rl-primary")?.textContent).toBe("Add")
+    expect(root.querySelector(".rl-toolbar .rl-button--primary")).not.toBeNull()
     expect(root.querySelector(".rl-toolbar .rl-primary")?.getAttribute("aria-label")).toBe(
       "Add media",
     )
@@ -768,6 +769,12 @@ describe("Reference Loader DOM lifecycle", () => {
     expect(card?.querySelector('[data-action="remove"]')?.classList.contains("rl-remove")).toBe(
       true,
     )
+    expect(card?.querySelector('[data-action="remove"]')?.classList.contains("rl-button")).toBe(
+      true,
+    )
+    expect(
+      card?.querySelector('[data-action="remove"]')?.classList.contains("rl-button--remove"),
+    ).toBe(true)
     expect(card?.querySelector('[data-action="remove"]')?.closest(".rl-card__media")).not.toBeNull()
     const actions = card?.querySelector(".rl-card__actions")
     expect(actions?.closest(".rl-card__media")).toBeNull()
@@ -777,6 +784,13 @@ describe("Reference Loader DOM lifecycle", () => {
     expect(editButton?.textContent?.trim()).toBe("R")
     expect(editButton?.getAttribute("aria-label")).toBe("Edit reference")
     expect(editButton?.querySelector("svg")).not.toBeNull()
+    expect(editButton?.classList.contains("rl-button--edit")).toBe(true)
+    expect(editButton?.classList.contains("rl-button--card-action")).toBe(true)
+    expect(
+      card
+        ?.querySelector('[data-action="move-back"]')
+        ?.classList.contains("rl-button--card-action"),
+    ).toBe(true)
     expect(card?.querySelector(".rl-card__title")).toBeNull()
     const imageFilename = card?.querySelector<HTMLElement>(".rl-media-filename")
     expect(imageFilename?.textContent).toBe("a.png")
@@ -835,6 +849,22 @@ describe("Reference Loader DOM lifecycle", () => {
     expect(videoCard?.querySelector('[data-action="toggle-audio"]')).toBeNull()
     expect(audioCard?.querySelector('[data-action="toggle-audio"]')).not.toBeNull()
     expect(audioCard?.querySelector('[data-action="toggle-video"]')).toBeNull()
+    for (const action of ["toggle-video", "toggle-video-audio"]) {
+      const button = videoCard?.querySelector(`[data-action="${action}"]`)
+      expect(button?.classList.contains("rl-button")).toBe(true)
+      expect(button?.classList.contains("rl-button--output")).toBe(true)
+      expect(button?.classList.contains("rl-button--card-action")).toBe(true)
+    }
+    expect(
+      videoCard
+        ?.querySelector('[data-action="preview-video"]')
+        ?.classList.contains("rl-button--preview"),
+    ).toBe(true)
+    expect(
+      audioCard
+        ?.querySelector('[data-action="toggle-audio"]')
+        ?.classList.contains("rl-button--output"),
+    ).toBe(true)
     expect(
       videoCard
         ?.querySelector<HTMLButtonElement>('[data-action="toggle-video-audio"]')

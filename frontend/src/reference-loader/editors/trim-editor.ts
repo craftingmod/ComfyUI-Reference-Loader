@@ -158,7 +158,7 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
         <label class="rl-modal__caption">Caption<textarea data-field="caption" rows="2" maxlength="16384" placeholder="Caption">${escapeHtml(options.caption)}</textarea></label>
         <footer class="rl-trim-footer">
           <div class="rl-editor-history" aria-label="Trim history"><button type="button" data-action="undo" title="Undo trim change">Undo trim</button><button type="button" data-action="redo" title="Redo trim change">Redo trim</button></div>
-          <button type="button" data-action="cancel">Cancel</button><button type="button" class="rl-primary" data-action="apply">Apply</button>
+          <button type="button" data-action="cancel">Cancel</button><button type="button" class="rl-button rl-button--primary rl-primary" data-action="apply">Apply</button>
         </footer>
       </form>`
     const canvas = dialog.querySelector("canvas")

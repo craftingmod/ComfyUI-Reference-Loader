@@ -222,16 +222,7 @@
   z-index: 4;
   top: 5px;
   right: 5px;
-  min-width: 24px !important;
-  color: var(--rl-danger) !important;
-  border-color: color-mix(in srgb, var(--rl-danger) 65%, var(--rl-border)) !important;
-  background: #05070bcc !important;
-  font-weight: 800 !important;
-}
-.rl-remove:hover:not(:disabled) {
-  color: #fff !important;
-  border-color: var(--rl-danger) !important;
-  background: color-mix(in srgb, var(--rl-danger) 38%, var(--rl-panel)) !important;
+  min-width: 24px;
 }
 .rl-card textarea {
   width: 100%;
@@ -253,51 +244,16 @@
 .rl-card--has-caption .rl-card__body > .rl-card__error {
   flex: 0 0 auto;
 }
-.rl-card button,
 .rl-card textarea {
   cursor: auto;
 }
-.rl-card button {
+.rl-card button:not(:disabled) {
   cursor: pointer;
 }
 .rl-card__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 3px;
-}
-.rl-card__actions button {
-  min-width: 26px;
-  padding: 2px 5px;
-}
-.rl-card__actions button.is-on {
-  border-color: var(--rl-accent);
-  background: color-mix(in srgb, var(--rl-accent) 35%, var(--rl-panel));
-}
-.rl-card__actions .rl-output-button {
-  color: var(--rl-text);
-}
-.rl-card__actions .rl-output-button.is-on {
-  color: var(--rl-output);
-  border-color: var(--rl-output);
-  background: color-mix(in srgb, var(--rl-output) 10%, var(--rl-panel));
-}
-.rl-card__actions .rl-guide-button {
-  color: var(--rl-text);
-}
-.rl-card__actions .rl-guide-button.is-on {
-  color: var(--rl-guide);
-  border-color: var(--rl-guide);
-  background: color-mix(in srgb, var(--rl-guide) 10%, var(--rl-panel));
-}
-.rl-card__actions button:disabled {
-  color: var(--rl-muted) !important;
-  border-color: var(--rl-border) !important;
-  background: var(--rl-panel) !important;
-}
-.rl-card__actions .rl-preview-media.is-playing {
-  border-color: var(--rl-accent);
-  color: #fff;
-  background: color-mix(in srgb, var(--rl-accent) 42%, var(--rl-panel));
 }
 .rl-edit-actions {
   display: inline-flex;
@@ -311,24 +267,6 @@
   justify-content: center;
   gap: 3px;
   line-height: 1;
-  color: var(--rl-edit) !important;
-  border-color: color-mix(in srgb, var(--rl-edit) 55%, var(--rl-border)) !important;
-  background: color-mix(in srgb, var(--rl-edit) 10%, var(--rl-panel)) !important;
-}
-.reference-loader .rl-edit-button:hover:not(:disabled) {
-  color: #effff5 !important;
-  border-color: var(--rl-edit) !important;
-  background: color-mix(in srgb, var(--rl-edit) 25%, var(--rl-panel)) !important;
-}
-.rl-edit-button--guide {
-  color: var(--rl-guide-edit) !important;
-  border-color: color-mix(in srgb, var(--rl-guide-edit) 55%, var(--rl-border)) !important;
-  background: color-mix(in srgb, var(--rl-guide-edit) 10%, var(--rl-panel)) !important;
-}
-.reference-loader .rl-edit-button--guide:hover:not(:disabled) {
-  color: #fff7e8 !important;
-  border-color: var(--rl-guide-edit) !important;
-  background: color-mix(in srgb, var(--rl-guide-edit) 25%, var(--rl-panel)) !important;
 }
 .rl-edit-button svg {
   display: block;
@@ -388,9 +326,4 @@
 .rl-h3-card-badge.is-paused {
   color: var(--rl-muted);
   border-color: var(--rl-border);
-}
-
-.rl-guide-button.is-on {
-  border-color: var(--rl-accent);
-  background: color-mix(in srgb, var(--rl-accent) 30%, var(--rl-panel));
 }

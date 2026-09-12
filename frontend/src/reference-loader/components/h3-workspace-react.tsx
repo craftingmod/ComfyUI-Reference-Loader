@@ -632,7 +632,7 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
           </button>
           <button
             type="button"
-            className="rl-primary"
+            className="rl-button rl-button--primary rl-primary"
             data-h3-action="apply-editor"
             disabled={!h3.canApply}
             onClick={() => actions.h3Apply()}

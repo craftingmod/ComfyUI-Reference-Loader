@@ -240,12 +240,6 @@
   padding: 3px 8px;
 }
 
-.rl-h3-workspace__footer .rl-primary {
-  border-color: var(--rl-accent);
-  background: var(--rl-accent);
-  color: var(--rl-bg);
-}
-
 .rl-h3-workspace__list {
   display: grid;
   gap: 4px;

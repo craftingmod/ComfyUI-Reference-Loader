@@ -1,0 +1,54 @@
+.rl-field {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.rl-field__label {
+  color: var(--rl-muted);
+}
+
+.rl-field__description {
+  color: var(--rl-muted);
+}
+
+.rl-field__error,
+.rl-status-message {
+  margin: 0;
+}
+
+.rl-field__error,
+.rl-status-message--error {
+  color: var(--rl-danger);
+}
+
+.rl-status-message--warning {
+  color: var(--rl-guide);
+}
+
+.rl-status-message--loading {
+  color: var(--rl-muted);
+}
+
+.rl-status-message--success {
+  color: var(--rl-state-on);
+}
+
+.rl-button[data-variant="danger"] {
+  border-color: color-mix(in srgb, var(--rl-danger) 65%, var(--rl-border));
+  color: var(--rl-danger);
+}
+
+.rl-button[data-variant="danger"]:hover:not(:disabled) {
+  border-color: var(--rl-danger);
+  background: color-mix(in srgb, var(--rl-danger) 38%, var(--rl-panel));
+  color: #fff;
+}
+
+.rl-toggle-group {
+  min-width: 0;
+}
+
+.rl-editor-footer {
+  flex-wrap: wrap;
+}

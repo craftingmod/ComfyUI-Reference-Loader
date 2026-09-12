@@ -2,6 +2,10 @@ import { useLayoutEffect, useRef, type ReactNode } from "react"
 
 import type { AudioPreviewSnapshot } from "../audio-preview-player.ts"
 import type { TimeRange } from "../types.ts"
+import { Button } from "../ui/button.tsx"
+import { EditorFooter } from "../ui/editor-footer.tsx"
+import { Field } from "../ui/field.tsx"
+import { StatusMessage } from "../ui/status-message.tsx"
 import type { VideoPreviewSnapshot } from "../video-preview-player.ts"
 
 export interface TrimEditorReactState {
@@ -175,9 +179,9 @@ export function TrimEditorDialog({
           <small>No shared timeline; this range affects only this reference.</small>
           <small className="rl-modal__filename">File: {state.filename}</small>
         </div>
-        <button type="button" data-action="cancel" aria-label="Close" onClick={actions.onCancel}>
+        <Button type="button" data-action="cancel" aria-label="Close" onClick={actions.onCancel}>
           ×
-        </button>
+        </Button>
       </header>
       {state.kind === "video" ? (
         <div
@@ -240,8 +244,7 @@ export function TrimEditorDialog({
           onInput={(event) => actions.onRangeInput("end", event.currentTarget.valueAsNumber)}
         />
       </div>
-      <label className="rl-trim-seekbar">
-        <span>Seek</span>
+      <Field label="Seek" className="rl-trim-seekbar">
         <input
           ref={seekRef}
           data-field="seek"
@@ -254,9 +257,9 @@ export function TrimEditorDialog({
           disabled={!state.playbackEnabled}
           onInput={(event) => actions.onSeekInput(event.currentTarget.valueAsNumber)}
         />
-      </label>
+      </Field>
       <div className="rl-trim-transport" aria-label={`${playbackNoun} preview controls`}>
-        <button
+        <Button
           ref={playbackToggleRef}
           type="button"
           data-action="playback-toggle"
@@ -273,8 +276,8 @@ export function TrimEditorDialog({
           onClick={actions.onPlaybackToggle}
         >
           {loading ? "Loading…" : playing ? "Ⅱ Pause" : paused ? "▶ Resume" : "▶ Play"}
-        </button>
-        <button
+        </Button>
+        <Button
           ref={stopRef}
           type="button"
           data-action="stop"
@@ -282,22 +285,21 @@ export function TrimEditorDialog({
           onClick={actions.onStop}
         >
           ■ Stop
-        </button>
+        </Button>
         <output ref={outputRef} data-field="playback-time" aria-live="off">
           {formatTime(current)} / {formatTime(state.range.end)}
         </output>
       </div>
-      <p
+      <StatusMessage
+        status="error"
         ref={playbackErrorRef}
         className="rl-playback-error"
-        role="alert"
         hidden={!state.playbackError}
       >
         {state.playbackError}
-      </p>
+      </StatusMessage>
       <div className="rl-trim-fields">
-        <label>
-          Start (seconds)
+        <Field label="Start (seconds)">
           <input
             ref={startRef}
             data-field="start"
@@ -308,9 +310,8 @@ export function TrimEditorDialog({
             value={state.range.start.toFixed(2)}
             onInput={(event) => actions.onNumberInput("start", event.currentTarget.valueAsNumber)}
           />
-        </label>
-        <label>
-          End (seconds)
+        </Field>
+        <Field label="End (seconds)">
           <input
             ref={endRef}
             data-field="end"
@@ -321,13 +322,12 @@ export function TrimEditorDialog({
             value={state.range.end.toFixed(2)}
             onInput={(event) => actions.onNumberInput("end", event.currentTarget.valueAsNumber)}
           />
-        </label>
+        </Field>
       </div>
-      <p className="rl-modal__error" role="alert" hidden={!state.rangeError}>
+      <StatusMessage status="error" className="rl-modal__error" hidden={!state.rangeError}>
         {state.rangeError}
-      </p>
-      <label className="rl-modal__caption">
-        Caption
+      </StatusMessage>
+      <Field label="Caption" className="rl-modal__caption">
         <textarea
           ref={captionRef}
           data-field="caption"
@@ -337,40 +337,35 @@ export function TrimEditorDialog({
           value={state.caption}
           onChange={(event) => actions.onCaptionChange(event.currentTarget.value)}
         />
-      </label>
-      <footer className="rl-trim-footer">
-        <div className="rl-editor-history" aria-label="Trim history">
-          <button
-            type="button"
-            data-action="undo"
-            title="Undo trim change"
-            disabled={!state.historyCanUndo}
-            onClick={actions.onUndo}
-          >
-            Undo trim
-          </button>
-          <button
-            type="button"
-            data-action="redo"
-            title="Redo trim change"
-            disabled={!state.historyCanRedo}
-            onClick={actions.onRedo}
-          >
-            Redo trim
-          </button>
-        </div>
-        <button type="button" data-action="cancel" onClick={actions.onCancel}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="rl-button rl-button--primary rl-primary"
-          data-action="apply"
-          onClick={() => actions.onApply(captionRef.current?.value ?? state.caption)}
-        >
-          Apply
-        </button>
-      </footer>
+      </Field>
+      <EditorFooter
+        className="rl-trim-footer"
+        historyLabel="Trim history"
+        history={
+          <>
+            <Button
+              type="button"
+              data-action="undo"
+              title="Undo trim change"
+              disabled={!state.historyCanUndo}
+              onClick={actions.onUndo}
+            >
+              Undo trim
+            </Button>
+            <Button
+              type="button"
+              data-action="redo"
+              title="Redo trim change"
+              disabled={!state.historyCanRedo}
+              onClick={actions.onRedo}
+            >
+              Redo trim
+            </Button>
+          </>
+        }
+        onCancel={actions.onCancel}
+        onApply={() => actions.onApply(captionRef.current?.value ?? state.caption)}
+      />
     </form>
   )
 }

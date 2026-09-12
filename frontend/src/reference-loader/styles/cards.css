@@ -102,7 +102,8 @@
   background-size: 14px 14px;
 }
 .rl-card__media > img,
-.rl-card__media > video {
+.rl-card__media > video,
+.rl-card__media > [data-video-preview-host] > video {
   position: absolute;
   inset: 0;
   display: block;
@@ -118,17 +119,6 @@
   z-index: 1;
   inset: 0;
   display: block;
-  pointer-events: none;
-}
-.rl-card__media > [data-video-preview-host] > video {
-  position: absolute;
-  inset: 0;
-  display: block;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  object-fit: var(--rl-preview-fit, contain);
   pointer-events: none;
 }
 .rl-card__media img.is-video-poster-hidden {
@@ -175,7 +165,6 @@
 }
 .rl-kind,
 .rl-output-index,
-.rl-guide-index,
 .rl-duration,
 .rl-megapixels {
   padding: 2px 4px;
@@ -206,10 +195,6 @@
 }
 .rl-output-index {
   color: color-mix(in srgb, var(--rl-accent) 80%, #fff);
-  font-variant-numeric: tabular-nums;
-}
-.rl-guide-index {
-  color: color-mix(in srgb, var(--rl-guide) 86%, #fff);
   font-variant-numeric: tabular-nums;
 }
 .rl-media-filename {

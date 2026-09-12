@@ -42,12 +42,14 @@
 .rl-file-button {
   padding: 4px 9px;
 }
-.reference-loader button.rl-clear {
+.reference-loader button.rl-clear,
+.reference-prompt button.rl-clear {
   color: var(--rl-danger);
   border-color: color-mix(in srgb, var(--rl-danger) 65%, var(--rl-border));
   background: color-mix(in srgb, var(--rl-danger) 10%, var(--rl-panel));
 }
-.reference-loader button.rl-clear:hover:not(:disabled) {
+.reference-loader button.rl-clear:hover:not(:disabled),
+.reference-prompt button.rl-clear:hover:not(:disabled) {
   color: #fff;
   border-color: var(--rl-danger);
   background: color-mix(in srgb, var(--rl-danger) 38%, var(--rl-panel));
@@ -57,7 +59,8 @@
   align-items: center;
   cursor: pointer;
 }
-.rl-file-button input {
+.rl-file-button input,
+.rl-grid-add input {
   position: absolute;
   inline-size: 1px;
   block-size: 1px;
@@ -218,13 +221,6 @@
   font-size: 24px;
   font-weight: 700;
   line-height: 1;
-}
-.rl-grid-add input {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  opacity: 0;
-  pointer-events: none;
 }
 .reference-loader.is-dragging .rl-card-grid {
   outline: 1px dashed var(--rl-accent);

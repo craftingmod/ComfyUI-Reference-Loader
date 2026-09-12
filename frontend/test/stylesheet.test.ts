@@ -158,6 +158,45 @@ describe("Reference Loader stylesheet", () => {
     expect(css).not.toContain(".rl-h3-editor__background")
   })
 
+  it("does not retain selectors from removed legacy surfaces", async () => {
+    const h3 = await Bun.file(
+      new URL("../src/reference-loader/styles/h3-timeline.css", import.meta.url),
+    ).text()
+    const cards = await Bun.file(
+      new URL("../src/reference-loader/styles/cards.css", import.meta.url),
+    ).text()
+    const prompt = await Bun.file(
+      new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
+    ).text()
+
+    for (const selector of [
+      ".rl-h3-timeline {",
+      ".rl-h3-timeline__header",
+      ".rl-h3-timeline__collapse",
+      ".rl-h3-timeline__toggle",
+      ".rl-h3-timeline__status",
+      ".rl-h3-timeline__summary",
+      ".rl-h3-timeline__body",
+      ".rl-h3-timeline__hint",
+      ".rl-h3-timeline__error",
+      ".rl-h3-media-counts",
+      ".rl-h3-summary",
+      ".rl-h3-editor__roles",
+      ".rl-h3-workspace__info",
+    ]) {
+      expect(h3).not.toContain(selector)
+    }
+    expect(cards).not.toContain(".rl-guide-index")
+    for (const selector of [
+      ".rl-prompt-definition__body-host",
+      ".rl-prompt-section__body",
+      ".rl-prompt-section__body-host",
+      ".rl-prompt-tag",
+    ]) {
+      expect(prompt).not.toContain(selector)
+    }
+  })
+
   afterEach(() => {
     document.getElementById(STYLESHEET_ID)?.remove()
   })
@@ -176,7 +215,7 @@ describe("Reference Loader stylesheet", () => {
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
     expect(first.href).toBe(
-      "https://example.test/extensions/comfyui-reference-loader/index.css?v=23",
+      "https://example.test/extensions/comfyui-reference-loader/index.css?v=24",
     )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })
@@ -213,14 +252,15 @@ describe("Reference Loader stylesheet", () => {
     const stackRule = css.match(/\.rl-prompt-stack\s*\{([^}]*)\}/)?.[1]
     const sectionRule = css.match(/\.rl-prompt-section\s*\{([^}]*)\}/)?.[1]
     const headerRule = css.match(/\.rl-prompt-section__header\s*\{([^}]*)\}/)?.[1]
-    const bodyRule = css.match(/\.rl-prompt-section__body\s*\{([^}]*)\}/)?.[1]
+    const entryRule = css.match(/\.rl-prompt-section-entry\s*\{([^}]*)\}/)?.[1]
 
     expect(stackRule).toContain("display: grid;")
     expect(sectionRule).toContain("overflow: hidden;")
     expect(sectionRule).toContain("--rl-prompt-section-color: var(--rl-accent);")
     expect(sectionRule).toContain("var(--rl-prompt-section-color) 32%")
     expect(headerRule).toContain("var(--rl-prompt-section-color) 10%")
-    expect(bodyRule).toContain("white-space: pre-wrap;")
+    expect(entryRule).toContain("min-height: 32px;")
+    expect(entryRule).toContain("border: 1px dashed var(--rl-border);")
     expect(css).toContain(".rl-prompt-section.is-drop-before")
     expect(css).toContain(".rl-prompt-section.is-drop-after")
     expect(css).toContain("cursor: grab;")
@@ -233,8 +273,8 @@ describe("Reference Loader stylesheet", () => {
     const definitionRule = css.match(/\.rl-prompt-definition\s*\{([^}]*)\}/)?.[1]
     const identityRule = css.match(/\.rl-prompt-definition__identity\s*\{([^}]*)\}/)?.[1]
     const tagRule = css.match(/\.rl-prompt-definition__tag\s*\{([^}]*)\}/)?.[1]
-    const promptTagRule = css.match(/\.rl-prompt-tag\s*\{([^}]*)\}/)?.[1]
-    const promptTagHeaderRule = css.match(/\.rl-prompt-tag::before\s*\{([^}]*)\}/)?.[1]
+    const subjectRule = css.match(/\.rl-prompt-subject\s*\{([^}]*)\}/)?.[1]
+    const subjectIconRule = css.match(/\.rl-prompt-subject-icon\s*\{([^}]*)\}/)?.[1]
     const frameRule = css.match(/\.rl-prompt-definition__frame\s*\{([^}]*)\}/)?.[1]
     const actionsRule = css.match(/\.rl-prompt-definition__actions\s*\{([^}]*)\}/)?.[1]
     const bodyRule = css.match(/\.rl-prompt-definition__body\s*\{([^}]*)\}/)?.[1]
@@ -270,13 +310,9 @@ describe("Reference Loader stylesheet", () => {
     expect(css).toContain(".rl-prompt-definition.is-drop-before")
     expect(css).toContain(".rl-prompt-definition.is-drop-after")
     expect(css).toContain(".rl-prompt-definition__ordinal")
-    expect(css).toContain(".rl-prompt-tag::before")
-    expect(css).toContain("margin: 1px 3px;")
-    expect(promptTagRule).toContain("padding: 0 6px 0 0;")
-    expect(promptTagHeaderRule).toContain("height: 25px;")
-    expect(promptTagHeaderRule).toContain("border-radius: 3px 0 0 3px;")
-    expect(css).toContain("content: attr(data-prompt-tag-header);")
-    expect(css).toContain("--rl-prompt-tag-color: #2f8f60;")
+    expect(subjectRule).toContain("--rl-prompt-subject-color: #c18cff;")
+    expect(subjectIconRule).toContain("place-items: center;")
+    expect(css).toContain(".rl-prompt-subject {")
   })
 
   it("resets Lexical paragraph margins and styles the empty-editor helper", async () => {
@@ -321,9 +357,12 @@ describe("Reference Loader stylesheet", () => {
     const css = await Bun.file(
       new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
     ).text()
+    const loader = await Bun.file(
+      new URL("../src/reference-loader/styles/loader.css", import.meta.url),
+    ).text()
 
     expect(css).toContain(".rl-prompt-toolbar__actions")
-    expect(css).toContain(".reference-prompt button.rl-clear")
+    expect(loader).toContain(".reference-prompt button.rl-clear")
   })
 
   it("keeps Media and Subjects rows intrinsic and gives spare height to Prompt", async () => {

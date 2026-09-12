@@ -11,11 +11,20 @@ import {
 } from "react"
 
 import type { H3TimelinePlacement } from "../h3-media-guides.ts"
-import type { ItemRuntime, LoaderState } from "../types.ts"
+import { H3_TIMELINE_NATIVE_FPS, type ItemRuntime, type LoaderState } from "../types.ts"
 import type { H3WorkspaceView, LoaderViewChannel } from "../view-model.ts"
-import { timelineExtent, timelineMarks, draggedFrame, type TimelineMark } from "./h3-timeline.ts"
+import {
+  draggedFrame,
+  nativeToTimelineFrame,
+  timelineExtent,
+  timelineFrameInputToNative,
+  timelineMarks,
+  timelineSeconds,
+  timelineToNativeFrame,
+  type TimelineMark,
+} from "./h3-timeline.ts"
 
-export const H3_TIMELINE_FPS = 24
+export const H3_TIMELINE_FPS = H3_TIMELINE_NATIVE_FPS
 
 export interface H3TimelineReactActions {
   selectPlacement(placement: H3TimelinePlacement, channel: "visual" | "audio"): void
@@ -36,6 +45,8 @@ export interface H3TimelineReactProps {
   runtime: ReadonlyMap<string, Readonly<ItemRuntime>>
   h3: H3WorkspaceView
   actions: H3TimelineReactActions
+  fps: number
+  frameCount: number
   zoom: number
   fitToken: number
 }
@@ -58,8 +69,8 @@ interface Gesture {
 const CHANNELS: readonly TimelineChannel[] = ["visual", "audio", "shot"]
 const MIN_TRACK_WIDTH = 280
 
-function timing(frame: number): string {
-  return `${frame}f · ${(frame / H3_TIMELINE_FPS).toFixed(3)}s`
+function timing(frame: number, fps: number): string {
+  return `${frame}f · ${timelineSeconds(frame, fps)}s`
 }
 
 function frameInputValue(frameIndex: number): string {
@@ -83,6 +94,7 @@ export interface H3FrameControlProps {
   onCommit(value: string): void
   onRemove(): void
   compact?: boolean
+  fps?: number
 }
 
 export function H3FrameControl({
@@ -95,6 +107,7 @@ export function H3FrameControl({
   onCommit,
   onRemove,
   compact = false,
+  fps = H3_TIMELINE_FPS,
 }: H3FrameControlProps): ReactNode {
   const externalFrame = frameInputValue(frameIndex)
   const previousExternalFrame = useRef(externalFrame)
@@ -154,7 +167,9 @@ export function H3FrameControl({
             }
           }}
         />
-        <small>{Number.isSafeInteger(frameIndex) ? `${(frameIndex / 24).toFixed(3)}s` : ""}</small>
+        <small>
+          {Number.isSafeInteger(frameIndex) ? `${timelineSeconds(frameIndex, fps)}s` : ""}
+        </small>
       </label>
       <button
         type="button"
@@ -197,7 +212,7 @@ function displayFrame(
   return preview && preview.id === mark.placement.guideId ? preview.frame : mark.frame
 }
 
-function markerTitle(mark: TimelineMark, frame: number): string {
+function markerTitle(mark: TimelineMark, frame: number, fps: number): string {
   const position =
     mark.placement.kind === "start"
       ? "Start"
@@ -210,10 +225,10 @@ function markerTitle(mark: TimelineMark, frame: number): string {
     mark.channel === "audio"
       ? mark.frames === undefined
         ? " · duration unknown"
-        : ` · ${(mark.frames / H3_TIMELINE_FPS).toFixed(3)}s source span`
+        : ` · ${timelineSeconds(mark.frames, fps)}s source span`
       : ""
   const state = `${mark.disabled ? " · paused" : ""}${mark.incomplete ? " · incomplete" : ""}${mark.warning ? ` · ${mark.warning}` : ""}`
-  return `${position} · ${mark.label} · ${mark.placement.kind === "end" ? "time unknown" : timing(frame)}${duration}${state}`
+  return `${position} · ${mark.label} · ${mark.placement.kind === "end" ? "time unknown" : timing(frame, fps)}${duration}${state}`
 }
 
 function sourceLabel(
@@ -239,8 +254,10 @@ function SelectedElementControls({
   h3,
   actions,
   preview,
+  fps,
 }: Pick<H3TimelineReactProps, "h3" | "actions"> & {
   preview?: { id: string; frame: number }
+  fps: number
 }): ReactNode {
   const previewGuide = preview
     ? h3.timeline.guides.find((entry) => entry.id === preview.id)
@@ -252,12 +269,17 @@ function SelectedElementControls({
       <H3FrameControl
         key={`guide:${guide.id}`}
         id={guide.id}
-        frameIndex={previewGuide && preview ? preview.frame : guide.frameIndex}
+        frameIndex={
+          previewGuide && preview ? preview.frame : nativeToTimelineFrame(guide.frameIndex, fps)
+        }
         label={`Guide ${guide.id}`}
         removeLabel="Remove Guide"
         frameAriaLabel="Guide frame"
-        onInput={(value) => actions.h3InputFrame(guide.id, value)}
-        onCommit={(value) => actions.h3CommitFrame(guide.id, value)}
+        fps={fps}
+        onInput={(value) => actions.h3InputFrame(guide.id, timelineFrameInputToNative(value, fps))}
+        onCommit={(value) =>
+          actions.h3CommitFrame(guide.id, timelineFrameInputToNative(value, fps))
+        }
         onRemove={() => actions.removePlacement(guide.id)}
       />
     )
@@ -271,14 +293,17 @@ function SelectedElementControls({
       <H3FrameControl
         key={`shot:${shot.tag}`}
         id={shot.tag}
-        frameIndex={previewShotTag && preview ? preview.frame : shot.frameIndex}
+        frameIndex={
+          previewShotTag && preview ? preview.frame : nativeToTimelineFrame(shot.frameIndex, fps)
+        }
         label={`Shot #${shot.tag}`}
         removeLabel="Remove Shot"
         frameAriaLabel="Shot frame"
+        fps={fps}
         onInput={() => undefined}
         onCommit={(value) => {
           const frame = parseFrameInput(value)
-          if (!Number.isNaN(frame)) actions.changeShot(shot.tag, frame)
+          if (!Number.isNaN(frame)) actions.changeShot(shot.tag, timelineToNativeFrame(frame, fps))
         }}
         onRemove={() => actions.removeShot(shot.tag)}
       />
@@ -321,8 +346,10 @@ function EndDock({
   h3,
   actions,
   preview,
+  fps,
 }: Pick<H3TimelineReactProps, "state" | "runtime" | "h3" | "actions"> & {
   preview?: { id: string; frame: number }
+  fps: number
 }): ReactNode {
   const id = h3.timeline.endImageId
   const selected = h3.selection?.kind === "end"
@@ -348,7 +375,7 @@ function EndDock({
         )}
         <span>{sourceLabel(state, id, "visual")}</span>
       </button>
-      <SelectedElementControls h3={h3} actions={actions} preview={preview} />
+      <SelectedElementControls h3={h3} actions={actions} preview={preview} fps={fps} />
     </div>
   )
 }
@@ -358,6 +385,8 @@ export function H3TimelineReact({
   runtime,
   h3,
   actions,
+  fps,
+  frameCount,
   zoom,
   fitToken,
 }: H3TimelineReactProps) {
@@ -370,10 +399,10 @@ export function H3TimelineReact({
   const [drop, setDrop] = useState<{ channel: "visual" | "audio"; frame: number }>()
   const [trackWidth, setTrackWidth] = useState(0)
   const marks = useMemo(
-    () => timelineMarks({ ...state, h3Timeline: h3.timeline }, runtime, h3.shots),
-    [h3.shots, h3.timeline, runtime, state],
+    () => timelineMarks({ ...state, h3Timeline: h3.timeline }, runtime, h3.shots, fps),
+    [fps, h3.shots, h3.timeline, runtime, state],
   )
-  const extent = useMemo(() => timelineExtent(marks), [marks])
+  const extent = useMemo(() => timelineExtent(marks, frameCount, fps), [frameCount, fps, marks])
 
   useLayoutEffect(() => {
     const element = scroller.current
@@ -427,8 +456,9 @@ export function H3TimelineReact({
       }
       suppressClick.current = gesture.moved
       if (!cancel && gesture.moved && gesture.next !== gesture.frame) {
-        if (gesture.shotTag) actions.changeShot(gesture.shotTag, gesture.next)
-        else actions.movePlacement(gesture.id, gesture.next)
+        const nativeFrame = timelineToNativeFrame(gesture.next, fps)
+        if (gesture.shotTag) actions.changeShot(gesture.shotTag, nativeFrame)
+        else actions.movePlacement(gesture.id, nativeFrame)
       }
     }
     const onMove = (event: globalThis.PointerEvent): void => {
@@ -474,7 +504,7 @@ export function H3TimelineReact({
       document.removeEventListener("keydown", onKeyDown, true)
       globalThis.removeEventListener("blur", onBlur)
     }
-  }, [actions, extent, gestureActive])
+  }, [actions, extent, fps, gestureActive])
 
   const startGesture = (mark: TimelineMark, event: PointerEvent<HTMLButtonElement>): void => {
     if (event.button !== 0 || event.isPrimary === false || mark.placement.kind === "end") return
@@ -533,7 +563,7 @@ export function H3TimelineReact({
     if (!actions.canDrop(channel, event.dataTransfer)) return
     event.preventDefault()
     event.stopPropagation()
-    actions.drop(channel, frame, event.dataTransfer)
+    actions.drop(channel, timelineToNativeFrame(frame, fps), event.dataTransfer)
   }
 
   const laneLeave = (event: DragEvent<HTMLDivElement>): void => {
@@ -554,7 +584,7 @@ export function H3TimelineReact({
       : isSelectedMark(mark, h3)
     const frame = displayFrame(mark, preview)
     const draggable = mark.placement.kind !== "end" && Boolean(mark.placement.guideId)
-    const title = markerTitle(mark, frame)
+    const title = markerTitle(mark, frame, fps)
     const key = `${mark.placement.guideId ?? mark.placement.kind}:${mark.channel}:${mark.shotTag ?? mark.label}`
     return (
       <button
@@ -596,11 +626,12 @@ export function H3TimelineReact({
           event.preventDefault()
           const next = Math.max(
             0,
-            mark.frame +
-              (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? H3_TIMELINE_FPS : 1),
+            mark.frame + (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? fps : 1),
           )
-          if (mark.shotTag) actions.changeShot(mark.shotTag, next)
-          else if (mark.placement.guideId) actions.movePlacement(mark.placement.guideId, next)
+          const nativeFrame = timelineToNativeFrame(next, fps)
+          if (mark.shotTag) actions.changeShot(mark.shotTag, nativeFrame)
+          else if (mark.placement.guideId)
+            actions.movePlacement(mark.placement.guideId, nativeFrame)
         }}
       >
         {mark.previewUrl ? <img src={mark.previewUrl} alt="" draggable={false} /> : null}
@@ -609,7 +640,7 @@ export function H3TimelineReact({
           {mark.label}
         </span>
         <small data-timeline-time="">
-          {mark.placement.kind === "end" ? "End · final output" : timing(frame)}
+          {mark.placement.kind === "end" ? "End · final output" : timing(frame, fps)}
         </small>
       </button>
     )
@@ -618,15 +649,14 @@ export function H3TimelineReact({
   const layoutWidth =
     Math.max(MIN_TRACK_WIDTH, trackWidth || scroller.current?.clientWidth || 0) * zoom
   const tickFrames = Math.max(
-    H3_TIMELINE_FPS,
-    Math.ceil(extent / Math.max(2, Math.floor(layoutWidth / 76)) / H3_TIMELINE_FPS) *
-      H3_TIMELINE_FPS,
+    fps,
+    Math.ceil(extent / Math.max(2, Math.floor(layoutWidth / 76)) / fps) * fps,
   )
   const ticks: ReactNode[] = []
   for (let frame = 0; frame <= extent; frame += tickFrames) {
     ticks.push(
       <span key={frame} style={{ left: `${(frame / extent) * 100}%` }}>
-        {frame / H3_TIMELINE_FPS}s · {frame}f
+        {timelineSeconds(frame, fps)}s · {frame}f
       </span>,
     )
   }
@@ -733,13 +763,20 @@ export function H3TimelineReact({
           })}
         </div>
       </div>
-      <EndDock state={state} runtime={runtime} h3={h3} actions={actions} preview={preview} />
+      <EndDock
+        state={state}
+        runtime={runtime}
+        h3={h3}
+        actions={actions}
+        preview={preview}
+        fps={fps}
+      />
     </div>
   )
 }
 
-export function h3TimelineSeconds(frame: number): string {
-  return (frame / H3_TIMELINE_FPS).toFixed(3)
+export function h3TimelineSeconds(frame: number, fps = H3_TIMELINE_FPS): string {
+  return timelineSeconds(frame, fps)
 }
 
 export type H3TimelineViewChannel = LoaderViewChannel

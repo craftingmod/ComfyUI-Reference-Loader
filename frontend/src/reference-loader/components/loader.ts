@@ -24,6 +24,10 @@ import { deserializeLoaderState, serializeLoaderState } from "../serialization.t
 import {
   createEmptyH3Timeline,
   createMediaItem,
+  H3_TIMELINE_MAX_FPS,
+  H3_TIMELINE_MAX_FRAME_COUNT,
+  H3_TIMELINE_MIN_FPS,
+  H3_TIMELINE_MIN_FRAME_COUNT,
   isAudioItem,
   type H3TimelineState,
   type LoaderState,
@@ -390,6 +394,11 @@ export class ReferenceLoaderController {
     h3AddPlacement: (position, frame) => this.#addH3DraftPlacement(position, frame),
     h3RemoveRole: (role) => this.#removeH3DraftRole(role),
     h3RemovePlacement: (id) => this.#deleteH3DraftPlacement(id),
+    setTimelineSettings: (values) =>
+      this.writeDisplayProxy({
+        timelineFps: values.fps,
+        timelineFrameCount: values.frameCount,
+      }),
     h3Apply: () => this.#applyH3Workspace(),
     h3Cancel: () => this.#cancelH3Workspace(),
     reorder: (id, channel, toIndex) => this.reorderItem(id, channel, toIndex),
@@ -496,6 +505,8 @@ export class ReferenceLoaderController {
   #displayState(): LoaderDisplayState {
     return {
       gridColumns: this.state.ui.gridColumns,
+      timelineFps: this.state.ui.h3TimelineFps,
+      timelineFrameCount: this.state.ui.h3TimelineFrameCount,
       previewPixels: this.state.ui.previewMaxPixels / 1_000_000,
       showCaptions: showCaptionsProperty(this.#node),
       twoImageMode: twoImageModeProperty(this.#node),
@@ -697,6 +708,20 @@ export class ReferenceLoaderController {
       values.waveformPairs === undefined || !Number.isFinite(values.waveformPairs)
         ? this.state.ui.waveformPeaks
         : Math.min(1000, Math.max(100, Math.round(values.waveformPairs)))
+    const timelineFps =
+      values.timelineFps === undefined || !Number.isFinite(values.timelineFps)
+        ? this.state.ui.h3TimelineFps
+        : Math.min(
+            H3_TIMELINE_MAX_FPS,
+            Math.max(H3_TIMELINE_MIN_FPS, Math.round(values.timelineFps)),
+          )
+    const timelineFrameCount =
+      values.timelineFrameCount === undefined || !Number.isFinite(values.timelineFrameCount)
+        ? this.state.ui.h3TimelineFrameCount
+        : Math.min(
+            H3_TIMELINE_MAX_FRAME_COUNT,
+            Math.max(H3_TIMELINE_MIN_FRAME_COUNT, Math.round(values.timelineFrameCount)),
+          )
     const previewFit =
       values.previewFit === "cover"
         ? "cover"
@@ -706,6 +731,8 @@ export class ReferenceLoaderController {
     const waveformChanged = waveformPairs !== this.state.ui.waveformPeaks
     if (
       gridColumns !== this.state.ui.gridColumns ||
+      timelineFps !== this.state.ui.h3TimelineFps ||
+      timelineFrameCount !== this.state.ui.h3TimelineFrameCount ||
       previewChanged ||
       cardAspect !== this.state.ui.cardAspectRatio ||
       previewFit !== this.state.ui.previewFit ||
@@ -715,6 +742,8 @@ export class ReferenceLoaderController {
         type: "set-ui",
         values: {
           gridColumns,
+          h3TimelineFps: timelineFps,
+          h3TimelineFrameCount: timelineFrameCount,
           previewMaxPixels,
           cardAspectRatio: cardAspect,
           previewFit,

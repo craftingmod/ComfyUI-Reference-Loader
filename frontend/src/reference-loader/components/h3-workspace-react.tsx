@@ -15,7 +15,12 @@ import {
   H3TimelineReact,
   type H3TimelineReactActions,
 } from "./h3-timeline-react.tsx"
-import { timelineMarks } from "./h3-timeline.ts"
+import {
+  nativeToTimelineFrame,
+  timelineFrameInputToNative,
+  timelineMarks,
+  timelineToNativeFrame,
+} from "./h3-timeline.ts"
 
 export interface H3WorkspaceActions extends H3TimelineReactActions {
   h3Toggle(): void
@@ -26,6 +31,7 @@ export interface H3WorkspaceActions extends H3TimelineReactActions {
   h3ChangeGuideSource(id: string, channel: H3GuideChannel, mediaId: string | null): void
   h3AddPlacement(position: "start" | "guide" | "end", frame: string): void
   h3RemovePlacement(id: string): void
+  setTimelineSettings(values: { fps?: number; frameCount?: number }): void
   h3Apply(): void
   h3Cancel(): void
 }
@@ -49,9 +55,9 @@ function itemLabel(item: MediaItem | undefined): string {
   )
 }
 
-function frameLabel(frame: number): string {
+function frameLabel(frame: number, fps: number): string {
   return Number.isSafeInteger(frame) && frame >= 0
-    ? `${frame}f · ${(frame / 24).toFixed(3)}s`
+    ? `${frame}f · ${(frame / fps).toFixed(3)}s`
     : "Unspecified frame"
 }
 
@@ -79,15 +85,18 @@ function GuideList({
   snapshot,
   h3,
   actions,
+  fps,
 }: {
   snapshot: LoaderViewSnapshot
   h3: H3WorkspaceView
   actions: H3WorkspaceActions
+  fps: number
 }): ReactNode {
   const marks = timelineMarks(
     { ...snapshot.state, h3Timeline: h3.timeline },
     snapshot.runtime,
     h3.shots,
+    fps,
   )
     .map((mark, index) => ({ mark, index }))
     .sort((left, right) => {
@@ -161,7 +170,9 @@ function GuideList({
                         : `Guide ${mark.placement.guideId ?? ""}`}
                 </strong>
                 <small>
-                  {mark.placement.kind === "end" ? "final output frame" : frameLabel(mark.frame)}
+                  {mark.placement.kind === "end"
+                    ? "final output frame"
+                    : frameLabel(mark.frame, fps)}
                   {mark.disabled ? " · paused" : ""}
                   {mark.incomplete ? " · Missing source" : ""}
                 </small>
@@ -181,9 +192,20 @@ function GuideList({
                 label={`Guide ${mark.placement.guideId}`}
                 removeLabel="Remove Guide"
                 frameAriaLabel="Guide frame"
+                fps={fps}
                 compact
-                onInput={(value) => actions.h3InputFrame(mark.placement.guideId!, value)}
-                onCommit={(value) => actions.h3CommitFrame(mark.placement.guideId!, value)}
+                onInput={(value) =>
+                  actions.h3InputFrame(
+                    mark.placement.guideId!,
+                    timelineFrameInputToNative(value, fps),
+                  )
+                }
+                onCommit={(value) =>
+                  actions.h3CommitFrame(
+                    mark.placement.guideId!,
+                    timelineFrameInputToNative(value, fps),
+                  )
+                }
                 onRemove={() => actions.h3RemovePlacement(mark.placement.guideId!)}
               />
             ) : null}
@@ -194,12 +216,13 @@ function GuideList({
                 label={`Shot #${mark.shotTag}`}
                 removeLabel="Remove Shot"
                 frameAriaLabel="Shot frame"
+                fps={fps}
                 compact
                 onInput={() => undefined}
                 onCommit={(value) => {
                   const frame = Number(value.trim())
                   if (Number.isSafeInteger(frame) && frame >= 0)
-                    actions.changeShot(mark.shotTag!, frame)
+                    actions.changeShot(mark.shotTag!, timelineToNativeFrame(frame, fps))
                 }}
                 onRemove={() => actions.removeShot(mark.shotTag!)}
               />
@@ -233,6 +256,7 @@ function guideEditorProps(
   snapshot: LoaderViewSnapshot,
   h3: H3WorkspaceView,
   actions: H3WorkspaceActions,
+  fps: number,
 ): H3GuideEditorProps | undefined {
   const editor = h3.editor
   if (!editor?.mediaId) return undefined
@@ -247,7 +271,7 @@ function guideEditorProps(
       const pairedId = editor.channel === "visual" ? guide.audioId : guide.visualId
       return {
         id: guide.id,
-        frameIndex: guide.frameIndex,
+        frameIndex: nativeToTimelineFrame(guide.frameIndex, fps),
         pairedLabel: pairedId
           ? sourceLabel(snapshot, pairedId, editor.channel === "visual" ? "audio" : "visual")
           : undefined,
@@ -259,17 +283,19 @@ function guideEditorProps(
       editor.channel === "visual" ? snapshot.runtime.get(item.id)?.previewUrl : undefined,
     sourceKind: editor.channel === "visual" ? "image" : "audio",
     channel: editor.channel,
+    fps,
     start: editor.channel === "visual" && h3.timeline.startImageId === mediaId,
     end: editor.channel === "visual" && h3.timeline.endImageId === mediaId,
     guides,
     atGuideLimit: h3.timeline.guides.length >= 32,
     issue: h3.issue,
     addError: h3.draftError,
-    onAdd: actions.h3AddPlacement,
+    onAdd: (position, frame) =>
+      actions.h3AddPlacement(position, timelineFrameInputToNative(frame, fps)),
     onRemoveRole: actions.h3RemoveRole,
     onRemoveGuide: actions.h3RemovePlacement,
-    onInputFrame: actions.h3InputFrame,
-    onCommitFrame: actions.h3CommitFrame,
+    onInputFrame: (id, value) => actions.h3InputFrame(id, timelineFrameInputToNative(value, fps)),
+    onCommitFrame: (id, value) => actions.h3CommitFrame(id, timelineFrameInputToNative(value, fps)),
     onApply: actions.h3Apply,
     onCancel: actions.h3Cancel,
   }
@@ -279,12 +305,14 @@ function SourceInspector({
   snapshot,
   h3,
   actions,
+  fps,
 }: {
   snapshot: LoaderViewSnapshot
   h3: H3WorkspaceView
   actions: H3WorkspaceActions
+  fps: number
 }): ReactNode {
-  const props = guideEditorProps(snapshot, h3, actions)
+  const props = guideEditorProps(snapshot, h3, actions, fps)
   if (!props)
     return <p className="rl-h3-workspace__empty">The selected Media source is unavailable.</p>
   return (
@@ -301,15 +329,19 @@ function RecoveryInspector({
   snapshot,
   h3,
   actions,
+  fps,
 }: {
   snapshot: LoaderViewSnapshot
   h3: H3WorkspaceView
   actions: H3WorkspaceActions
+  fps: number
 }): ReactNode {
   const editor = h3.editor
   const guideId = editor?.selectedGuideId ?? editor?.ownedGuideIds[0]
   const guide = guideId ? h3.timeline.guides.find((entry) => entry.id === guideId) : undefined
-  const frameValue = frameInputValue(guide?.frameIndex ?? Number.NaN)
+  const frameValue = frameInputValue(
+    guide ? nativeToTimelineFrame(guide.frameIndex, fps) : Number.NaN,
+  )
   const previousExternalFrame = useRef(frameValue)
   const [frame, setFrame] = useState(frameValue)
   const committed = useRef(frame)
@@ -333,7 +365,7 @@ function RecoveryInspector({
   const commitFrame = (value: string): void => {
     if (committed.current === value) return
     committed.current = value
-    actions.h3CommitFrame(guide.id, value)
+    actions.h3CommitFrame(guide.id, timelineFrameInputToNative(value, fps))
   }
   const selectSource = (channel: H3GuideChannel, event: ChangeEvent<HTMLSelectElement>): void => {
     actions.h3ChangeGuideSource(guide.id, channel, event.currentTarget.value || null)
@@ -364,7 +396,7 @@ function RecoveryInspector({
           onInput={(event) => {
             const value = event.currentTarget.value
             setFrame(value)
-            actions.h3InputFrame(guide.id, value)
+            actions.h3InputFrame(guide.id, timelineFrameInputToNative(value, fps))
           }}
           ref={(input) => {
             if (!input) return
@@ -437,6 +469,8 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
   const pageId = useId()
 
   if (!h3) return null
+  const fps = snapshot.display.timelineFps
+  const frameCount = snapshot.display.timelineFrameCount
   const placements = h3Placements(h3.timeline)
   const count = Object.keys(snapshot.state.items).length
   const status = h3.issue
@@ -507,7 +541,40 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
           </button>
         </header>
         <div className="rl-h3-workspace__tools" hidden={h3.collapsed}>
-          <span>24 fps</span>
+          <label className="rl-h3-workspace__setting" title="Display and authoring timebase">
+            <span>FPS</span>
+            <input
+              type="number"
+              min="1"
+              max="240"
+              step="1"
+              aria-label="Timeline FPS"
+              value={fps}
+              onInput={(event) =>
+                actions.setTimelineSettings({ fps: Number(event.currentTarget.value) })
+              }
+            />
+          </label>
+          <label className="rl-h3-workspace__setting" title="Minimum visible timeline frames">
+            <span>Frames</span>
+            <input
+              type="number"
+              min="1"
+              max="3600"
+              step="1"
+              aria-label="Timeline frame count"
+              value={frameCount}
+              onInput={(event) =>
+                actions.setTimelineSettings({ frameCount: Number(event.currentTarget.value) })
+              }
+            />
+          </label>
+          <span
+            className="rl-h3-workspace__timeline-note"
+            title="These settings change the editor view. Native H3 execution remains 24 fps and Wrapper length controls output duration."
+          >
+            View only
+          </span>
           <div className="rl-h3-workspace__view-group" aria-label="Timeline view">
             <button
               type="button"
@@ -552,19 +619,21 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
                 runtime={snapshot.runtime}
                 h3={h3}
                 actions={actions}
+                fps={fps}
+                frameCount={frameCount}
                 zoom={zoom}
                 fitToken={fitToken}
               />
             ) : (
-              <GuideList snapshot={snapshot} h3={h3} actions={actions} />
+              <GuideList snapshot={snapshot} h3={h3} actions={actions} fps={fps} />
             )}
             {h3.editor?.mediaId ? (
               <div className="rl-h3-inline-editor" data-h3-inline-editor="">
-                <SourceInspector snapshot={snapshot} h3={h3} actions={actions} />
+                <SourceInspector snapshot={snapshot} h3={h3} actions={actions} fps={fps} />
               </div>
             ) : h3.editor?.recovery ? (
               <div className="rl-h3-inline-editor" data-h3-inline-editor="">
-                <RecoveryInspector snapshot={snapshot} h3={h3} actions={actions} />
+                <RecoveryInspector snapshot={snapshot} h3={h3} actions={actions} fps={fps} />
               </div>
             ) : null}
           </div>

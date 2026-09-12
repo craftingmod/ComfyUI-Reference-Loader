@@ -1,7 +1,38 @@
 import { h3Placements, type H3TimelinePlacement } from "../h3-media-guides.ts"
-import type { ItemRuntime, LoaderState } from "../types.ts"
+import {
+  H3_TIMELINE_DEFAULT_FRAME_COUNT,
+  H3_TIMELINE_NATIVE_FPS,
+  type ItemRuntime,
+  type LoaderState,
+} from "../types.ts"
 
-const FPS = 24
+const FPS = H3_TIMELINE_NATIVE_FPS
+
+function safeFps(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : FPS
+}
+
+export function nativeToTimelineFrame(frame: number, fps = FPS): number {
+  if (!Number.isSafeInteger(frame) || frame < 0) return frame
+  return Math.max(0, Math.round((frame * safeFps(fps)) / FPS))
+}
+
+export function timelineToNativeFrame(frame: number, fps = FPS): number {
+  if (!Number.isFinite(frame)) return frame
+  return Math.max(0, Math.round((frame * FPS) / safeFps(fps)))
+}
+
+export function timelineFrameInputToNative(value: string, fps = FPS): string {
+  const raw = value.trim()
+  if (raw === "") return value
+  const frame = Number(raw)
+  if (!Number.isSafeInteger(frame) || frame < 0) return value
+  return String(timelineToNativeFrame(frame, fps))
+}
+
+export function timelineSeconds(frame: number, fps = FPS): string {
+  return (frame / safeFps(fps)).toFixed(3)
+}
 
 export interface TimelineMark {
   placement: H3TimelinePlacement
@@ -11,6 +42,8 @@ export interface TimelineMark {
   previewUrl?: string
   frame: number
   frames?: number
+  nativeFrame: number
+  nativeFrames?: number
   disabled: boolean
   incomplete: boolean
   warning?: string
@@ -20,7 +53,9 @@ export function timelineMarks(
   state: LoaderState,
   runtime: ReadonlyMap<string, ItemRuntime>,
   shots: readonly { tag: string; frameIndex: number }[] = [],
+  fps = FPS,
 ): TimelineMark[] {
+  const displayFps = safeFps(fps)
   const marks: TimelineMark[] = []
   for (const placement of h3Placements(state.h3Timeline)) {
     for (const channel of ["visual", "audio"] as const) {
@@ -39,18 +74,25 @@ export function timelineMarks(
         channel === "visual"
           ? state.h3Timeline.disabledVisualIds
           : state.h3Timeline.disabledAudioIds
+      const nativeFrame = placement.frameIndex ?? 0
       marks.push({
         placement,
         channel,
         label: item?.sourceFilename || item?.source.path.split("/").pop() || "Media needed",
         previewUrl: channel === "visual" ? loaded?.previewUrl : undefined,
-        frame: placement.frameIndex ?? 0,
+        frame: nativeToTimelineFrame(nativeFrame, displayFps),
         frames:
           channel === "visual"
             ? 1
             : duration !== undefined && Number.isFinite(duration) && duration > 0
-              ? Math.max(1, Math.ceil(duration * FPS))
+              ? Math.max(1, Math.ceil(duration * displayFps))
               : undefined,
+        nativeFrame,
+        ...(channel === "visual"
+          ? { nativeFrames: 1 }
+          : duration !== undefined && Number.isFinite(duration) && duration > 0
+            ? { nativeFrames: Math.max(1, Math.ceil(duration * FPS)) }
+            : {}),
         disabled: !state.h3Timeline.enabled || Boolean(id && disabledIds?.includes(id)),
         incomplete:
           !item ||
@@ -65,8 +107,10 @@ export function timelineMarks(
       channel: "shot",
       shotTag: shot.tag,
       label: `#${shot.tag}`,
-      frame: shot.frameIndex,
+      frame: nativeToTimelineFrame(shot.frameIndex, displayFps),
       frames: 1,
+      nativeFrame: shot.frameIndex,
+      nativeFrames: 1,
       disabled: false,
       incomplete: !Number.isSafeInteger(shot.frameIndex) || shot.frameIndex < 0,
     })
@@ -89,7 +133,10 @@ export function timelineMarks(
         other.frames === undefined
       )
         continue
-      if (mark.frame < other.frame + other.frames && other.frame < mark.frame + mark.frames) {
+      if (
+        mark.nativeFrame < other.nativeFrame + (other.nativeFrames ?? 1) &&
+        other.nativeFrame < mark.nativeFrame + (mark.nativeFrames ?? 1)
+      ) {
         mark.warning =
           other.warning = `${mark.channel === "audio" ? "Audio ranges" : "Image placements"} overlap. Wrapper validates the final output.`
       }
@@ -98,14 +145,25 @@ export function timelineMarks(
   return marks
 }
 
-export function timelineExtent(marks: TimelineMark[]): number {
+export function timelineExtent(
+  marks: TimelineMark[],
+  frameCount = H3_TIMELINE_DEFAULT_FRAME_COUNT,
+  fps = FPS,
+): number {
+  const displayFps = safeFps(fps)
+  const configuredFrameCount =
+    Number.isSafeInteger(frameCount) && frameCount > 0
+      ? frameCount
+      : H3_TIMELINE_DEFAULT_FRAME_COUNT
   return Math.max(
-    240,
+    configuredFrameCount,
     ...marks
       .filter((mark) => mark.placement.kind !== "end" && Number.isSafeInteger(mark.frame))
       .map(
         (mark) =>
-          Math.ceil(Math.max(mark.frame + (mark.frames ?? 1) + FPS, mark.frame * 1.16) / FPS) * FPS,
+          Math.ceil(
+            Math.max(mark.frame + (mark.frames ?? 1) + displayFps, mark.frame * 1.16) / displayFps,
+          ) * displayFps,
       ),
   )
 }

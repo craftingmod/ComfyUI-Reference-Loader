@@ -6,10 +6,13 @@ import type { ComfyNode } from "../src/comfyui.ts"
 import { ReferenceLoaderApi } from "../src/reference-loader/api.ts"
 import {
   draggedFrame,
+  nativeToTimelineFrame,
+  timelineFrameInputToNative,
   timelineMarks,
   timelineExtent,
 } from "../src/reference-loader/components/h3-timeline.ts"
 import { ReferenceLoaderController } from "../src/reference-loader/components/loader.ts"
+import { executionFingerprintSource } from "../src/reference-loader/execution.ts"
 import {
   serializeLoaderState,
   deserializeLoaderState,
@@ -156,6 +159,38 @@ function sizeSurface(root: HTMLElement, width = 640) {
 }
 
 describe("Guide timeline", () => {
+  test("converts a configurable view timebase without changing native Guide frames", () => {
+    const { root, controller } = mount()
+    const executionBefore = executionFingerprintSource(controller.state)
+    const fps = root.querySelector<HTMLInputElement>('[aria-label="Timeline FPS"]')
+    const frameCount = root.querySelector<HTMLInputElement>('[aria-label="Timeline frame count"]')
+    if (!fps || !frameCount) throw new Error("Missing Timeline view settings.")
+
+    fps.value = "30"
+    flushSync(() => fps.dispatchEvent(new Event("input", { bubbles: true })))
+    frameCount.value = "120"
+    flushSync(() => frameCount.dispatchEvent(new Event("input", { bubbles: true })))
+
+    expect(controller.state.ui.h3TimelineFps).toBe(30)
+    expect(controller.state.ui.h3TimelineFrameCount).toBe(120)
+    expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
+    expect(nativeToTimelineFrame(48, 30)).toBe(60)
+    expect(timelineFrameInputToNative("61", 30)).toBe("49")
+    expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("60f · 2.000s")
+    expect(root.querySelector("[data-timeline-channel=visual]")?.textContent).toContain("60f")
+    expect(root.querySelector(".rl-h3-timeline__ruler")?.textContent).toContain("4.000s · 120f")
+    expect(executionFingerprintSource(controller.state)).toBe(executionBefore)
+
+    root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
+    const guideInput = root.querySelector<HTMLInputElement>('[aria-label="Guide frame"]')!
+    expect(guideInput.value).toBe("60")
+    guideInput.value = "61"
+    flushSync(() => guideInput.dispatchEvent(new Event("input", { bubbles: true })))
+    guideInput.dispatchEvent(new Event("change", { bubbles: true }))
+    root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
+    expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(49)
+  })
+
   test("uses trimmed audio intervals, ignores paused ranges, and keeps End out of the view extent", () => {
     const state = fixture()
     const voice = state.items.voice

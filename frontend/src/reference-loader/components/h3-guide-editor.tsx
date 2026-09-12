@@ -7,6 +7,7 @@ export interface H3GuideEditorProps {
   sourcePreviewUrl?: string
   sourceKind?: "image" | "audio"
   channel: "visual" | "audio"
+  fps: number
   start: boolean
   end: boolean
   guides: readonly { id: string; frameIndex: number; pairedLabel?: string }[]
@@ -102,7 +103,7 @@ function GuideFrame({
           />
         </label>
         <span id={descriptionId} className="rl-h3-editor__seconds">
-          {validFrame ? `${(guide.frameIndex / 24).toFixed(2)}s` : ""}
+          {validFrame ? `${(guide.frameIndex / props.fps).toFixed(2)}s` : ""}
         </span>
         <button
           type="button"
@@ -281,7 +282,7 @@ export function H3GuideInspector({
             />
             <small data-h3-add-seconds="">
               {showFrame && Number.isSafeInteger(frameIndex) && frameIndex >= 0
-                ? `(${(frameIndex / 24).toFixed(2)}s)`
+                ? `(${(frameIndex / props.fps).toFixed(2)}s)`
                 : ""}
             </small>
           </span>

@@ -1,5 +1,9 @@
 import {
   DEFAULT_UI_PREFERENCES,
+  H3_TIMELINE_MAX_FPS,
+  H3_TIMELINE_MAX_FRAME_COUNT,
+  H3_TIMELINE_MIN_FPS,
+  H3_TIMELINE_MIN_FRAME_COUNT,
   H3_TIMELINE_VERSION,
   LOADER_STATE_VERSION,
   MAX_H3_GUIDES,
@@ -212,6 +216,8 @@ function sanitizeUi(value: unknown): LoaderUiPreferences {
   if (!isRecord(value)) return { ...DEFAULT_UI_PREFERENCES }
   const aspect = stringValue(value.cardAspectRatio)
   const columns = finiteNumber(value.gridColumns)
+  const timelineFps = finiteNumber(value.h3TimelineFps)
+  const timelineFrameCount = finiteNumber(value.h3TimelineFrameCount)
   const preview = finiteNumber(value.previewMaxPixels)
   const previewFit = stringValue(value.previewFit)
   const peaks = finiteNumber(value.waveformPeaks)
@@ -223,6 +229,17 @@ function sanitizeUi(value: unknown): LoaderUiPreferences {
       columns === undefined
         ? DEFAULT_UI_PREFERENCES.gridColumns
         : Math.min(8, Math.max(1, Math.round(columns))),
+    h3TimelineFps:
+      timelineFps === undefined
+        ? DEFAULT_UI_PREFERENCES.h3TimelineFps
+        : Math.min(H3_TIMELINE_MAX_FPS, Math.max(H3_TIMELINE_MIN_FPS, Math.round(timelineFps))),
+    h3TimelineFrameCount:
+      timelineFrameCount === undefined
+        ? DEFAULT_UI_PREFERENCES.h3TimelineFrameCount
+        : Math.min(
+            H3_TIMELINE_MAX_FRAME_COUNT,
+            Math.max(H3_TIMELINE_MIN_FRAME_COUNT, Math.round(timelineFrameCount)),
+          ),
     previewMaxPixels:
       preview === undefined
         ? DEFAULT_UI_PREFERENCES.previewMaxPixels

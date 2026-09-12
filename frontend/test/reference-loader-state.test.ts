@@ -265,6 +265,8 @@ describe("validation and serialization", () => {
       ui: {
         cardAspectRatio: "3 / 4",
         gridColumns: 99,
+        h3TimelineFps: 300,
+        h3TimelineFrameCount: 0,
         previewMaxPixels: 1_750_000,
         previewFit: "cover",
         waveformPeaks: 999,
@@ -277,6 +279,8 @@ describe("validation and serialization", () => {
     expect(result.state.ui.cardAspectRatio).toBe("3 / 4")
     expect(result.state.ui.previewFit).toBe("cover")
     expect(result.state.ui.gridColumns).toBe(8)
+    expect(result.state.ui.h3TimelineFps).toBe(240)
+    expect(result.state.ui.h3TimelineFrameCount).toBe(1)
     expect(result.state.ui.previewMaxPixels).toBe(1_750_000)
     expect(validateLoaderState({ version: 0 }).state).toEqual(createEmptyLoaderState())
   })

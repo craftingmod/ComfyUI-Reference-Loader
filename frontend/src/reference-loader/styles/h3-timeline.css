@@ -656,6 +656,29 @@
   font-size: 10px;
 }
 
+.rl-h3-workspace__setting {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.rl-h3-workspace__setting input {
+  width: 54px;
+  min-height: 28px;
+  padding: 3px 5px;
+  border: 1px solid var(--rl-border);
+  border-radius: 4px;
+  background: var(--rl-panel);
+  color: var(--rl-text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.rl-h3-workspace__timeline-note {
+  white-space: nowrap;
+}
+
 .rl-h3-workspace__info,
 .rl-h3-workspace__tools button,
 .rl-h3-workspace__tools select,

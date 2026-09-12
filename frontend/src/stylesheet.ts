@@ -1,5 +1,5 @@
 export const STYLESHEET_ID = "reference-loader-stylesheet"
-const STYLESHEET_VERSION = "24"
+const STYLESHEET_VERSION = "25"
 
 export function installStylesheet(moduleUrl: string = import.meta.url): HTMLLinkElement {
   const stylesheetUrl = new URL("./index.css", moduleUrl)

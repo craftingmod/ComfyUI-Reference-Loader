@@ -1,0 +1,67 @@
+.reference-loader button,
+.reference-loader input,
+.reference-loader textarea,
+.reference-loader select,
+.reference-prompt button,
+.reference-prompt input,
+.reference-prompt textarea,
+.reference-prompt select,
+.reference-prompt-definitions button,
+.reference-prompt-definitions input,
+.reference-prompt-definitions textarea,
+.reference-prompt-definitions select,
+.rl-modal button,
+.rl-modal input,
+.rl-modal textarea,
+.rl-modal select {
+  font: inherit;
+}
+
+.reference-loader button,
+.reference-prompt button,
+.reference-prompt-definitions button,
+.rl-file-button,
+.rl-modal button {
+  min-height: 26px;
+  border: 1px solid var(--rl-border);
+  border-radius: 5px;
+  background: var(--rl-panel);
+  color: var(--rl-text);
+  cursor: pointer;
+}
+.reference-loader button:hover:not(:disabled),
+.reference-prompt button:hover:not(:disabled),
+.reference-prompt-definitions button:hover:not(:disabled),
+.rl-file-button:hover,
+.rl-modal button:hover:not(:disabled) {
+  border-color: var(--rl-accent);
+}
+.reference-loader button:disabled,
+.reference-prompt button:disabled,
+.reference-prompt-definitions button:disabled,
+.rl-modal button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+.reference-loader button:focus-visible,
+.reference-loader textarea:focus-visible,
+.reference-loader input:focus-visible,
+.reference-prompt button:focus-visible,
+.reference-prompt textarea:focus-visible,
+.reference-prompt input:focus-visible,
+.reference-prompt [contenteditable="true"]:focus-visible,
+.reference-prompt-definitions button:focus-visible,
+.reference-prompt-definitions textarea:focus-visible,
+.reference-prompt-definitions input:focus-visible,
+.reference-prompt-definitions [contenteditable="true"]:focus-visible,
+.rl-modal button:focus-visible,
+.rl-modal input:focus-visible,
+.rl-modal select:focus-visible {
+  outline: 2px solid var(--rl-accent);
+  outline-offset: 1px;
+}
+.rl-primary {
+  background: color-mix(in srgb, var(--rl-accent) 72%, #162239) !important;
+  border-color: color-mix(in srgb, var(--rl-accent) 80%, #fff) !important;
+  color: #fff !important;
+}

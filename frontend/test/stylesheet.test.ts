@@ -3,6 +3,40 @@ import { afterEach, describe, expect, it } from "bun:test"
 import { STYLESHEET_ID, installStylesheet } from "../src/stylesheet.ts"
 
 describe("Reference Loader stylesheet", () => {
+  it("keeps theme tokens, surface sizing, and controls in separate layers", async () => {
+    const tokens = await Bun.file(
+      new URL("../src/reference-loader/styles/tokens.css", import.meta.url),
+    ).text()
+    const base = await Bun.file(
+      new URL("../src/reference-loader/styles/base.css", import.meta.url),
+    ).text()
+    const controls = await Bun.file(
+      new URL("../src/reference-loader/styles/controls.css", import.meta.url),
+    ).text()
+    const index = await Bun.file(
+      new URL("../src/reference-loader/styles/index.css", import.meta.url),
+    ).text()
+
+    expect(tokens).toContain("--rl-bg:")
+    expect(tokens).not.toContain("grid-template-rows:")
+    expect(base).toContain(".rl-reference-loader-widgets")
+    expect(base).toContain("[data-loader-react-surface]")
+    expect(base).not.toContain(".rl-primary")
+    expect(controls).toContain(".reference-loader button:focus-visible")
+    expect(controls).toContain(".rl-primary")
+    expect(controls).not.toContain(".reference-image-loader")
+
+    expect(index.indexOf('@import "./tokens.css";')).toBeLessThan(
+      index.indexOf('@import "./base.css";'),
+    )
+    expect(index.indexOf('@import "./base.css";')).toBeLessThan(
+      index.indexOf('@import "./controls.css";'),
+    )
+    expect(index.indexOf('@import "./controls.css";')).toBeLessThan(
+      index.indexOf('@import "./loader.css";'),
+    )
+  })
+
   it("styles the Media heading like the Prompt heading", async () => {
     const css = await Bun.file(
       new URL("../src/reference-loader/styles/loader.css", import.meta.url),
@@ -46,13 +80,13 @@ describe("Reference Loader stylesheet", () => {
   })
 
   it("keeps the single-image loader compact and native-looking", async () => {
-    const tokens = await Bun.file(
-      new URL("../src/reference-loader/styles/tokens.css", import.meta.url),
+    const base = await Bun.file(
+      new URL("../src/reference-loader/styles/base.css", import.meta.url),
     ).text()
     const loader = await Bun.file(
       new URL("../src/reference-loader/styles/loader.css", import.meta.url),
     ).text()
-    const compactRule = tokens.match(/\.reference-image-loader\s*\{([^}]*)\}/)?.[1]
+    const compactRule = base.match(/\.reference-image-loader\s*\{([^}]*)\}/)?.[1]
     const panelRule = loader.match(/\.rl-single-image-panel\s*\{([^}]*)\}/)?.[1]
     const controlsRule = loader.match(/\.rl-single-image-controls\s*\{([^}]*)\}/)?.[1]
     const cardRule = loader.match(/\.rl-card\.rl-single-image-card\s*\{([^}]*)\}/)?.[1]
@@ -69,8 +103,8 @@ describe("Reference Loader stylesheet", () => {
     expect(compactRule).toContain("max-width: 100%;")
     expect(compactRule).toContain("min-height: 0;")
     expect(compactRule).toContain("height: 100%;")
-    expect(tokens).toContain(".reference-image-loader > [data-loader-react-root]")
-    expect(tokens).toContain(
+    expect(base).toContain(".reference-image-loader > [data-loader-react-root]")
+    expect(base).toContain(
       ".reference-image-loader > [data-loader-react-root] > [data-loader-react-surface]",
     )
     // expect(panelRule).toContain("grid-template-rows: max-content minmax(180px, 1fr);")
@@ -215,7 +249,7 @@ describe("Reference Loader stylesheet", () => {
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
     expect(first.href).toBe(
-      "https://example.test/extensions/comfyui-reference-loader/index.css?v=24",
+      "https://example.test/extensions/comfyui-reference-loader/index.css?v=25",
     )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })
@@ -367,7 +401,7 @@ describe("Reference Loader stylesheet", () => {
 
   it("keeps Media and Subjects rows intrinsic and gives spare height to Prompt", async () => {
     const css = await Bun.file(
-      new URL("../src/reference-loader/styles/tokens.css", import.meta.url),
+      new URL("../src/reference-loader/styles/base.css", import.meta.url),
     ).text()
     const gridRule = css.match(/\.rl-reference-loader-widgets\s*\{([^}]*)\}/)?.[1]
 

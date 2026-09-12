@@ -1,4 +1,6 @@
 @import "./tokens.css";
+@import "./base.css";
+@import "./controls.css";
 @import "./loader.css";
 @import "./cards.css";
 @import "./prompt.css";

@@ -136,7 +136,7 @@ describe("Reference Loader stylesheet", () => {
 
   it("keeps the H3 add row compact and aligns editor actions to the bottom", async () => {
     const css = await Bun.file(
-      new URL("../src/reference-loader/styles/h3-timeline.css", import.meta.url),
+      new URL("../src/reference-loader/styles/h3-editor.css", import.meta.url),
     ).text()
     const addFormRule = css.match(/\.rl-h3-editor__add-form\s*\{([^}]*)\}/)?.[1]
     const positionRule = css.match(/\.rl-h3-editor__position-field\s*\{([^}]*)\}/)?.[1]
@@ -170,11 +170,15 @@ describe("Reference Loader stylesheet", () => {
   })
 
   it("lets the React H3 workspace grow with its content", async () => {
-    const css = await Bun.file(
+    const workspace = await Bun.file(
+      new URL("../src/reference-loader/styles/h3-workspace.css", import.meta.url),
+    ).text()
+    const timeline = await Bun.file(
       new URL("../src/reference-loader/styles/h3-timeline.css", import.meta.url),
     ).text()
-    const workspaceRule = css.match(/\.rl-h3-workspace\s*\{([^}]*)\}/)?.[1]
-    const collapsedRule = css.match(/\.rl-h3-workspace\.is-collapsed\s*\{([^}]*)\}/)?.[1]
+    const css = `${workspace}\n${timeline}`
+    const workspaceRule = workspace.match(/\.rl-h3-workspace\s*\{([^}]*)\}/)?.[1]
+    const collapsedRule = workspace.match(/\.rl-h3-workspace\.is-collapsed\s*\{([^}]*)\}/)?.[1]
 
     expect(workspaceRule).toContain("grid-template-rows: auto auto auto auto;")
     expect(workspaceRule).not.toContain("height:")
@@ -192,10 +196,52 @@ describe("Reference Loader stylesheet", () => {
     expect(css).not.toContain(".rl-h3-editor__background")
   })
 
-  it("does not retain selectors from removed legacy surfaces", async () => {
-    const h3 = await Bun.file(
+  it("keeps H3 surface ownership explicit", async () => {
+    const editor = await Bun.file(
+      new URL("../src/reference-loader/styles/h3-editor.css", import.meta.url),
+    ).text()
+    const workspace = await Bun.file(
+      new URL("../src/reference-loader/styles/h3-workspace.css", import.meta.url),
+    ).text()
+    const timeline = await Bun.file(
       new URL("../src/reference-loader/styles/h3-timeline.css", import.meta.url),
     ).text()
+    const cards = await Bun.file(
+      new URL("../src/reference-loader/styles/cards.css", import.meta.url),
+    ).text()
+    const index = await Bun.file(
+      new URL("../src/reference-loader/styles/index.css", import.meta.url),
+    ).text()
+
+    expect(editor).toContain(".rl-h3-editor__position-group")
+    expect(editor).not.toContain(".rl-h3-workspace")
+    expect(editor).not.toContain(".rl-h3-timeline__mark")
+    expect(workspace).toContain(".rl-h3-workspace__list")
+    expect(workspace).toContain(".rl-h3-editor--inspector")
+    expect(workspace).toContain("@container (max-width: 759px)")
+    expect(workspace).not.toContain(".rl-h3-timeline__mark")
+    expect(timeline).toContain(".rl-h3-timeline__mark")
+    expect(timeline).toContain(".rl-h3-element-controls")
+    expect(timeline).not.toContain(".rl-h3-editor")
+    expect(timeline).not.toContain(".rl-h3-workspace")
+    expect(cards).toContain(".rl-h3-card-badges")
+    expect(cards).toContain(".rl-guide-button.is-on")
+    expect(index.indexOf('@import "./h3-editor.css";')).toBeLessThan(
+      index.indexOf('@import "./h3-timeline.css";'),
+    )
+    expect(index.indexOf('@import "./h3-timeline.css";')).toBeLessThan(
+      index.indexOf('@import "./h3-workspace.css";'),
+    )
+  })
+
+  it("does not retain selectors from removed legacy surfaces", async () => {
+    const h3 = (
+      await Promise.all(
+        ["h3-editor.css", "h3-timeline.css", "h3-workspace.css"].map((file) =>
+          Bun.file(new URL(`../src/reference-loader/styles/${file}`, import.meta.url)).text(),
+        ),
+      )
+    ).join("\n")
     const cards = await Bun.file(
       new URL("../src/reference-loader/styles/cards.css", import.meta.url),
     ).text()
@@ -249,7 +295,7 @@ describe("Reference Loader stylesheet", () => {
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
     expect(first.href).toBe(
-      "https://example.test/extensions/comfyui-reference-loader/index.css?v=25",
+      "https://example.test/extensions/comfyui-reference-loader/index.css?v=26",
     )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })

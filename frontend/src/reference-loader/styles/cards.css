@@ -346,3 +346,51 @@
   color: var(--rl-danger);
   overflow-wrap: anywhere;
 }
+
+.rl-h3-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  min-width: 0;
+  min-height: 16px;
+}
+
+.rl-h3-card-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 16px;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--rl-accent) 50%, var(--rl-border));
+  border-radius: 999px;
+  color: var(--rl-accent);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rl-h3-card-badge.is-reference {
+  color: var(--rl-edit);
+  border-color: color-mix(in srgb, var(--rl-edit) 55%, var(--rl-border));
+  background: color-mix(in srgb, var(--rl-edit) 10%, var(--rl-panel));
+}
+
+.rl-h3-card-badge.is-guide {
+  color: var(--rl-guide-edit);
+  border-color: color-mix(in srgb, var(--rl-guide-edit) 55%, var(--rl-border));
+  background: color-mix(in srgb, var(--rl-guide-edit) 10%, var(--rl-panel));
+}
+
+.rl-h3-card-badge.is-order {
+  color: var(--rl-muted);
+  border-color: var(--rl-border);
+  font-weight: 700;
+}
+
+.rl-h3-card-badge.is-paused {
+  color: var(--rl-muted);
+  border-color: var(--rl-border);
+}
+
+.rl-guide-button.is-on {
+  border-color: var(--rl-accent);
+  background: color-mix(in srgb, var(--rl-accent) 30%, var(--rl-panel));
+}

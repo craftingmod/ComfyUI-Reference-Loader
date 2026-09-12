@@ -24,7 +24,7 @@ import {
   type LoaderViewChannel,
   type LoaderViewSnapshot,
 } from "../view-model.ts"
-import { H3WorkspaceReact, type H3WorkspaceActions } from "./h3-workspace-react.tsx"
+import type { H3WorkspaceActions } from "./h3-workspace-react.tsx"
 
 const DRAG_MIME = "application/x-reference-loader-item"
 const MEDIA_EXTENSIONS = {
@@ -1345,7 +1345,6 @@ function ReferenceLoaderReactRoot({
               />
             ))}
           </div>
-          <H3WorkspaceReact snapshot={snapshot} actions={actions} />
         </div>
       )}
     </div>

@@ -30,9 +30,13 @@ function mount() {
     new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
     serializeLoaderState(state),
   )
+  const h3Root = document.createElement("div")
+  root.append(h3Root)
+  const h3Mount = controller.mountH3Workspace(h3Root)
   const open = () => root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"]')!.click()
   open()
   cleanups.push(() => {
+    h3Mount.destroy()
     controller.destroy()
     root.remove()
   })
@@ -64,14 +68,14 @@ describe("React Guide inspector boundary", () => {
     const guide = inspector.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')!
     const add = root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')!
     expect(
-      inspector.querySelector('[data-h3-action="delete-draft-placement"]')?.classList.contains(
-        "rl-button--remove",
-      ),
+      inspector
+        .querySelector('[data-h3-action="delete-draft-placement"]')
+        ?.classList.contains("rl-button--remove"),
     ).toBe(true)
     expect(
-      root.querySelector('[data-h3-action="add-draft-placement"]')?.classList.contains(
-        "rl-button--add",
-      ),
+      root
+        .querySelector('[data-h3-action="add-draft-placement"]')
+        ?.classList.contains("rl-button--add"),
     ).toBe(true)
 
     enter(guide, "72")

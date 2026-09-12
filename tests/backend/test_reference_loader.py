@@ -19,6 +19,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert schema.category == "reference/loader"
   assert [field.name for field in schema.inputs] == [
     "loader_state",
+    "h3_timeline",
     "prompt_definitions",
     "prompt",
     "h3_total_frames",
@@ -38,41 +39,46 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     "waveform_pairs",
   ]
   assert schema.inputs[0].options["extra_dict"] == {"widgetType": "REFERENCE_LOADER"}
-  definitions = schema.inputs[1]
+  h3_timeline = schema.inputs[1]
+  assert h3_timeline.data_type == "string"
+  assert h3_timeline.options["extra_dict"] == {"widgetType": "REFERENCE_H3_TIMELINE"}
+  assert h3_timeline.options["default"] == ""
+  assert h3_timeline.options["socketless"] is True
+  definitions = schema.inputs[2]
   assert definitions.data_type == "string"
   assert definitions.options["extra_dict"] == {
     "widgetType": "REFERENCE_PROMPT_DEFINITIONS"
   }
   assert definitions.options["default"] == ""
   assert definitions.options["socketless"] is True
-  prompt = schema.inputs[2]
+  prompt = schema.inputs[3]
   assert prompt.data_type == "string"
   assert prompt.options["extra_dict"]["widgetType"] == "REFERENCE_PROMPT"
   assert prompt.options["extra_dict"]["promptPresets"] == module.PROMPT_PRESET_CATALOG
   assert prompt.options["socketless"] is True
   assert prompt.options["dynamic_prompts"] is False
-  h3_total_frames = schema.inputs[3]
+  h3_total_frames = schema.inputs[4]
   assert h3_total_frames.data_type == "int"
   assert h3_total_frames.options["display_name"] == "Frames"
   assert h3_total_frames.options["default"] == 124
   assert h3_total_frames.options["min"] == 1
   assert h3_total_frames.options["max"] == 3600
   assert h3_total_frames.options["socketless"] is True
-  h3_fps = schema.inputs[4]
+  h3_fps = schema.inputs[5]
   assert h3_fps.data_type == "int"
   assert h3_fps.options["display_name"] == "FPS"
   assert h3_fps.options["default"] == 24
   assert h3_fps.options["min"] == 1
   assert h3_fps.options["max"] == 240
   assert h3_fps.options["socketless"] is True
-  limit_image_pixels = schema.inputs[5]
+  limit_image_pixels = schema.inputs[6]
   assert limit_image_pixels.data_type == "boolean"
   assert limit_image_pixels.options["default"] is False
   assert limit_image_pixels.options["label_off"] == "Original"
   assert limit_image_pixels.options["label_on"] == "Limited"
   assert limit_image_pixels.options["advanced"] is True
   assert limit_image_pixels.options["socketless"] is False
-  max_image_pixels = schema.inputs[6]
+  max_image_pixels = schema.inputs[7]
   assert max_image_pixels.data_type == "float"
   assert max_image_pixels.options["display_name"] == "max_image_pixels (MPixel)"
   assert max_image_pixels.options["default"] == 2.0
@@ -80,19 +86,19 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert max_image_pixels.options["max"] == 40.0
   assert max_image_pixels.options["advanced"] is True
   assert max_image_pixels.options["socketless"] is False
-  composite_alpha = schema.inputs[7]
+  composite_alpha = schema.inputs[8]
   assert composite_alpha.data_type == "boolean"
   assert composite_alpha.options["default"] is False
   assert composite_alpha.options["label_off"] == "Preserve"
   assert composite_alpha.options["label_on"] == "Opaque"
   assert composite_alpha.options["advanced"] is True
   assert composite_alpha.options["socketless"] is False
-  alpha_background = schema.inputs[8]
+  alpha_background = schema.inputs[9]
   assert alpha_background.data_type == "color"
   assert alpha_background.options["default"] == "#000000"
   assert alpha_background.options["advanced"] is True
   assert alpha_background.options["socketless"] is False
-  prompt_schema_preset = schema.inputs[9]
+  prompt_schema_preset = schema.inputs[10]
   assert prompt_schema_preset.data_type == "combo"
   assert prompt_schema_preset.options["display_name"] == "prompt_schema_preset"
   assert prompt_schema_preset.options["options"] == [
@@ -104,25 +110,25 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert prompt_schema_preset.options["default"] == "generic"
   assert prompt_schema_preset.options["advanced"] is True
   assert prompt_schema_preset.options["socketless"] is True
-  grid_columns = schema.inputs[10]
+  grid_columns = schema.inputs[11]
   assert grid_columns.data_type == "int"
   assert grid_columns.options["display_name"] == "grid_columns"
   assert grid_columns.options["default"] == 3
   assert grid_columns.options["advanced"] is True
   assert grid_columns.options["socketless"] is True
-  preview_pixels = schema.inputs[11]
+  preview_pixels = schema.inputs[12]
   assert preview_pixels.data_type == "float"
   assert preview_pixels.options["display_name"] == "preview_pixels (MPixel)"
   assert preview_pixels.options["default"] == 1.0
   assert preview_pixels.options["advanced"] is True
   assert preview_pixels.options["socketless"] is True
-  show_captions = schema.inputs[12]
+  show_captions = schema.inputs[13]
   assert show_captions.data_type == "boolean"
   assert show_captions.options["display_name"] == "show_captions"
   assert show_captions.options["default"] is True
   assert show_captions.options["advanced"] is True
   assert show_captions.options["socketless"] is True
-  two_image_mode = schema.inputs[13]
+  two_image_mode = schema.inputs[14]
   assert two_image_mode.data_type == "boolean"
   assert two_image_mode.options["display_name"] == "two_image_mode"
   assert two_image_mode.options["default"] is False
@@ -130,7 +136,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert two_image_mode.options["label_on"] == "Up to 2"
   assert two_image_mode.options["advanced"] is True
   assert two_image_mode.options["socketless"] is True
-  prompt_by_order = schema.inputs[14]
+  prompt_by_order = schema.inputs[15]
   assert prompt_by_order.data_type == "boolean"
   assert prompt_by_order.options["display_name"] == "prompt_by_order"
   assert prompt_by_order.options["default"] is False
@@ -138,7 +144,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert prompt_by_order.options["label_on"] == "By order"
   assert prompt_by_order.options["advanced"] is True
   assert prompt_by_order.options["socketless"] is True
-  card_aspect = schema.inputs[15]
+  card_aspect = schema.inputs[16]
   assert card_aspect.data_type == "combo"
   assert card_aspect.options["display_name"] == "card_aspect"
   assert card_aspect.options["options"] == [
@@ -151,14 +157,14 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert card_aspect.options["default"] == "4 / 3"
   assert card_aspect.options["advanced"] is True
   assert card_aspect.options["socketless"] is True
-  preview_fit = schema.inputs[16]
+  preview_fit = schema.inputs[17]
   assert preview_fit.data_type == "combo"
   assert preview_fit.options["display_name"] == "preview_fit"
   assert preview_fit.options["options"] == ["contain", "cover"]
   assert preview_fit.options["default"] == "contain"
   assert preview_fit.options["advanced"] is True
   assert preview_fit.options["socketless"] is True
-  waveform_pairs = schema.inputs[17]
+  waveform_pairs = schema.inputs[18]
   assert waveform_pairs.data_type == "int"
   assert waveform_pairs.options["display_name"] == "waveform_pairs"
   assert waveform_pairs.options["default"] == 300

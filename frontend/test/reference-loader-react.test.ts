@@ -56,7 +56,7 @@ describe("Reference Loader React Media surface", () => {
     const scene = root.querySelector<HTMLElement>('.rl-card[data-id="scene"][data-channel="image"]')
     expect(surface).not.toBeNull()
     expect(root.querySelector("[data-loader-legacy-root]")).toBeNull()
-    expect(root.querySelector("[data-h3-workspace]")).not.toBeNull()
+    expect(root.querySelector("[data-h3-workspace]")).toBeNull()
     expect(root.querySelector('[data-action="toggle-h3-guide"]')).not.toBeNull()
     expect(root.querySelectorAll(".rl-channel")).toHaveLength(3)
     expect(root.querySelectorAll('.rl-card[data-id="clip"]')).toHaveLength(2)

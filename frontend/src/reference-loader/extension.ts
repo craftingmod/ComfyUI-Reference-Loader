@@ -7,6 +7,7 @@ import type {
   ComfyWidget,
 } from "../comfyui.ts"
 import { ReferenceLoaderApi } from "./api.ts"
+import type { H3WorkspaceReactMount } from "./components/h3-workspace-react.tsx"
 import { promptByOrderProperty, ReferenceLoaderController } from "./components/loader.ts"
 import {
   createPromptDefinitionsReact,
@@ -25,11 +26,14 @@ import {
 
 export const REFERENCE_LOADER_WIDGET_TYPE = "REFERENCE_LOADER"
 export const REFERENCE_IMAGE_LOADER_WIDGET_TYPE = "REFERENCE_IMAGE_LOADER"
+export const REFERENCE_H3_TIMELINE_WIDGET_TYPE = "REFERENCE_H3_TIMELINE"
 export const REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE = "REFERENCE_PROMPT_DEFINITIONS"
 export const REFERENCE_PROMPT_WIDGET_TYPE = "REFERENCE_PROMPT"
 const controllers = new WeakMap<ComfyNode, ReferenceLoaderController>()
 const promptControllers = new WeakMap<ComfyNode, ReferencePromptController>()
 const promptReactMounts = new WeakMap<ComfyNode, PromptReactMount>()
+const h3TimelineReactMounts = new WeakMap<ComfyNode, H3WorkspaceReactMount>()
+const h3TimelineRoots = new WeakMap<ComfyNode, HTMLElement>()
 const promptDefinitionsReactMounts = new WeakMap<ComfyNode, PromptDefinitionsReactMount>()
 const promptDefinitionRoots = new WeakMap<ComfyNode, HTMLElement>()
 const promptSubscriptions = new WeakMap<ComfyNode, () => void>()
@@ -46,6 +50,14 @@ interface NativeDisplayProxy {
 
 interface PromptPresetBinding {
   dispose(): void
+}
+
+function mountH3Timeline(node: ComfyNode, root: HTMLElement): void {
+  h3TimelineReactMounts.get(node)?.destroy()
+  h3TimelineReactMounts.delete(node)
+  h3TimelineRoots.set(node, root)
+  const controller = controllers.get(node)
+  if (controller) h3TimelineReactMounts.set(node, controller.mountH3Workspace(root))
 }
 
 export function registerReferenceLoader(app: ComfyApp, api: ComfyApi): void
@@ -101,8 +113,8 @@ export function registerReferenceLoader(
             singleImage ? ".rl-single-image-panel" : "[data-loader-content]",
           )
           const contentBottom = content ? content.offsetTop + content.offsetHeight : 0
-          // Root is the offset parent. The content wrapper includes Media and
-          // the Timeline workspace, excluding spare widget height.
+          // Root is the offset parent. The content wrapper contains Media only;
+          // H3 Timeline is a separate sibling widget.
           return Math.max(singleImage ? 250 : 360, contentBottom + 9)
         }
         const widgetType = singleImage
@@ -159,6 +171,8 @@ export function registerReferenceLoader(
           originalWidgetRemove?.call(widget)
         }
         controllers.set(node, controller)
+        const h3TimelineRoot = h3TimelineRoots.get(node)
+        if (!singleImage && h3TimelineRoot) mountH3Timeline(node, h3TimelineRoot)
         if (!singleImage) bindPromptReferences(node)
         installNodeRemovalHook(node)
         if (!singleImage) {
@@ -174,6 +188,37 @@ export function registerReferenceLoader(
           createLoaderWidget(node, inputName, inputData, false),
         [REFERENCE_IMAGE_LOADER_WIDGET_TYPE]: (node, inputName, inputData) =>
           createLoaderWidget(node, inputName, inputData, true),
+        [REFERENCE_H3_TIMELINE_WIDGET_TYPE]: (node, inputName) => {
+          h3TimelineReactMounts.get(node)?.destroy()
+          h3TimelineReactMounts.delete(node)
+          const root = document.createElement("div")
+          root.className = "reference-h3-timeline"
+          root.dataset.input = inputName
+          const widget = node.addDOMWidget(inputName, REFERENCE_H3_TIMELINE_WIDGET_TYPE, root, {
+            serialize: false,
+            hideOnZoom: false,
+            getValue: () => "",
+            setValue: () => undefined,
+            getMinHeight: () => Math.max(44, Math.min(1200, root.scrollHeight + 9)),
+            getMaxHeight: () => Math.max(44, Math.min(1200, root.scrollHeight + 9)),
+          })
+          const releaseRenderedRoot = bindRenderedWidgetRoot(node, root, ".reference-h3-timeline")
+          widget.serialize = true
+          mountH3Timeline(node, root)
+          let removed = false
+          const originalWidgetRemove = widget.onRemove
+          widget.onRemove = () => {
+            if (removed) return
+            removed = true
+            releaseRenderedRoot()
+            h3TimelineReactMounts.get(node)?.destroy()
+            h3TimelineReactMounts.delete(node)
+            if (h3TimelineRoots.get(node) === root) h3TimelineRoots.delete(node)
+            originalWidgetRemove?.call(widget)
+          }
+          installNodeRemovalHook(node)
+          return { widget }
+        },
         [REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE]: (node, inputName) => {
           promptDefinitionsReactMounts.get(node)?.destroy()
           promptDefinitionsReactMounts.delete(node)
@@ -409,7 +454,11 @@ function bindPromptReferences(node: ComfyNode): void {
 function bindRenderedWidgetRoot(
   node: ComfyNode,
   root: HTMLElement,
-  selector: ".reference-loader" | ".reference-prompt" | ".reference-prompt-definitions",
+  selector:
+    | ".reference-loader"
+    | ".reference-h3-timeline"
+    | ".reference-prompt"
+    | ".reference-prompt-definitions",
 ): () => void {
   let retryFrame: number | undefined
   let disposed = false
@@ -474,6 +523,9 @@ function installNodeRemovalHook(node: ComfyNode): void {
     promptPresetBindings.delete(this)
     promptReactMounts.get(this)?.destroy()
     promptReactMounts.delete(this)
+    h3TimelineReactMounts.get(this)?.destroy()
+    h3TimelineReactMounts.delete(this)
+    h3TimelineRoots.delete(this)
     promptDefinitionsReactMounts.get(this)?.destroy()
     promptDefinitionsReactMounts.delete(this)
     promptControllers.get(this)?.destroy()

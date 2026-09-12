@@ -272,7 +272,9 @@ describe("Reference Loader stylesheet", () => {
     expect(cards).not.toContain(".rl-guide-button.is-on")
     expect(workspace).toContain(".rl-h3-workspace__footer button")
     expect(workspace).not.toContain(".rl-h3-workspace__status-row")
-    expect(workspace).toContain("padding-block-end: 8px;")
+    expect(workspace).toContain(".rl-h3-workspace__heading")
+    expect(workspace).toContain(".rl-h3-workspace__heading > strong")
+    expect(workspace).toContain("padding: 8px 0 0;")
     expect(index.indexOf('@import "./h3-editor.css";')).toBeLessThan(
       index.indexOf('@import "./h3-timeline.css";'),
     )
@@ -580,14 +582,14 @@ describe("Reference Loader stylesheet", () => {
     expect(loader).toContain(".reference-prompt button.rl-clear")
   })
 
-  it("keeps Media and Subjects rows intrinsic and gives spare height to Prompt", async () => {
+  it("keeps Media, H3, and Subjects rows intrinsic and gives spare height to Prompt", async () => {
     const css = await Bun.file(
       new URL("../src/reference-loader/styles/base.css", import.meta.url),
     ).text()
     const gridRule = css.match(/\.rl-reference-loader-widgets\s*\{([^}]*)\}/)?.[1]
 
     expect(gridRule).toContain(
-      "grid-template-rows: max-content max-content minmax(180px, 1fr) !important;",
+      "grid-template-rows: max-content max-content max-content minmax(180px, 1fr) !important;",
     )
   })
 })

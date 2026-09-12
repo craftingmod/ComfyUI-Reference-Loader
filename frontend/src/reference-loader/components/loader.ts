@@ -47,6 +47,7 @@ import {
 } from "../view-model.ts"
 import { isSilentWaveform } from "../waveform.ts"
 import type { H3GuidePosition } from "./h3-guide-editor.tsx"
+import { createH3WorkspaceReact, type H3WorkspaceReactMount } from "./h3-workspace-react.tsx"
 import {
   clearFileDropFeedback,
   createLoaderReact,
@@ -335,6 +336,8 @@ export class ReferenceLoaderController {
   readonly root: HTMLElement
   #reactHost: HTMLElement
   #reactMount: LoaderReactMount | undefined
+  #h3WorkspaceRoot: HTMLElement | undefined
+  #h3WorkspaceMount: H3WorkspaceReactMount | undefined
   #reactActions: LoaderReactActions = {
     addFiles: (files, replaceId) => this.uploadFiles(files, replaceId),
     saveSnapshot: () => this.saveSnapshot(),
@@ -486,6 +489,26 @@ export class ReferenceLoaderController {
     this.#viewListeners.add(listener)
     listener()
     return () => this.#viewListeners.delete(listener)
+  }
+
+  mountH3Workspace(container: HTMLElement): H3WorkspaceReactMount {
+    this.#h3WorkspaceMount?.destroy()
+    this.#h3WorkspaceRoot = container
+    const mount = createH3WorkspaceReact({
+      container,
+      subscribe: (listener) => this.subscribeView(listener),
+      getSnapshot: () => this.getViewSnapshot(),
+      actions: this.#reactActions,
+    })
+    const managedMount = {
+      destroy: () => {
+        mount.destroy()
+        if (this.#h3WorkspaceRoot === container) this.#h3WorkspaceRoot = undefined
+        if (this.#h3WorkspaceMount === managedMount) this.#h3WorkspaceMount = undefined
+      },
+    }
+    this.#h3WorkspaceMount = managedMount
+    return managedMount
   }
 
   #displayState(): LoaderDisplayState {
@@ -862,6 +885,9 @@ export class ReferenceLoaderController {
     this.#h3SelectedShot = undefined
     this.#h3SelectedRole = undefined
     this.#h3Editor = undefined
+    this.#h3WorkspaceMount?.destroy()
+    this.#h3WorkspaceMount = undefined
+    this.#h3WorkspaceRoot = undefined
     this.#destroyReactMount()
     this.root.replaceChildren()
   }
@@ -1130,9 +1156,11 @@ export class ReferenceLoaderController {
     editor.selectedGuideId = id
     editor.draftError = undefined
     this.render(true)
-    const mark = [...this.root.querySelectorAll<HTMLButtonElement>("[data-timeline-guide]")].find(
-      (button) => button.dataset.timelineGuide === id,
-    )
+    const mark = [
+      ...(this.#h3WorkspaceRoot ?? this.root).querySelectorAll<HTMLButtonElement>(
+        "[data-timeline-guide]",
+      ),
+    ].find((button) => button.dataset.timelineGuide === id)
     mark?.focus({ preventScroll: true })
   }
 
@@ -1453,9 +1481,11 @@ export class ReferenceLoaderController {
     this.#h3SelectedRole = undefined
     this.#promptShotSelect?.(tag)
     this.render(true)
-    const mark = [...this.root.querySelectorAll<HTMLButtonElement>("[data-timeline-shot]")].find(
-      (button) => button.dataset.timelineShot === tag,
-    )
+    const mark = [
+      ...(this.#h3WorkspaceRoot ?? this.root).querySelectorAll<HTMLButtonElement>(
+        "[data-timeline-shot]",
+      ),
+    ].find((button) => button.dataset.timelineShot === tag)
     mark?.focus({ preventScroll: true })
     return this.#h3Session !== sessionBefore
   }
@@ -1590,7 +1620,7 @@ export class ReferenceLoaderController {
   }
 
   #focusH3EditorGuide(guideId: string): void {
-    for (const row of this.root.querySelectorAll<HTMLElement>(
+    for (const row of (this.#h3WorkspaceRoot ?? this.root).querySelectorAll<HTMLElement>(
       "[data-h3-editor] [data-h3-guide-id]",
     )) {
       if (row.dataset.h3GuideId !== guideId) continue
@@ -1601,7 +1631,9 @@ export class ReferenceLoaderController {
   }
 
   #focusH3Workspace(): void {
-    const workspace = this.root.querySelector<HTMLElement>("[data-h3-workspace]")
+    const workspace = (this.#h3WorkspaceRoot ?? this.root).querySelector<HTMLElement>(
+      "[data-h3-workspace]",
+    )
     if (!workspace) return
     workspace.scrollIntoView?.({ block: "nearest" })
     workspace.querySelector<HTMLButtonElement>('[data-h3-action="collapse"]')?.focus({
@@ -1781,9 +1813,9 @@ export class ReferenceLoaderController {
         : undefined
     this.render(true)
     if (field) {
-      for (const element of this.root.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
-        "[data-h3-draft-field]",
-      )) {
+      for (const element of (this.#h3WorkspaceRoot ?? this.root).querySelectorAll<
+        HTMLInputElement | HTMLSelectElement
+      >("[data-h3-draft-field]")) {
         if (element.dataset.h3DraftField === field && element.dataset.h3GuideId === guideId) {
           element.focus()
           return
@@ -1791,7 +1823,7 @@ export class ReferenceLoaderController {
       }
     }
     if (focusGuideId) {
-      for (const input of this.root.querySelectorAll<HTMLInputElement>(
+      for (const input of (this.#h3WorkspaceRoot ?? this.root).querySelectorAll<HTMLInputElement>(
         '[data-h3-draft-field="frame"]',
       )) {
         if (input.dataset.h3GuideId === focusGuideId) {
@@ -1824,13 +1856,15 @@ export class ReferenceLoaderController {
       }
     } else if (focus?.guideId) {
       const marker = [
-        ...this.root.querySelectorAll<HTMLButtonElement>("[data-timeline-guide]"),
+        ...(this.#h3WorkspaceRoot ?? this.root).querySelectorAll<HTMLButtonElement>(
+          "[data-timeline-guide]",
+        ),
       ].find((button) => button.dataset.timelineGuide === focus.guideId)
       if (marker) {
         marker.focus({ preventScroll: true })
         return
       }
-      for (const button of this.root.querySelectorAll<HTMLButtonElement>(
+      for (const button of (this.#h3WorkspaceRoot ?? this.root).querySelectorAll<HTMLButtonElement>(
         '[data-h3-action="select-placement"]',
       )) {
         if (button.dataset.h3GuideId === focus.guideId) {

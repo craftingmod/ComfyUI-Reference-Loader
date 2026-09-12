@@ -1,14 +1,11 @@
 /* H3 workspace shell, list, and Inspector surface. */
-.rl-h3-media-guides {
-  margin: 8px 0;
-}
 
 /* Permanent React H3 workspace. Content owns the height; timelines scroll
    horizontally without creating a nested vertical viewport. */
 .rl-h3-workspace-container {
   container-type: inline-size;
   min-width: 0;
-  margin: 8px 0;
+  margin: 0;
 }
 
 .rl-h3-workspace,
@@ -23,13 +20,7 @@
   grid-template-rows: auto auto auto;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--rl-border);
-  border-radius: 10px;
-  background: var(--rl-panel);
-}
-
-.rl-h3-workspace.rl-h3-media-guides {
-  margin: 0;
+  background: transparent;
 }
 
 .rl-h3-workspace.is-collapsed {
@@ -45,26 +36,42 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  padding: 0 12px;
+  padding: 0 0 7px;
   border-bottom: 1px solid var(--rl-border);
 }
 
 .rl-h3-workspace__header {
   gap: 8px;
-  background: var(--rl-panel);
+  background: transparent;
 }
 
-.rl-h3-workspace__collapse {
-  min-width: 0;
-  min-height: 32px;
-  padding: 4px 0;
-  overflow: hidden;
+.rl-h3-workspace__heading {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 150px;
+  min-height: 28px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px 0;
   border: 0;
+  border-radius: 0;
   background: transparent;
+  color: var(--rl-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.rl-h3-workspace__heading > strong {
   color: var(--rl-text);
   font-size: 13px;
   font-weight: 700;
-  text-align: left;
+  line-height: 1.35;
+}
+
+.rl-h3-workspace__heading small {
+  overflow: hidden;
+  color: var(--rl-muted);
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -95,25 +102,11 @@
   white-space: nowrap;
 }
 
-.rl-h3-workspace__output {
-  flex: none;
-  color: var(--rl-text);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.rl-h3-workspace__pending-dot {
-  flex: none;
-  color: var(--rl-accent);
-  font-size: 12px;
-}
-
 .rl-h3-workspace__tools {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-left: auto;
   padding: 0;
   color: var(--rl-muted);
@@ -180,7 +173,7 @@
 .rl-h3-stage {
   min-width: 0;
   overflow: visible;
-  padding: 8px;
+  padding: 8px 0 0;
   background: var(--rl-bg);
 }
 
@@ -203,7 +196,7 @@
 .rl-h3-workspace__footer {
   gap: 8px;
   border-bottom: 0;
-  padding-block-end: 8px;
+  padding: 8px 0 0;
   background: var(--rl-bg);
   color: var(--rl-muted);
   font-size: 11px;
@@ -435,14 +428,6 @@
 }
 
 @container (max-width: 759px) {
-  .rl-h3-workspace__summary {
-    display: none;
-  }
-
-  .rl-h3-workspace__collapse {
-    max-width: 90px;
-  }
-
   .rl-h3-workspace__tools {
     gap: 5px;
   }

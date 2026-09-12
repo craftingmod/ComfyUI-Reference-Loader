@@ -53,6 +53,19 @@ function addGuide(root: HTMLElement, frame: string): void {
   root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
 }
 
+function mountController(root: HTMLElement, serialized: unknown): ReferenceLoaderController {
+  const controller = new ReferenceLoaderController(
+    root,
+    node,
+    new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
+    serialized,
+  )
+  const h3Root = document.createElement("div")
+  root.append(h3Root)
+  controller.mountH3Workspace(h3Root)
+  return controller
+}
+
 describe("Reference Loader Media Timeline integration", () => {
   test("calculates independent reference and guide roles without changing output order", () => {
     const image = createMediaItem("image", source("scene.png", "image/png"), "scene")
@@ -108,12 +121,10 @@ describe("Reference Loader Media Timeline integration", () => {
     const state = stateWithImage()
     const root = document.createElement("div")
     document.body.append(root)
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
+    const h3Root = document.createElement("div")
+    root.append(h3Root)
+    const h3Mount = controller.mountH3Workspace(h3Root)
 
     const workspace = root.querySelector<HTMLElement>("[data-h3-workspace]")
     expect(workspace).not.toBeNull()
@@ -196,6 +207,7 @@ describe("Reference Loader Media Timeline integration", () => {
     expect(guideToggle?.classList.contains("rl-button--guide")).toBe(true)
     expect(guideToggle?.classList.contains("rl-button--output")).toBe(false)
     expect(guideToggle?.classList.contains("rl-button--card-action")).toBe(true)
+    h3Mount.destroy()
     controller.destroy()
     root.remove()
   })
@@ -219,12 +231,7 @@ describe("Reference Loader Media Timeline integration", () => {
       },
     })
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
 
     expect(
       [...root.querySelectorAll('.rl-card[data-id="scene"] .rl-h3-card-badge')].map(
@@ -248,12 +255,7 @@ describe("Reference Loader Media Timeline integration", () => {
     })
     const savedTimeline = state.h3Timeline
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
 
     const button = () =>
       root.querySelector<HTMLButtonElement>('[data-action="toggle-h3-guide"][data-id="scene"]')
@@ -285,12 +287,7 @@ describe("Reference Loader Media Timeline integration", () => {
   test("allows Cancel when a new Guide still needs a frame placement", () => {
     const state = stateWithImage()
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
     const before = controller.serialize()
 
     root
@@ -315,22 +312,15 @@ describe("Reference Loader Media Timeline integration", () => {
   test("allows Cancel from a clean Guide editor before adding a placement", () => {
     const state = stateWithImage()
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
     const before = controller.serialize()
 
-    root
-      .querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')
-      ?.click()
+    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
 
     expect(root.querySelector("[data-h3-inspector]")).not.toBeNull()
-    expect(root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')?.disabled).toBe(
-      false,
-    )
+    expect(
+      root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')?.disabled,
+    ).toBe(false)
     expect(root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')?.disabled).toBe(
       true,
     )
@@ -344,12 +334,7 @@ describe("Reference Loader Media Timeline integration", () => {
   test("edits Start and End roles from the source Inspector", () => {
     const state = stateWithImage()
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
 
     root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
     for (const role of ["start", "end"] as const) {
@@ -429,12 +414,7 @@ describe("Reference Loader Media Timeline integration", () => {
   test("adds a Guide to an existing reference without losing either role", () => {
     const state = stateWithImage()
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
 
     root
       .querySelector<HTMLButtonElement>('[data-action="toggle-h3-guide"][data-id="scene"]')
@@ -470,12 +450,7 @@ describe("Reference Loader Media Timeline integration", () => {
       },
     })
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
 
     root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
     const card = root.querySelector('.rl-card[data-id="scene"][data-channel="image"]')
@@ -500,12 +475,7 @@ describe("Reference Loader Media Timeline integration", () => {
   test("rejects an empty, fractional, negative, or duplicate frame without changing the draft", () => {
     const state = stateWithImage()
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
     root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
     const before = controller.serialize()
     root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
@@ -538,12 +508,7 @@ describe("Reference Loader Media Timeline integration", () => {
       },
     })
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
 
     root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
     const frame = root.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')
@@ -567,12 +532,7 @@ describe("Reference Loader Media Timeline integration", () => {
       item: createMediaItem("image", source("second.png", "image/png"), "second"),
     })
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
     root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
     addGuide(root, "48")
     root
@@ -603,12 +563,7 @@ describe("Reference Loader Media Timeline integration", () => {
       timeline: { ...state.h3Timeline, startImageId: "scene" },
     })
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
     root
       .querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="second"]')
       ?.click()
@@ -646,12 +601,7 @@ describe("Reference Loader Media Timeline integration", () => {
       },
     })
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
 
     root
       .querySelector<HTMLButtonElement>('[data-action="toggle-h3-guide"][data-id="scene"]')
@@ -675,12 +625,7 @@ describe("Reference Loader Media Timeline integration", () => {
       { type: "toggle-h3-timeline", enabled: true },
     )
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
 
     expect(root.querySelector('[data-action="toggle-h3-guide"]')).toBeNull()
     expect(root.querySelector('[data-action="edit-h3-guide"]')).toBeNull()
@@ -700,12 +645,7 @@ describe("Reference Loader Media Timeline integration", () => {
       },
     }
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
 
     const summary = root.querySelector<HTMLButtonElement>('[data-timeline-guide="incomplete"]')
     expect(summary?.textContent).toContain("48f")
@@ -731,12 +671,7 @@ describe("Reference Loader Media Timeline integration", () => {
       },
     }
     const root = document.createElement("div")
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-      serializeLoaderState(state),
-    )
+    const controller = mountController(root, serializeLoaderState(state))
 
     const clear = root.querySelector<HTMLButtonElement>('[data-action="clear"]')
     expect(clear?.disabled).toBe(false)

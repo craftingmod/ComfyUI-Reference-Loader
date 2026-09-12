@@ -11,6 +11,7 @@ import type {
 import {
   registerReferenceLoader,
   REFERENCE_LOADER_WIDGET_TYPE,
+  REFERENCE_H3_TIMELINE_WIDGET_TYPE,
   REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE,
   REFERENCE_PROMPT_WIDGET_TYPE,
 } from "../src/reference-loader/extension.ts"
@@ -28,6 +29,65 @@ import {
 import { createMediaItem, createEmptyLoaderState } from "../src/reference-loader/types.ts"
 
 describe("Reference Loader custom widget", () => {
+  test("places H3 Timeline between Media and Subjects & Shots widgets", () => {
+    let extension: ComfyExtension | undefined
+    const app: ComfyAppLike = {
+      registerExtension(candidate) {
+        extension = candidate
+      },
+    }
+    registerReferenceLoader(app, { fetchApi: async () => new Response("{}") })
+    const factories = extension?.getCustomWidgets?.()
+    const roots = new Map<string, HTMLElement>()
+    const widgets: ComfyWidget[] = []
+    const node: ComfyNode = {
+      addDOMWidget(name, _type, element, options) {
+        roots.set(name, element)
+        const widget = { name, value: "", options } as ComfyWidget
+        widgets.push(widget)
+        return widget
+      },
+      setDirtyCanvas: () => undefined,
+    }
+
+    factories?.[REFERENCE_LOADER_WIDGET_TYPE]?.(
+      node,
+      "loader_state",
+      ["STRING", { default: serializeLoaderState(createEmptyLoaderState()) }],
+      app,
+    )
+    factories?.[REFERENCE_H3_TIMELINE_WIDGET_TYPE]?.(
+      node,
+      "h3_timeline",
+      ["STRING", { default: "" }],
+      app,
+    )
+    factories?.[REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE]?.(
+      node,
+      "prompt_definitions",
+      ["STRING", { default: "" }],
+      app,
+    )
+    factories?.[REFERENCE_PROMPT_WIDGET_TYPE]?.(
+      node,
+      "prompt",
+      ["STRING", { default: serializePromptDocumentV6(createEmptyPromptDocumentV6()) }],
+      app,
+    )
+
+    expect(widgets.map((widget) => widget.name)).toEqual([
+      "loader_state",
+      "h3_timeline",
+      "prompt_definitions",
+      "prompt",
+    ])
+    expect(roots.get("loader_state")?.querySelector("[data-h3-workspace]")).toBeNull()
+    expect(roots.get("h3_timeline")?.querySelector("[data-h3-workspace]")).not.toBeNull()
+    expect(roots.get("prompt_definitions")?.querySelector(".rl-prompt-definitions")).not.toBeNull()
+
+    for (const widget of widgets) widget.onRemove?.()
+  })
+
   test("shows Prompt Shots after ComfyUI restores the Prompt widget", () => {
     let extension: ComfyExtension | undefined
     const app: ComfyAppLike = {
@@ -38,6 +98,7 @@ describe("Reference Loader custom widget", () => {
     registerReferenceLoader(app, { fetchApi: async () => new Response("{}") })
     const factories = extension?.getCustomWidgets?.()
     const loaderFactory = factories?.[REFERENCE_LOADER_WIDGET_TYPE]
+    const h3TimelineFactory = factories?.[REFERENCE_H3_TIMELINE_WIDGET_TYPE]
     const promptFactory = factories?.[REFERENCE_PROMPT_WIDGET_TYPE]
     const roots = new Map<string, HTMLElement>()
     const widgets = new Map<string, ComfyWidget>()
@@ -70,21 +131,21 @@ describe("Reference Loader custom widget", () => {
       ["STRING", { default: serializeLoaderState(createEmptyLoaderState()) }],
       app,
     )
+    h3TimelineFactory?.(node, "h3_timeline", ["STRING", { default: "" }], app)
     promptFactory?.(
       node,
       "prompt",
       ["STRING", { default: serializePromptDocumentV6(createEmptyPromptDocumentV6()) }],
       app,
     )
-    expect(roots.get("loader_state")?.querySelector('[data-timeline-shot="opening"]')).toBeNull()
+    expect(roots.get("h3_timeline")?.querySelector('[data-timeline-shot="opening"]')).toBeNull()
 
     promptOptions?.setValue?.(serializePromptDocumentV6(promptState))
 
-    expect(
-      roots.get("loader_state")?.querySelector('[data-timeline-shot="opening"]'),
-    ).not.toBeNull()
+    expect(roots.get("h3_timeline")?.querySelector('[data-timeline-shot="opening"]')).not.toBeNull()
 
     widgets.get("loader_state")?.onRemove?.()
+    widgets.get("h3_timeline")?.onRemove?.()
     widgets.get("prompt")?.onRemove?.()
   })
 

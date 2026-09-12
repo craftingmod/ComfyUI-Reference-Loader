@@ -1,8 +1,18 @@
-import { useEffect, useId, useRef, useState, type ChangeEvent, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ChangeEvent,
+  type ReactNode,
+} from "react"
+import { flushSync } from "react-dom"
+import { createRoot, type Root } from "react-dom/client"
 
 import {
   guideUsesMedia,
-  h3Placements,
   timelineMediaId,
   type H3GuideChannel,
   type H3TimelinePlacement,
@@ -40,6 +50,17 @@ export interface H3WorkspaceActions extends H3TimelineReactActions {
 export interface H3WorkspaceReactProps {
   snapshot: LoaderViewSnapshot
   actions: H3WorkspaceActions
+}
+
+export interface H3WorkspaceReactOptions {
+  container: HTMLElement
+  subscribe(listener: () => void): () => void
+  getSnapshot(): LoaderViewSnapshot
+  actions: H3WorkspaceActions
+}
+
+export interface H3WorkspaceReactMount {
+  destroy(): void
 }
 
 function itemForMediaId(snapshot: LoaderViewSnapshot, mediaId: string): MediaItem | undefined {
@@ -440,7 +461,6 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
   if (!h3) return null
   const fps = snapshot.display.h3Fps
   const frameCount = snapshot.display.h3TotalFrames
-  const placements = h3Placements(h3.timeline)
   const count = Object.keys(snapshot.state.items).length
   const status = h3.issue
     ? h3.issue
@@ -454,7 +474,7 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
   return (
     <div className="rl-h3-workspace-container">
       <section
-        className={`rl-h3-workspace rl-h3-media-guides${h3.collapsed ? " is-collapsed" : ""}`}
+        className={`rl-h3-workspace${h3.collapsed ? " is-collapsed" : ""}`}
         data-h3-root=""
         data-h3-workspace=""
         data-h3-react-surface=""
@@ -463,8 +483,10 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
         <header className="rl-h3-workspace__header">
           <Button
             type="button"
-            className="rl-h3-workspace__collapse"
+            className="rl-h3-workspace__heading"
             data-h3-action="collapse"
+            aria-label={h3.collapsed ? "Expand H3 Timeline" : "Collapse H3 Timeline"}
+            title={h3.collapsed ? "Expand H3 Timeline" : "Collapse H3 Timeline"}
             aria-expanded={!h3.collapsed}
             aria-controls={pageId}
             onClick={(event) => {
@@ -472,55 +494,43 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
               actions.h3ToggleCollapsed()
             }}
           >
-            <span aria-hidden="true">{h3.collapsed ? "▸" : "▾"}</span> H3 Timeline
-          </Button>
-          <Button
-            type="button"
-            className={`rl-h3-workspace__status${h3.timeline.enabled ? " is-on" : ""}`}
-            data-h3-action="toggle"
-            aria-label="Toggle Guides"
-            title="Toggle Guides"
-            aria-pressed={h3.timeline.enabled}
-            onClick={(event) => {
-              event.stopPropagation()
-              actions.h3Toggle()
-            }}
-          >
-            {h3.timeline.enabled ? "ON" : "OFF"}
-          </Button>
-          <span
-            className="rl-h3-workspace__summary"
-            title={`${count} media · ${placements.length} placements · ${h3.shots.length} shots`}
-          >
-            {count} media · {placements.length} placements · {h3.shots.length} shots
-          </span>
-          <span
-            className="rl-h3-workspace__output"
-            aria-label="H3 output settings"
-            title="Actual H3 output settings configured on Reference Loader"
-          >
-            {fps} FPS · {frameCount} frames
-          </span>
-          {h3.dirty ? (
-            <span
-              className="rl-h3-workspace__pending-dot"
-              title="Unsaved changes"
-              aria-label="Unsaved changes"
+            <strong>Timeline Guides</strong>
+            <small
+              className={!h3.collapsed ? "rl-h3-workspace__summary" : undefined}
+              title={h3.collapsed ? "Open H3 Timeline Guides" : `${fps} FPS · ${frameCount} frames`}
             >
-              ●
+              {h3.collapsed
+                ? "Assign image/audio guides and output-frame placements."
+                : `Media (Image/Video/Audio) · ${count} media ~ ${frameCount} frames · ${fps} FPS`}
+            </small>
+          </Button>
+          <div className="rl-h3-workspace__tools">
+            <span hidden={h3.collapsed}>
+              <ToggleGroup
+                value={mode}
+                items={[
+                  { value: "timeline", label: "Timeline" },
+                  { value: "list", label: "List" },
+                ]}
+                onValueChange={setMode}
+                ariaLabel="Timeline view"
+                className="rl-h3-workspace__view-group"
+              />
             </span>
-          ) : null}
-          <div className="rl-h3-workspace__tools" hidden={h3.collapsed}>
-            <ToggleGroup
-              value={mode}
-              items={[
-                { value: "timeline", label: "Timeline" },
-                { value: "list", label: "List" },
-              ]}
-              onValueChange={setMode}
-              ariaLabel="Timeline view"
-              className="rl-h3-workspace__view-group"
-            />
+            <Button
+              type="button"
+              className={`rl-h3-workspace__status${h3.timeline.enabled ? " is-on" : ""}`}
+              data-h3-action="toggle"
+              aria-label="Toggle Guides"
+              title="Toggle Guides"
+              aria-pressed={h3.timeline.enabled}
+              onClick={(event) => {
+                event.stopPropagation()
+                actions.h3Toggle()
+              }}
+            >
+              {h3.timeline.enabled ? "ON" : "OFF"}
+            </Button>
           </div>
         </header>
         <div id={pageId} className="rl-h3-workspace__body" hidden={h3.collapsed}>
@@ -578,6 +588,39 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
       </section>
     </div>
   )
+}
+
+function H3WorkspaceReactRoot({
+  subscribe,
+  getSnapshot,
+  actions,
+}: Pick<H3WorkspaceReactOptions, "subscribe" | "getSnapshot" | "actions">): ReactNode {
+  const subscribeView = useCallback(subscribe, [subscribe])
+  const readSnapshot = useCallback(getSnapshot, [getSnapshot])
+  const snapshot = useSyncExternalStore(subscribeView, readSnapshot, readSnapshot)
+  return <H3WorkspaceReact snapshot={snapshot} actions={actions} />
+}
+
+export function createH3WorkspaceReact(options: H3WorkspaceReactOptions): H3WorkspaceReactMount {
+  const root: Root = createRoot(options.container)
+  let destroyed = false
+  flushSync(() =>
+    root.render(
+      <H3WorkspaceReactRoot
+        subscribe={options.subscribe}
+        getSnapshot={options.getSnapshot}
+        actions={options.actions}
+      />,
+    ),
+  )
+  return {
+    destroy() {
+      if (destroyed) return
+      destroyed = true
+      root.unmount()
+      options.container.replaceChildren()
+    },
+  }
 }
 
 export const H3Workspace = H3WorkspaceReact

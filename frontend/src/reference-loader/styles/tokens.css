@@ -1,6 +1,7 @@
 .reference-loader,
 .reference-prompt,
 .reference-prompt-definitions,
+.reference-h3-timeline,
 .rl-modal {
   --rl-bg: color-mix(in srgb, var(--comfy-menu-bg, #17191f) 94%, #000);
   --rl-panel: color-mix(in srgb, var(--comfy-input-bg, #242833) 88%, #000);

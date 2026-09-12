@@ -68,6 +68,9 @@ function mount(state = fixture()) {
     new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
     serializeLoaderState(state),
   )
+  const h3Root = document.createElement("div")
+  root.append(h3Root)
+  controller.mountH3Workspace(h3Root)
   cleanups.push(() => {
     controller.destroy()
     root.remove()
@@ -160,12 +163,24 @@ function sizeSurface(root: HTMLElement, width = 640) {
 }
 
 describe("Guide timeline", () => {
-  test("keeps workspace tools in the header and toggles Guides from the left status chip", () => {
+  test("uses the bold title area as the collapse toggle beside Guides controls", () => {
     const { root, controller } = mount()
     const header = root.querySelector<HTMLElement>(".rl-h3-workspace__header")!
+    const heading = header.querySelector<HTMLButtonElement>(".rl-h3-workspace__heading")!
+    const tools = header.querySelector<HTMLElement>(".rl-h3-workspace__tools")!
+    const collapse = heading
     const status = header.querySelector<HTMLButtonElement>(".rl-h3-workspace__status")!
 
+    expect(heading.querySelector("strong")?.textContent).toBe("Timeline Guides")
+    expect(collapse.getAttribute("aria-label")).toBe("Expand H3 Timeline")
+    expect(heading.querySelector("small")?.textContent).toBe(
+      "Assign image/audio guides and output-frame placements.",
+    )
+    expect(heading.querySelector(".rl-h3-workspace__summary")).toBeNull()
     expect(header.querySelector(".rl-h3-workspace__tools")).not.toBeNull()
+    expect(tools.children[0]?.hasAttribute("hidden")).toBe(true)
+    expect(tools.children[1]).toBe(status)
+    expect(tools.children).toHaveLength(2)
     expect(root.querySelector(".rl-h3-workspace > .rl-h3-workspace__tools")).toBeNull()
     expect(root.querySelector('[aria-label="Timeline zoom"]')).toBeNull()
     expect(
@@ -180,6 +195,27 @@ describe("Guide timeline", () => {
     expect(status.textContent).toBe("ON")
     expect(status.getAttribute("aria-pressed")).toBe("true")
 
+    heading.click()
+    expect(
+      root
+        .querySelector<HTMLButtonElement>('[data-h3-action="collapse"]')
+        ?.getAttribute("aria-expanded"),
+    ).toBe("true")
+    expect(root.querySelector(".rl-h3-workspace__summary")?.textContent).toBe(
+      "Media (Image/Video/Audio) · 3 media ~ 240 frames · 24 FPS",
+    )
+    expect(tools.children[0]?.hasAttribute("hidden")).toBe(false)
+    expect(tools.children[1]).toBe(status)
+    expect(tools.children).toHaveLength(2)
+
+    collapse.click()
+    expect(
+      root
+        .querySelector<HTMLButtonElement>('[data-h3-action="collapse"]')
+        ?.getAttribute("aria-label"),
+    ).toBe("Expand H3 Timeline")
+    expect(root.querySelector(".rl-h3-workspace__summary")).toBeNull()
+
     status.click()
     expect(controller.getViewSnapshot().h3?.timeline.enabled).toBe(false)
     expect(status.textContent).toBe("OFF")
@@ -188,6 +224,7 @@ describe("Guide timeline", () => {
 
   test("uses the Reference Loader H3 output settings and opens selected Guides in the Inspector", () => {
     const { root, controller } = mount()
+    root.querySelector<HTMLButtonElement>('[data-h3-action="collapse"]')!.click()
     const executionBefore = executionFingerprintSource(controller.state)
     controller.writeDisplayProxy({ h3Fps: 30, h3TotalFrames: 120 })
 
@@ -198,7 +235,10 @@ describe("Guide timeline", () => {
     expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("60f · 2.000s")
     expect(root.querySelector("[data-timeline-channel=visual]")?.textContent).toContain("60f")
     expect(root.querySelector(".rl-h3-timeline__ruler")?.textContent).toContain("4.000s · 120f")
-    expect(root.querySelector('[aria-label="H3 output settings"]')?.textContent).toContain(
+    expect(root.querySelector(".rl-h3-workspace__summary")?.textContent).toBe(
+      "Media (Image/Video/Audio) · 3 media ~ 120 frames · 30 FPS",
+    )
+    expect(root.querySelector(".rl-h3-workspace__summary")?.getAttribute("title")).toBe(
       "30 FPS · 120 frames",
     )
     expect(executionFingerprintSource(controller.state)).not.toBe(executionBefore)

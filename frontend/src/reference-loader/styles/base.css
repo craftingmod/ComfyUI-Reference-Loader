@@ -1,6 +1,7 @@
 .reference-loader,
 .reference-prompt,
-.reference-prompt-definitions {
+.reference-prompt-definitions,
+.reference-h3-timeline {
   box-sizing: border-box;
   cursor: default;
   min-width: 360px;
@@ -21,6 +22,13 @@
   height: auto;
   overflow: visible;
   padding: 7px;
+}
+
+.reference-h3-timeline {
+  position: relative;
+  min-height: 0;
+  height: auto;
+  overflow: visible;
 }
 
 .reference-loader {
@@ -50,12 +58,13 @@
 
 /* Vue Nodes stretches `auto auto` widget-grid rows across the remaining node height. */
 .rl-reference-loader-widgets {
-  grid-template-rows: max-content max-content minmax(180px, 1fr) !important;
+  grid-template-rows: max-content max-content max-content minmax(180px, 1fr) !important;
 }
 
 .reference-loader *,
 .reference-prompt *,
 .reference-prompt-definitions *,
+.reference-h3-timeline *,
 .rl-modal * {
   box-sizing: border-box;
 }

@@ -19,8 +19,8 @@ export type LoaderViewChannel = "image" | "video" | "audio"
 
 export interface LoaderDisplayState {
   gridColumns: number
-  timelineFps: number
-  timelineFrameCount: number
+  h3Fps: number
+  h3TotalFrames: number
   previewPixels: number
   showCaptions: boolean
   twoImageMode: boolean
@@ -410,8 +410,8 @@ export function sameLoaderViewSnapshot(
   const nextDisplay = next.display
   if (
     previousDisplay.gridColumns !== nextDisplay.gridColumns ||
-    previousDisplay.timelineFps !== nextDisplay.timelineFps ||
-    previousDisplay.timelineFrameCount !== nextDisplay.timelineFrameCount ||
+    previousDisplay.h3Fps !== nextDisplay.h3Fps ||
+    previousDisplay.h3TotalFrames !== nextDisplay.h3TotalFrames ||
     previousDisplay.previewPixels !== nextDisplay.previewPixels ||
     previousDisplay.showCaptions !== nextDisplay.showCaptions ||
     previousDisplay.twoImageMode !== nextDisplay.twoImageMode ||

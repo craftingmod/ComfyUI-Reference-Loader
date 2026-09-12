@@ -107,6 +107,7 @@ def build_reference_manifest(
   return {
     "version": state.version,
     "video_audio_policy": state.video_audio_policy,
+    "h3_output": state.h3_output.manifest_projection(),
     "h3_timeline": state.h3_timeline.manifest_projection(),
     "image_output": (
       image_output or ImageOutputSettings(False, 2_000_000, False, "#000000")
@@ -234,6 +235,17 @@ def parse_reference_manifest_state(value: str | Mapping[str, Any]) -> ReferenceS
       "disabledAudioIds": raw_timeline.get("disabled_audio_ids", []),
     }
 
+  raw_h3_output = raw.get("h3_output")
+  if raw_h3_output is None:
+    h3_output = None
+  elif not isinstance(raw_h3_output, Mapping):
+    raise ReferenceContractError("manifest.h3_output: must contain an object")
+  else:
+    h3_output = {
+      "fps": raw_h3_output.get("fps"),
+      "totalFrames": raw_h3_output.get("total_frames"),
+    }
+
   state_payload: dict[str, Any] = {
     "version": raw.get("version"),
     "items": state_items,
@@ -244,6 +256,8 @@ def parse_reference_manifest_state(value: str | Mapping[str, Any]) -> ReferenceS
   }
   if timeline is not None:
     state_payload["h3Timeline"] = timeline
+  if h3_output is not None:
+    state_payload["h3Output"] = h3_output
   return parse_reference_state(state_payload)
 
 

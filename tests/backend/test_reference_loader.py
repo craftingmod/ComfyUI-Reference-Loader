@@ -21,6 +21,8 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     "loader_state",
     "prompt_definitions",
     "prompt",
+    "h3_total_frames",
+    "h3_fps",
     "limit_image_pixels",
     "max_image_pixels",
     "composite_alpha",
@@ -49,14 +51,28 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert prompt.options["extra_dict"]["promptPresets"] == module.PROMPT_PRESET_CATALOG
   assert prompt.options["socketless"] is True
   assert prompt.options["dynamic_prompts"] is False
-  limit_image_pixels = schema.inputs[3]
+  h3_total_frames = schema.inputs[3]
+  assert h3_total_frames.data_type == "int"
+  assert h3_total_frames.options["display_name"] == "Frames"
+  assert h3_total_frames.options["default"] == 124
+  assert h3_total_frames.options["min"] == 1
+  assert h3_total_frames.options["max"] == 3600
+  assert h3_total_frames.options["socketless"] is True
+  h3_fps = schema.inputs[4]
+  assert h3_fps.data_type == "int"
+  assert h3_fps.options["display_name"] == "FPS"
+  assert h3_fps.options["default"] == 24
+  assert h3_fps.options["min"] == 1
+  assert h3_fps.options["max"] == 240
+  assert h3_fps.options["socketless"] is True
+  limit_image_pixels = schema.inputs[5]
   assert limit_image_pixels.data_type == "boolean"
   assert limit_image_pixels.options["default"] is False
   assert limit_image_pixels.options["label_off"] == "Original"
   assert limit_image_pixels.options["label_on"] == "Limited"
   assert limit_image_pixels.options["advanced"] is True
   assert limit_image_pixels.options["socketless"] is False
-  max_image_pixels = schema.inputs[4]
+  max_image_pixels = schema.inputs[6]
   assert max_image_pixels.data_type == "float"
   assert max_image_pixels.options["display_name"] == "max_image_pixels (MPixel)"
   assert max_image_pixels.options["default"] == 2.0
@@ -64,19 +80,19 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert max_image_pixels.options["max"] == 40.0
   assert max_image_pixels.options["advanced"] is True
   assert max_image_pixels.options["socketless"] is False
-  composite_alpha = schema.inputs[5]
+  composite_alpha = schema.inputs[7]
   assert composite_alpha.data_type == "boolean"
   assert composite_alpha.options["default"] is False
   assert composite_alpha.options["label_off"] == "Preserve"
   assert composite_alpha.options["label_on"] == "Opaque"
   assert composite_alpha.options["advanced"] is True
   assert composite_alpha.options["socketless"] is False
-  alpha_background = schema.inputs[6]
+  alpha_background = schema.inputs[8]
   assert alpha_background.data_type == "color"
   assert alpha_background.options["default"] == "#000000"
   assert alpha_background.options["advanced"] is True
   assert alpha_background.options["socketless"] is False
-  prompt_schema_preset = schema.inputs[7]
+  prompt_schema_preset = schema.inputs[9]
   assert prompt_schema_preset.data_type == "combo"
   assert prompt_schema_preset.options["display_name"] == "prompt_schema_preset"
   assert prompt_schema_preset.options["options"] == [
@@ -88,25 +104,25 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert prompt_schema_preset.options["default"] == "generic"
   assert prompt_schema_preset.options["advanced"] is True
   assert prompt_schema_preset.options["socketless"] is True
-  grid_columns = schema.inputs[8]
+  grid_columns = schema.inputs[10]
   assert grid_columns.data_type == "int"
   assert grid_columns.options["display_name"] == "grid_columns"
   assert grid_columns.options["default"] == 3
   assert grid_columns.options["advanced"] is True
   assert grid_columns.options["socketless"] is True
-  preview_pixels = schema.inputs[9]
+  preview_pixels = schema.inputs[11]
   assert preview_pixels.data_type == "float"
   assert preview_pixels.options["display_name"] == "preview_pixels (MPixel)"
   assert preview_pixels.options["default"] == 1.0
   assert preview_pixels.options["advanced"] is True
   assert preview_pixels.options["socketless"] is True
-  show_captions = schema.inputs[10]
+  show_captions = schema.inputs[12]
   assert show_captions.data_type == "boolean"
   assert show_captions.options["display_name"] == "show_captions"
   assert show_captions.options["default"] is True
   assert show_captions.options["advanced"] is True
   assert show_captions.options["socketless"] is True
-  two_image_mode = schema.inputs[11]
+  two_image_mode = schema.inputs[13]
   assert two_image_mode.data_type == "boolean"
   assert two_image_mode.options["display_name"] == "two_image_mode"
   assert two_image_mode.options["default"] is False
@@ -114,7 +130,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert two_image_mode.options["label_on"] == "Up to 2"
   assert two_image_mode.options["advanced"] is True
   assert two_image_mode.options["socketless"] is True
-  prompt_by_order = schema.inputs[12]
+  prompt_by_order = schema.inputs[14]
   assert prompt_by_order.data_type == "boolean"
   assert prompt_by_order.options["display_name"] == "prompt_by_order"
   assert prompt_by_order.options["default"] is False
@@ -122,7 +138,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert prompt_by_order.options["label_on"] == "By order"
   assert prompt_by_order.options["advanced"] is True
   assert prompt_by_order.options["socketless"] is True
-  card_aspect = schema.inputs[13]
+  card_aspect = schema.inputs[15]
   assert card_aspect.data_type == "combo"
   assert card_aspect.options["display_name"] == "card_aspect"
   assert card_aspect.options["options"] == [
@@ -135,14 +151,14 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert card_aspect.options["default"] == "4 / 3"
   assert card_aspect.options["advanced"] is True
   assert card_aspect.options["socketless"] is True
-  preview_fit = schema.inputs[14]
+  preview_fit = schema.inputs[16]
   assert preview_fit.data_type == "combo"
   assert preview_fit.options["display_name"] == "preview_fit"
   assert preview_fit.options["options"] == ["contain", "cover"]
   assert preview_fit.options["default"] == "contain"
   assert preview_fit.options["advanced"] is True
   assert preview_fit.options["socketless"] is True
-  waveform_pairs = schema.inputs[15]
+  waveform_pairs = schema.inputs[17]
   assert waveform_pairs.data_type == "int"
   assert waveform_pairs.options["display_name"] == "waveform_pairs"
   assert waveform_pairs.options["default"] == 300
@@ -222,6 +238,8 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert bundle.audio_captions == ()
   assert bundle.videos == ()
   assert bundle.video_captions == ()
+  assert bundle.h3_fps == 24
+  assert bundle.h3_total_frames == 124
   assert json.loads(bundle.prompt_state_json) == {
     "version": 6,
     "view": "structured",
@@ -250,6 +268,10 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     bundle.compiled_prompt,
   )
   assert json.loads(bundle.manifest_json)["outputs"]["images"] == ["img"]
+  assert json.loads(bundle.manifest_json)["h3_output"] == {
+    "fps": 24,
+    "total_frames": 124,
+  }
   assert json.loads(bundle.manifest_json)["image_output"] == {
     "mode": "original",
     "alphaMode": "preserve",
@@ -526,6 +548,10 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
     limit_image_pixels=True,
     max_image_pixels=4.0,
   )
+  h3_output_fingerprint = module.ReferenceLoaderNode.fingerprint_inputs(
+    module.EMPTY_LOADER_STATE_JSON,
+    h3_total_frames=200,
+  )
   inactive_background_fingerprint = module.ReferenceLoaderNode.fingerprint_inputs(
     module.EMPTY_LOADER_STATE_JSON,
     alpha_background="#ffffff",
@@ -578,9 +604,10 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
   assert inactive_max_fingerprint == fingerprint
   assert inactive_background_fingerprint == fingerprint
   assert limited_fingerprint != fingerprint
+  assert h3_output_fingerprint != fingerprint
   assert opaque_fingerprint != fingerprint
   assert opaque_alpha_fingerprint == opaque_fingerprint
   assert prompt_fingerprint != fingerprint
   assert raw_view_fingerprint != structured_empty_fingerprint
   assert raw_view_fingerprint != fingerprint
-  assert len(calls) == 12
+  assert len(calls) == 13

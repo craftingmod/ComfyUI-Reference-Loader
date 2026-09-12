@@ -232,6 +232,7 @@
 
 .rl-h3-editor__placements {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
   align-content: start;
   gap: 5px;
   min-width: 0;
@@ -317,6 +318,7 @@
 }
 
 .rl-h3-editor__empty {
+  grid-column: 1 / -1;
   margin: 0;
   font-size: 10px;
 }
@@ -365,8 +367,59 @@
 }
 
 .rl-h3-editor__position-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   padding-right: 6px;
   border-right: 1px solid var(--rl-border);
+}
+
+.rl-h3-editor__position-label {
+  flex: none;
+  color: var(--rl-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.rl-h3-editor__position-group {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.rl-h3-editor__position-group button {
+  min-width: 52px;
+  min-height: 26px;
+  padding: 3px 9px;
+  border-radius: 0;
+}
+
+.rl-h3-editor__position-group button + button {
+  margin-left: -1px;
+}
+
+.rl-h3-editor__position-group button:first-child {
+  border-radius: 5px 0 0 5px;
+}
+
+.rl-h3-editor__position-group button:last-child {
+  border-radius: 0 5px 5px 0;
+}
+
+.rl-h3-editor__position-group button:only-child {
+  border-radius: 5px;
+}
+
+.rl-h3-editor__position-group button[aria-checked="true"] {
+  z-index: 1;
+  border-color: var(--rl-accent);
+  background: color-mix(in srgb, var(--rl-accent) 24%, var(--rl-panel));
+  color: var(--rl-text);
+}
+
+.rl-h3-editor__position-group button:focus-visible {
+  position: relative;
+  z-index: 2;
 }
 
 .rl-h3-editor__frame-label {
@@ -631,6 +684,14 @@
   white-space: nowrap;
 }
 
+.rl-h3-workspace__output {
+  flex: none;
+  color: var(--rl-text);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .rl-h3-workspace__pending-dot {
   flex: none;
   color: var(--rl-accent);
@@ -654,29 +715,6 @@
   gap: 8px;
   color: var(--rl-muted);
   font-size: 10px;
-}
-
-.rl-h3-workspace__setting {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-
-.rl-h3-workspace__setting input {
-  width: 54px;
-  min-height: 28px;
-  padding: 3px 5px;
-  border: 1px solid var(--rl-border);
-  border-radius: 4px;
-  background: var(--rl-panel);
-  color: var(--rl-text);
-  font: inherit;
-  font-variant-numeric: tabular-nums;
-}
-
-.rl-h3-workspace__timeline-note {
-  white-space: nowrap;
 }
 
 .rl-h3-workspace__info,
@@ -877,6 +915,29 @@
   white-space: nowrap;
 }
 
+.rl-h3-timeline__ruler-axis > .rl-h3-timeline__output-boundary {
+  z-index: 2;
+  width: 0;
+  padding: 0;
+  border-left: 1px dashed var(--rl-accent);
+  pointer-events: none;
+}
+
+.rl-h3-timeline__output-boundary > span {
+  position: absolute;
+  top: 2px;
+  left: -4px;
+  width: max-content;
+  padding: 1px 4px;
+  border: 1px solid color-mix(in srgb, var(--rl-accent) 55%, var(--rl-border));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--rl-accent) 12%, var(--rl-panel));
+  color: var(--rl-text);
+  font-size: 9px;
+  line-height: 1.2;
+  transform: translateX(-100%);
+}
+
 .rl-h3-timeline__lane {
   position: relative;
   min-width: 0;
@@ -884,7 +945,6 @@
   overflow: visible;
   border-bottom: 1px solid var(--rl-border);
   background-image: linear-gradient(to right, var(--rl-border) 1px, transparent 1px);
-  background-size: 10% 100%;
 }
 
 .rl-h3-timeline__lane.is-drop-target {
@@ -972,7 +1032,8 @@
 }
 
 .rl-h3-timeline__mark.is-warning,
-.rl-h3-timeline__mark.is-incomplete {
+.rl-h3-timeline__mark.is-incomplete,
+.rl-h3-timeline__mark.is-out-of-range {
   border-color: var(--rl-danger);
 }
 
@@ -991,6 +1052,15 @@
   width: 2px;
   background: var(--rl-accent);
   box-shadow: 0 0 6px var(--rl-accent);
+  pointer-events: none;
+}
+
+.rl-h3-timeline__output-boundary-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  border-left: 1px dashed var(--rl-accent);
   pointer-events: none;
 }
 
@@ -1256,13 +1326,9 @@
   border: 0;
 }
 
-.rl-h3-workspace .rl-h3-editor--inspector .rl-h3-editor__position-field fieldset,
-.rl-h3-workspace .rl-h3-editor--inspector .rl-h3-editor__position-field label {
+.rl-h3-workspace .rl-h3-editor--inspector .rl-h3-editor__position-label,
+.rl-h3-workspace .rl-h3-editor--inspector .rl-h3-editor__position-group {
   min-width: 0;
-}
-
-.rl-h3-workspace .rl-h3-editor--inspector .rl-h3-editor__position-field input {
-  width: auto;
 }
 
 @container (max-width: 759px) {
@@ -1284,10 +1350,6 @@
   .rl-h3-workspace__tools {
     gap: 5px;
     padding: 0 8px;
-  }
-
-  .rl-h3-workspace__tools > span {
-    display: none;
   }
 
   .rl-h3-workspace__view-group {

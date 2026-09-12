@@ -13,8 +13,11 @@ from ..core.prompt_contract import (
   parse_prompt_state,
 )
 from ..core.reference_contract import (
+  H3_OUTPUT_DEFAULT_FPS,
+  H3_OUTPUT_DEFAULT_TOTAL_FRAMES,
   ReferenceContractError,
   ReferenceState,
+  h3_output_settings,
   h3_timeline_media_ids,
 )
 from ..core.reference_manifest import (
@@ -37,6 +40,8 @@ class ReferenceLoaderBundle:
   prompt_state_json: str = EMPTY_PROMPT_STATE_JSON
   compiled_prompt: str = ""
   reference_fingerprint: str = ""
+  h3_fps: int = H3_OUTPUT_DEFAULT_FPS
+  h3_total_frames: int = H3_OUTPUT_DEFAULT_TOTAL_FRAMES
   guide_media: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -48,6 +53,12 @@ def validate_reference_loader_bundle(
   if not isinstance(references, ReferenceLoaderBundle):
     raise TypeError("references must be a REFERENCE_LOADER_BUNDLE value.")
   state = parse_reference_manifest_state(references.manifest_json)
+  if (
+    h3_output_settings(references.h3_fps, references.h3_total_frames) != state.h3_output
+  ):
+    raise ReferenceContractError(
+      "Reference Loader bundle H3 output settings do not match its manifest."
+    )
   if not isinstance(references.guide_media, Mapping):
     raise TypeError("Reference Loader bundle guide_media must be a mapping.")
   expected_guide_ids = set(h3_timeline_media_ids(state))

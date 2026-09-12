@@ -2,14 +2,15 @@ export const LOADER_STATE_VERSION = 1 as const
 export const VIDEO_AUDIO_POLICY = "preserve" as const
 export const H3_TIMELINE_VERSION = 1 as const
 export const MAX_H3_GUIDES = 32
-// MiniMax H3 stores Guide positions on a native 24 fps output timeline. The
-// configurable values below are authoring/view preferences only.
-export const H3_TIMELINE_NATIVE_FPS = 24
-export const H3_TIMELINE_MIN_FPS = 1
-export const H3_TIMELINE_MAX_FPS = 240
-export const H3_TIMELINE_DEFAULT_FRAME_COUNT = 240
-export const H3_TIMELINE_MIN_FRAME_COUNT = 1
-export const H3_TIMELINE_MAX_FRAME_COUNT = 3600
+export const H3_OUTPUT_DEFAULT_FPS = 24
+export const H3_OUTPUT_MIN_FPS = 1
+export const H3_OUTPUT_MAX_FPS = 240
+export const H3_OUTPUT_DEFAULT_TOTAL_FRAMES = 124
+export const H3_OUTPUT_MIN_TOTAL_FRAMES = 1
+export const H3_OUTPUT_MAX_TOTAL_FRAMES = 3600
+// MiniMax H3 stores Guide positions on a native 24 fps output timeline.
+export const H3_TIMELINE_NATIVE_FPS = H3_OUTPUT_DEFAULT_FPS
+export const H3_TIMELINE_DEFAULT_FRAME_COUNT = H3_OUTPUT_DEFAULT_TOTAL_FRAMES
 
 export type MediaKind = "image" | "audio" | "video"
 
@@ -28,6 +29,11 @@ export interface H3TimelineState {
   guides: H3GuideEntry[]
   disabledVisualIds?: string[]
   disabledAudioIds?: string[]
+}
+
+export interface H3OutputSettings {
+  fps: number
+  totalFrames: number
 }
 
 export interface MediaSource {
@@ -101,8 +107,6 @@ export type MediaItem = ImageItem | AudioItem | VideoItem
 export interface LoaderUiPreferences {
   cardAspectRatio: string
   gridColumns: number
-  h3TimelineFps: number
-  h3TimelineFrameCount: number
   previewMaxPixels: number
   previewFit: "contain" | "cover"
   waveformPeaks: number
@@ -115,6 +119,7 @@ export interface LoaderState {
   videoOrder: string[]
   audioOrder: string[]
   videoAudioPolicy: typeof VIDEO_AUDIO_POLICY
+  h3Output: H3OutputSettings
   h3Timeline: H3TimelineState
   ui: LoaderUiPreferences
 }
@@ -141,11 +146,14 @@ export interface ItemRuntime {
 export const DEFAULT_UI_PREFERENCES: LoaderUiPreferences = {
   cardAspectRatio: "4 / 3",
   gridColumns: 3,
-  h3TimelineFps: H3_TIMELINE_NATIVE_FPS,
-  h3TimelineFrameCount: H3_TIMELINE_DEFAULT_FRAME_COUNT,
   previewMaxPixels: 1_000_000,
   previewFit: "contain",
   waveformPeaks: 300,
+}
+
+export const DEFAULT_H3_OUTPUT: H3OutputSettings = {
+  fps: H3_OUTPUT_DEFAULT_FPS,
+  totalFrames: H3_OUTPUT_DEFAULT_TOTAL_FRAMES,
 }
 
 export function createEmptyLoaderState(): LoaderState {
@@ -156,6 +164,7 @@ export function createEmptyLoaderState(): LoaderState {
     videoOrder: [],
     audioOrder: [],
     videoAudioPolicy: VIDEO_AUDIO_POLICY,
+    h3Output: { ...DEFAULT_H3_OUTPUT },
     h3Timeline: createEmptyH3Timeline(),
     ui: { ...DEFAULT_UI_PREFERENCES },
   }

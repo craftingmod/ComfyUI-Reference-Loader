@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react"
 
 export type H3GuidePosition = "start" | "guide" | "end"
 
@@ -164,7 +164,25 @@ export function H3GuideInspector({
   const [frame, setFrame] = useState("")
   const frameIndex = frame.trim() === "" ? Number.NaN : Number(frame)
   const showFrame = position === "guide"
-  const positionName = `h3-position-${useId()}`
+  const positionOptions: readonly H3GuidePosition[] =
+    props.channel === "visual" ? ["start", "guide", "end"] : ["guide"]
+  const movePosition = (event: KeyboardEvent<HTMLButtonElement>, value: H3GuidePosition): void => {
+    const index = positionOptions.indexOf(value)
+    let nextIndex: number | undefined
+    if (event.key === "Home") nextIndex = 0
+    else if (event.key === "End") nextIndex = positionOptions.length - 1
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp")
+      nextIndex = (index - 1 + positionOptions.length) % positionOptions.length
+    else if (event.key === "ArrowRight" || event.key === "ArrowDown")
+      nextIndex = (index + 1) % positionOptions.length
+    if (nextIndex === undefined) return
+    event.preventDefault()
+    const next = positionOptions[nextIndex]
+    setPosition(next)
+    event.currentTarget.parentElement
+      ?.querySelector<HTMLButtonElement>(`[data-h3-add-field="position"][value="${next}"]`)
+      ?.focus()
+  }
   return (
     <section
       className="rl-h3-editor rl-h3-editor--inspector"
@@ -209,47 +227,31 @@ export function H3GuideInspector({
       </div>
       <div className="rl-h3-editor__add-form" data-h3-add-form="">
         {positionMode === "radio" ? (
-          <fieldset className="rl-h3-editor__position-field" aria-label="Guide position">
-            <legend>Position</legend>
-            {props.channel === "visual" && (
-              <label>
-                <input
-                  type="radio"
-                  name={positionName}
-                  value="start"
+          <div
+            className="rl-h3-editor__position-field"
+            role="radiogroup"
+            aria-label="Guide position"
+          >
+            <span className="rl-h3-editor__position-label">Position</span>
+            <div className="rl-h3-editor__position-group">
+              {positionOptions.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  value={value}
                   data-h3-add-field="position"
-                  checked={position === "start"}
-                  onChange={() => setPosition("start")}
-                />
-                Start
-              </label>
-            )}
-            <label>
-              <input
-                type="radio"
-                name={positionName}
-                value="guide"
-                data-h3-add-field="position"
-                checked={position === "guide"}
-                disabled={props.atGuideLimit}
-                onChange={() => setPosition("guide")}
-              />
-              Frame
-            </label>
-            {props.channel === "visual" && (
-              <label>
-                <input
-                  type="radio"
-                  name={positionName}
-                  value="end"
-                  data-h3-add-field="position"
-                  checked={position === "end"}
-                  onChange={() => setPosition("end")}
-                />
-                End
-              </label>
-            )}
-          </fieldset>
+                  aria-checked={position === value}
+                  tabIndex={position === value ? 0 : -1}
+                  disabled={value === "guide" && props.atGuideLimit}
+                  onClick={() => setPosition(value)}
+                  onKeyDown={(event) => movePosition(event, value)}
+                >
+                  {value === "guide" ? "Frame" : value === "start" ? "Start" : "End"}
+                </button>
+              ))}
+            </div>
+          </div>
         ) : (
           <label className="rl-h3-editor__position-field">
             <span>Position</span>

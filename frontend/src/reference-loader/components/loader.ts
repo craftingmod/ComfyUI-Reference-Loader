@@ -24,10 +24,10 @@ import { deserializeLoaderState, serializeLoaderState } from "../serialization.t
 import {
   createEmptyH3Timeline,
   createMediaItem,
-  H3_TIMELINE_MAX_FPS,
-  H3_TIMELINE_MAX_FRAME_COUNT,
-  H3_TIMELINE_MIN_FPS,
-  H3_TIMELINE_MIN_FRAME_COUNT,
+  H3_OUTPUT_MAX_FPS,
+  H3_OUTPUT_MAX_TOTAL_FRAMES,
+  H3_OUTPUT_MIN_FPS,
+  H3_OUTPUT_MIN_TOTAL_FRAMES,
   isAudioItem,
   type H3TimelineState,
   type LoaderState,
@@ -394,11 +394,6 @@ export class ReferenceLoaderController {
     h3AddPlacement: (position, frame) => this.#addH3DraftPlacement(position, frame),
     h3RemoveRole: (role) => this.#removeH3DraftRole(role),
     h3RemovePlacement: (id) => this.#deleteH3DraftPlacement(id),
-    setTimelineSettings: (values) =>
-      this.writeDisplayProxy({
-        timelineFps: values.fps,
-        timelineFrameCount: values.frameCount,
-      }),
     h3Apply: () => this.#applyH3Workspace(),
     h3Cancel: () => this.#cancelH3Workspace(),
     reorder: (id, channel, toIndex) => this.reorderItem(id, channel, toIndex),
@@ -505,8 +500,8 @@ export class ReferenceLoaderController {
   #displayState(): LoaderDisplayState {
     return {
       gridColumns: this.state.ui.gridColumns,
-      timelineFps: this.state.ui.h3TimelineFps,
-      timelineFrameCount: this.state.ui.h3TimelineFrameCount,
+      h3Fps: this.state.h3Output.fps,
+      h3TotalFrames: this.state.h3Output.totalFrames,
       previewPixels: this.state.ui.previewMaxPixels / 1_000_000,
       showCaptions: showCaptionsProperty(this.#node),
       twoImageMode: twoImageModeProperty(this.#node),
@@ -708,19 +703,16 @@ export class ReferenceLoaderController {
       values.waveformPairs === undefined || !Number.isFinite(values.waveformPairs)
         ? this.state.ui.waveformPeaks
         : Math.min(1000, Math.max(100, Math.round(values.waveformPairs)))
-    const timelineFps =
-      values.timelineFps === undefined || !Number.isFinite(values.timelineFps)
-        ? this.state.ui.h3TimelineFps
+    const h3Fps =
+      values.h3Fps === undefined || !Number.isFinite(values.h3Fps)
+        ? this.state.h3Output.fps
+        : Math.min(H3_OUTPUT_MAX_FPS, Math.max(H3_OUTPUT_MIN_FPS, Math.round(values.h3Fps)))
+    const h3TotalFrames =
+      values.h3TotalFrames === undefined || !Number.isFinite(values.h3TotalFrames)
+        ? this.state.h3Output.totalFrames
         : Math.min(
-            H3_TIMELINE_MAX_FPS,
-            Math.max(H3_TIMELINE_MIN_FPS, Math.round(values.timelineFps)),
-          )
-    const timelineFrameCount =
-      values.timelineFrameCount === undefined || !Number.isFinite(values.timelineFrameCount)
-        ? this.state.ui.h3TimelineFrameCount
-        : Math.min(
-            H3_TIMELINE_MAX_FRAME_COUNT,
-            Math.max(H3_TIMELINE_MIN_FRAME_COUNT, Math.round(values.timelineFrameCount)),
+            H3_OUTPUT_MAX_TOTAL_FRAMES,
+            Math.max(H3_OUTPUT_MIN_TOTAL_FRAMES, Math.round(values.h3TotalFrames)),
           )
     const previewFit =
       values.previewFit === "cover"
@@ -731,8 +723,6 @@ export class ReferenceLoaderController {
     const waveformChanged = waveformPairs !== this.state.ui.waveformPeaks
     if (
       gridColumns !== this.state.ui.gridColumns ||
-      timelineFps !== this.state.ui.h3TimelineFps ||
-      timelineFrameCount !== this.state.ui.h3TimelineFrameCount ||
       previewChanged ||
       cardAspect !== this.state.ui.cardAspectRatio ||
       previewFit !== this.state.ui.previewFit ||
@@ -742,8 +732,6 @@ export class ReferenceLoaderController {
         type: "set-ui",
         values: {
           gridColumns,
-          h3TimelineFps: timelineFps,
-          h3TimelineFrameCount: timelineFrameCount,
           previewMaxPixels,
           cardAspectRatio: cardAspect,
           previewFit,
@@ -755,6 +743,9 @@ export class ReferenceLoaderController {
         this.#reloadChannelRuntime("video")
       }
       if (waveformChanged) this.#reloadChannelRuntime("audio")
+    }
+    if (h3Fps !== this.state.h3Output.fps || h3TotalFrames !== this.state.h3Output.totalFrames) {
+      this.#dispatch({ type: "set-h3-output", values: { fps: h3Fps, totalFrames: h3TotalFrames } })
     }
     if (values.showCaptions !== undefined) {
       const showCaptions = Boolean(values.showCaptions)
@@ -1385,6 +1376,10 @@ export class ReferenceLoaderController {
         this.render(true)
         return
       }
+      if (placement.visualId) {
+        this.#openH3EditorForMedia(placement.visualId, "visual")
+        return
+      }
       if (this.#h3Editor) {
         this.#h3Editor = undefined
         this.#h3Session += 1
@@ -1396,13 +1391,10 @@ export class ReferenceLoaderController {
     }
     this.#h3SelectedShot = undefined
     this.#h3SelectedRole = undefined
-    if (this.#h3Editor?.timelineEdit && placement.guideId) {
-      this.#h3Editor.selectedGuideId = placement.guideId
-      this.render(true)
-      return
-    }
     if (placement.kind === "guide" && placement.guideId) {
-      this.#openH3EditorForGuide(placement.guideId)
+      const id = channel === "visual" ? placement.visualId : placement.audioId
+      if (id) this.#openH3EditorForMedia(id, channel, placement.guideId)
+      else this.#openH3EditorForGuide(placement.guideId)
       return
     }
     const id = channel === "visual" ? placement.visualId : placement.audioId
@@ -1454,6 +1446,7 @@ export class ReferenceLoaderController {
     requireGuide = false,
     focusGuide = true,
   ): void {
+    const wasCollapsed = this.#h3Collapsed
     this.#h3SelectedShot = undefined
     this.#h3SelectedRole = undefined
     if (this.#promptShotDirty) {
@@ -1463,11 +1456,11 @@ export class ReferenceLoaderController {
     }
     if (!this.#canSwitchH3Editor(mediaId, channel)) return
     if (this.#h3Editor?.mediaId === mediaId && this.#h3Editor.channel === channel) {
-      if (guideId) {
-        this.#h3Editor.selectedGuideId = guideId
-        if (focusGuide) this.#focusH3EditorGuide(guideId)
-      }
+      if (guideId) this.#h3Editor.selectedGuideId = guideId
+      this.#h3Collapsed = false
       this.render(true)
+      if (guideId && focusGuide) this.#focusH3EditorGuide(guideId)
+      else if (!guideId && wasCollapsed) this.#focusH3Workspace()
       return
     }
     const itemId = mediaId.endsWith(":audio") ? mediaId.slice(0, -6) : mediaId
@@ -1503,6 +1496,7 @@ export class ReferenceLoaderController {
     this.#h3Collapsed = false
     this.render(true)
     if (guideId && focusGuide) this.#focusH3EditorGuide(guideId)
+    else if (wasCollapsed) this.#focusH3Workspace()
   }
 
   #openH3EditorForGuide(guideId: string): void {
@@ -1552,6 +1546,15 @@ export class ReferenceLoaderController {
       row.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')?.focus()
       return
     }
+  }
+
+  #focusH3Workspace(): void {
+    const workspace = this.root.querySelector<HTMLElement>("[data-h3-workspace]")
+    if (!workspace) return
+    workspace.scrollIntoView?.({ block: "nearest" })
+    workspace.querySelector<HTMLButtonElement>('[data-h3-action="collapse"]')?.focus({
+      preventScroll: true,
+    })
   }
 
   #h3EditorDirty(): boolean {

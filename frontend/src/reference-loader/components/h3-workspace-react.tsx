@@ -21,7 +21,6 @@ import {
   timelineMarks,
   timelineToNativeFrame,
 } from "./h3-timeline.ts"
-
 export interface H3WorkspaceActions extends H3TimelineReactActions {
   h3Toggle(): void
   h3ToggleCollapsed(): void
@@ -31,7 +30,6 @@ export interface H3WorkspaceActions extends H3TimelineReactActions {
   h3ChangeGuideSource(id: string, channel: H3GuideChannel, mediaId: string | null): void
   h3AddPlacement(position: "start" | "guide" | "end", frame: string): void
   h3RemovePlacement(id: string): void
-  setTimelineSettings(values: { fps?: number; frameCount?: number }): void
   h3Apply(): void
   h3Cancel(): void
 }
@@ -469,8 +467,8 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
   const pageId = useId()
 
   if (!h3) return null
-  const fps = snapshot.display.timelineFps
-  const frameCount = snapshot.display.timelineFrameCount
+  const fps = snapshot.display.h3Fps
+  const frameCount = snapshot.display.h3TotalFrames
   const placements = h3Placements(h3.timeline)
   const count = Object.keys(snapshot.state.items).length
   const status = h3.issue
@@ -518,6 +516,13 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
           >
             {count} media · {placements.length} placements · {h3.shots.length} shots
           </span>
+          <span
+            className="rl-h3-workspace__output"
+            aria-label="H3 output settings"
+            title="Actual H3 output settings configured on Reference Loader"
+          >
+            {fps} FPS · {frameCount} frames
+          </span>
           {h3.dirty ? (
             <span
               className="rl-h3-workspace__pending-dot"
@@ -541,40 +546,6 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
           </button>
         </header>
         <div className="rl-h3-workspace__tools" hidden={h3.collapsed}>
-          <label className="rl-h3-workspace__setting" title="Display and authoring timebase">
-            <span>FPS</span>
-            <input
-              type="number"
-              min="1"
-              max="240"
-              step="1"
-              aria-label="Timeline FPS"
-              value={fps}
-              onInput={(event) =>
-                actions.setTimelineSettings({ fps: Number(event.currentTarget.value) })
-              }
-            />
-          </label>
-          <label className="rl-h3-workspace__setting" title="Minimum visible timeline frames">
-            <span>Frames</span>
-            <input
-              type="number"
-              min="1"
-              max="3600"
-              step="1"
-              aria-label="Timeline frame count"
-              value={frameCount}
-              onInput={(event) =>
-                actions.setTimelineSettings({ frameCount: Number(event.currentTarget.value) })
-              }
-            />
-          </label>
-          <span
-            className="rl-h3-workspace__timeline-note"
-            title="These settings change the editor view. Native H3 execution remains 24 fps and Wrapper length controls output duration."
-          >
-            View only
-          </span>
           <div className="rl-h3-workspace__view-group" aria-label="Timeline view">
             <button
               type="button"

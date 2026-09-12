@@ -106,6 +106,8 @@ describe("Reference Loader stylesheet", () => {
     ).text()
     const addFormRule = css.match(/\.rl-h3-editor__add-form\s*\{([^}]*)\}/)?.[1]
     const positionRule = css.match(/\.rl-h3-editor__position-field\s*\{([^}]*)\}/)?.[1]
+    const positionGroupRule = css.match(/\.rl-h3-editor__position-group\s*\{([^}]*)\}/)?.[1]
+    const positionButtonRule = css.match(/\.rl-h3-editor__position-group button\s*\{([^}]*)\}/)?.[1]
     const frameInputRule = css.match(
       /\.rl-h3-editor__frame-field input\[type="number"\]\s*\{([^}]*)\}/,
     )?.[1]
@@ -118,7 +120,11 @@ describe("Reference Loader stylesheet", () => {
     expect(addFormRule).toContain("display: grid;")
     expect(addFormRule).toContain("grid-template-columns: max-content max-content minmax(0, 1fr);")
     expect(positionRule).not.toContain("flex:")
+    expect(positionRule).toContain("display: flex;")
     expect(positionRule).toContain("border-right: 1px solid var(--rl-border);")
+    expect(positionGroupRule).toContain("display: inline-flex;")
+    expect(positionButtonRule).toContain("min-width: 52px;")
+    expect(css).toContain('.rl-h3-editor__position-group button[aria-checked="true"]')
     expect(addControlRule).toContain("min-height: 26px;")
     expect(frameInputRule).toContain("max-width: 50px;")
     expect(frameInputRule).toContain("flex: 0 0 50px;")

@@ -459,6 +459,8 @@ describe("Reference Loader custom widget", () => {
     const cardAspect: ComfyWidget = { name: "card_aspect", value: "4 / 3" }
     const previewFit: ComfyWidget = { name: "preview_fit", value: "contain" }
     const waveformPairs: ComfyWidget = { name: "waveform_pairs", value: 300 }
+    const h3TotalFrames: ComfyWidget = { name: "h3_total_frames", value: 124 }
+    const h3Fps: ComfyWidget = { name: "h3_fps", value: 24 }
     const limitImagePixels: ComfyWidget = { name: "limit_image_pixels", value: false }
     const maxImagePixels: ComfyWidget = { name: "max_image_pixels", value: 2 }
     const compositeAlpha: ComfyWidget = { name: "composite_alpha", value: false }
@@ -471,6 +473,8 @@ describe("Reference Loader custom widget", () => {
         maxImagePixels,
         compositeAlpha,
         alphaBackground,
+        h3TotalFrames,
+        h3Fps,
         gridColumns,
         previewPixels,
         showCaptions,
@@ -531,6 +535,8 @@ describe("Reference Loader custom widget", () => {
     cardAspect.callback?.("9 / 16")
     previewFit.callback?.("cover")
     waveformPairs.callback?.(750)
+    h3TotalFrames.callback?.(200)
+    h3Fps.callback?.(30)
     serialized = JSON.parse(String(domOptions?.getValue?.()))
     expect(serialized.ui.cardAspectRatio).toBe("9 / 16")
     expect(serialized.ui.previewFit).toBe("cover")
@@ -538,6 +544,9 @@ describe("Reference Loader custom widget", () => {
     expect(cardAspect.value).toBe("9 / 16")
     expect(previewFit.value).toBe("cover")
     expect(waveformPairs.value).toBe(750)
+    expect(serialized.h3Output).toEqual({ fps: 30, totalFrames: 200 })
+    expect(h3TotalFrames.value).toBe(200)
+    expect(h3Fps.value).toBe(30)
     expect(loaderRoot?.style.getPropertyValue("--rl-preview-fit")).toBe("cover")
     expect(loaderRoot?.querySelector(".rl-settings")).toBeNull()
     const restored = createEmptyLoaderState()
@@ -767,6 +776,8 @@ describe("Reference Loader custom widget", () => {
     const loaderWidget: ComfyWidget = { name: "loader_state", value: "" }
     const promptWidget: ComfyWidget = { name: "prompt", value: "" }
     const nativeWidgets: ComfyWidget[] = [
+      { name: "h3_total_frames", value: 124 },
+      { name: "h3_fps", value: 24 },
       { name: "limit_image_pixels", value: false },
       { name: "max_image_pixels", value: 2 },
       { name: "composite_alpha", value: false },
@@ -810,6 +821,7 @@ describe("Reference Loader custom widget", () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     const loaderState = createEmptyLoaderState()
+    loaderState.h3Output = { fps: 30, totalFrames: 200 }
     loaderState.ui.gridColumns = 6
     const promptState = createEmptyPromptDocumentV6()
     promptState.view = "raw"
@@ -847,6 +859,10 @@ describe("Reference Loader custom widget", () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
 
       expect(JSON.parse(String(loaderOptions?.getValue?.())).ui.gridColumns).toBe(6)
+      expect(JSON.parse(String(loaderOptions?.getValue?.())).h3Output).toEqual({
+        fps: 30,
+        totalFrames: 200,
+      })
       expect(JSON.parse(String(promptOptions?.getValue?.()))).toEqual(promptState)
       expect(node.widgets?.find((widget) => widget.name === "limit_image_pixels")?.value).toBe(true)
       expect(node.widgets?.find((widget) => widget.name === "max_image_pixels")?.value).toBe(4.5)
@@ -858,6 +874,8 @@ describe("Reference Loader custom widget", () => {
         "minimax_h3_t2v",
       )
       expect(node.widgets?.find((widget) => widget.name === "grid_columns")?.value).toBe(6)
+      expect(node.widgets?.find((widget) => widget.name === "h3_total_frames")?.value).toBe(200)
+      expect(node.widgets?.find((widget) => widget.name === "h3_fps")?.value).toBe(30)
       expect(node.widgets?.find((widget) => widget.name === "show_captions")?.value).toBe(false)
       expect(node.widgets?.find((widget) => widget.name === "two_image_mode")?.value).toBe(true)
       expect(node.widgets?.find((widget) => widget.name === "prompt_by_order")?.value).toBe(true)

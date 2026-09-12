@@ -9,7 +9,7 @@ from typing import Any
 
 from comfy_api.latest import io
 
-from ..core.reference_contract import H3Timeline
+from ..core.reference_contract import H3Timeline, h3_output_settings
 from .reference_bundle import (
   REFERENCE_LOADER_BUNDLE_TYPE,
   ReferenceLoaderBundle,
@@ -530,7 +530,6 @@ class MiniMaxH3ReferenceToVideoWrapperNode(io.ComfyNode):
         inputs["prompt"],
         inputs["width"],
         inputs["height"],
-        inputs["length"],
         inputs["ref_image_size"],
       ],
       outputs=original.outputs,
@@ -546,11 +545,17 @@ class MiniMaxH3ReferenceToVideoWrapperNode(io.ComfyNode):
     prompt: str = "",
     width: int = 1344,
     height: int = 768,
-    length: int = 124,
     ref_image_size: str = "match",
   ) -> io.NodeOutput:
     if not isinstance(references, ReferenceLoaderBundle):
       raise TypeError("references must be a REFERENCE_LOADER_BUNDLE value.")
+    output = h3_output_settings(references.h3_fps, references.h3_total_frames)
+    if output.fps != H3_REFERENCE_FPS:
+      raise ValueError(
+        "MiniMax H3 native execution requires an H3 output frame rate of "
+        f"{H3_REFERENCE_FPS} FPS."
+      )
+    length = output.total_frames
     manifest = _manifest(references)
     timeline = _validated_timeline(references, manifest)
     (

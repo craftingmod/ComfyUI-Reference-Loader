@@ -14,6 +14,12 @@ REFERENCE_STATE_VERSION = 1
 VIDEO_AUDIO_POLICY = "preserve"
 H3_TIMELINE_VERSION = 1
 MAX_H3_GUIDES = 32
+H3_OUTPUT_DEFAULT_FPS = 24
+H3_OUTPUT_MIN_FPS = 1
+H3_OUTPUT_MAX_FPS = 240
+H3_OUTPUT_DEFAULT_TOTAL_FRAMES = 124
+H3_OUTPUT_MIN_TOTAL_FRAMES = 1
+H3_OUTPUT_MAX_TOTAL_FRAMES = 3600
 
 MAX_STATE_CHARACTERS = 1_000_000
 MAX_IMAGES = 32
@@ -216,6 +222,18 @@ class ImageOutputSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class H3OutputSettings:
+  fps: int
+  total_frames: int
+
+  def state_projection(self) -> dict[str, int]:
+    return {"fps": self.fps, "totalFrames": self.total_frames}
+
+  def manifest_projection(self) -> dict[str, int]:
+    return {"fps": self.fps, "total_frames": self.total_frames}
+
+
+@dataclass(frozen=True, slots=True)
 class ReferenceState:
   version: int
   items: Mapping[str, ReferenceItem]
@@ -224,6 +242,12 @@ class ReferenceState:
   audio_order: tuple[str, ...]
   video_audio_policy: Literal["preserve"]
   h3_timeline: H3Timeline = field(default_factory=H3Timeline.empty)
+  h3_output: H3OutputSettings = field(
+    default_factory=lambda: H3OutputSettings(
+      H3_OUTPUT_DEFAULT_FPS,
+      H3_OUTPUT_DEFAULT_TOTAL_FRAMES,
+    )
+  )
 
 
 def _error(path: str, message: str) -> ReferenceContractError:
@@ -284,6 +308,29 @@ def image_output_settings(
     composite_alpha=composite,
     alpha_background=background,
   )
+
+
+def h3_output_settings(fps: Any, total_frames: Any) -> H3OutputSettings:
+  if (
+    isinstance(fps, bool)
+    or not isinstance(fps, int)
+    or not H3_OUTPUT_MIN_FPS <= fps <= H3_OUTPUT_MAX_FPS
+  ):
+    raise _error(
+      "h3_output.fps",
+      f"must be an integer between {H3_OUTPUT_MIN_FPS} and {H3_OUTPUT_MAX_FPS}",
+    )
+  if (
+    isinstance(total_frames, bool)
+    or not isinstance(total_frames, int)
+    or not H3_OUTPUT_MIN_TOTAL_FRAMES <= total_frames <= H3_OUTPUT_MAX_TOTAL_FRAMES
+  ):
+    raise _error(
+      "h3_output.total_frames",
+      "must be an integer between "
+      f"{H3_OUTPUT_MIN_TOTAL_FRAMES} and {H3_OUTPUT_MAX_TOTAL_FRAMES}",
+    )
+  return H3OutputSettings(fps=fps, total_frames=total_frames)
 
 
 def _source(value: Any, path: str, kind: MediaKind) -> ReferenceSource:
@@ -710,6 +757,18 @@ def parse_reference_state(value: str | Mapping[str, Any]) -> ReferenceState:
     raise _error("state.videoAudioPolicy", f"must equal {VIDEO_AUDIO_POLICY!r}")
 
   h3_timeline = _h3_timeline(state.get("h3Timeline"), items)
+  raw_h3_output = state.get("h3Output")
+  if raw_h3_output is None:
+    h3_output = h3_output_settings(
+      H3_OUTPUT_DEFAULT_FPS,
+      H3_OUTPUT_DEFAULT_TOTAL_FRAMES,
+    )
+  else:
+    h3_output_value = _mapping(raw_h3_output, "state.h3Output")
+    h3_output = h3_output_settings(
+      h3_output_value.get("fps"),
+      h3_output_value.get("totalFrames"),
+    )
 
   return ReferenceState(
     version=REFERENCE_STATE_VERSION,
@@ -719,6 +778,7 @@ def parse_reference_state(value: str | Mapping[str, Any]) -> ReferenceState:
     audio_order=audio_order,
     video_audio_policy=VIDEO_AUDIO_POLICY,
     h3_timeline=h3_timeline,
+    h3_output=h3_output,
   )
 
 
@@ -791,6 +851,7 @@ def execution_projection(
     "audioOrder": list(state.audio_order),
     "videoAudioPolicy": state.video_audio_policy,
     "h3Timeline": state.h3_timeline.state_projection(),
+    "h3Output": state.h3_output.state_projection(),
     "images": images,
     "audios": audios,
     "videos": videos,
@@ -835,6 +896,12 @@ def reference_loader_fingerprint(
 
 
 __all__ = [
+  "H3_OUTPUT_DEFAULT_FPS",
+  "H3_OUTPUT_DEFAULT_TOTAL_FRAMES",
+  "H3_OUTPUT_MAX_FPS",
+  "H3_OUTPUT_MAX_TOTAL_FRAMES",
+  "H3_OUTPUT_MIN_FPS",
+  "H3_OUTPUT_MIN_TOTAL_FRAMES",
   "H3_TIMELINE_VERSION",
   "MAX_H3_GUIDES",
   "MAX_OUTPUT_IMAGE_PIXELS",
@@ -842,6 +909,7 @@ __all__ = [
   "REFERENCE_STATE_VERSION",
   "VIDEO_AUDIO_POLICY",
   "H3GuideEntry",
+  "H3OutputSettings",
   "H3Timeline",
   "ImageEdit",
   "ImageOutputSettings",
@@ -853,6 +921,7 @@ __all__ = [
   "TimeRange",
   "execution_fingerprint",
   "execution_projection",
+  "h3_output_settings",
   "h3_timeline_media_ids",
   "image_output_settings",
   "parse_reference_state",

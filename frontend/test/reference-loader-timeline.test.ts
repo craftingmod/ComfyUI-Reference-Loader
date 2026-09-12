@@ -21,6 +21,7 @@ import { createEmptyLoaderState, createMediaItem } from "../src/reference-loader
 
 function fixture() {
   const state = createEmptyLoaderState()
+  state.h3Output = { fps: 24, totalFrames: 240 }
   const media = (kind: "image" | "audio", id: string) =>
     createMediaItem(
       kind,
@@ -53,7 +54,7 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup()
 })
 
-function mount() {
+function mount(state = fixture()) {
   const root = document.createElement("div")
   document.body.append(root)
   const node: ComfyNode = {
@@ -65,7 +66,7 @@ function mount() {
     root,
     node,
     new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
-    serializeLoaderState(fixture()),
+    serializeLoaderState(state),
   )
   cleanups.push(() => {
     controller.destroy()
@@ -159,36 +160,68 @@ function sizeSurface(root: HTMLElement, width = 640) {
 }
 
 describe("Guide timeline", () => {
-  test("converts a configurable view timebase without changing native Guide frames", () => {
+  test("uses the Reference Loader H3 output settings and opens selected Guides in the Inspector", () => {
     const { root, controller } = mount()
     const executionBefore = executionFingerprintSource(controller.state)
-    const fps = root.querySelector<HTMLInputElement>('[aria-label="Timeline FPS"]')
-    const frameCount = root.querySelector<HTMLInputElement>('[aria-label="Timeline frame count"]')
-    if (!fps || !frameCount) throw new Error("Missing Timeline view settings.")
+    controller.writeDisplayProxy({ h3Fps: 30, h3TotalFrames: 120 })
 
-    fps.value = "30"
-    flushSync(() => fps.dispatchEvent(new Event("input", { bubbles: true })))
-    frameCount.value = "120"
-    flushSync(() => frameCount.dispatchEvent(new Event("input", { bubbles: true })))
-
-    expect(controller.state.ui.h3TimelineFps).toBe(30)
-    expect(controller.state.ui.h3TimelineFrameCount).toBe(120)
+    expect(controller.state.h3Output).toEqual({ fps: 30, totalFrames: 120 })
     expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
     expect(nativeToTimelineFrame(48, 30)).toBe(60)
     expect(timelineFrameInputToNative("61", 30)).toBe("49")
     expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("60f · 2.000s")
     expect(root.querySelector("[data-timeline-channel=visual]")?.textContent).toContain("60f")
     expect(root.querySelector(".rl-h3-timeline__ruler")?.textContent).toContain("4.000s · 120f")
-    expect(executionFingerprintSource(controller.state)).toBe(executionBefore)
+    expect(root.querySelector('[aria-label="H3 output settings"]')?.textContent).toContain(
+      "30 FPS · 120 frames",
+    )
+    expect(executionFingerprintSource(controller.state)).not.toBe(executionBefore)
+
+    controller.writeDisplayProxy({ h3Fps: 24, h3TotalFrames: 124 })
+    expect(root.querySelector(".rl-h3-timeline__ruler")?.textContent).toContain("5.167s · 124f")
+    expect(
+      Number.parseFloat(
+        root.querySelector<HTMLElement>('[data-timeline-channel="visual"]')?.style.backgroundSize ??
+          "",
+      ),
+    ).toBeCloseTo((24 / 124) * 100)
+    controller.writeDisplayProxy({ h3Fps: 30, h3TotalFrames: 120 })
 
     root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
+    expect(
+      root.querySelector('[data-h3-inspector][aria-label="Image Guide Inspector"]'),
+    ).not.toBeNull()
+    expect(document.activeElement).toBe(
+      root.querySelector(
+        '[data-h3-inspector] [data-h3-draft-field="frame"][data-h3-guide-id="pair"]',
+      ),
+    )
     const guideInput = root.querySelector<HTMLInputElement>('[aria-label="Guide frame"]')!
     expect(guideInput.value).toBe("60")
     guideInput.value = "61"
     flushSync(() => guideInput.dispatchEvent(new Event("input", { bubbles: true })))
     guideInput.dispatchEvent(new Event("change", { bubbles: true }))
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
-    expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(49)
+    expect(controller.state.h3Timeline.guides).toEqual([
+      { id: "pair", frameIndex: 48, visualId: null, audioId: "voice" },
+      { id: expect.any(String), frameIndex: 49, visualId: "scene", audioId: null },
+    ])
+  })
+
+  test("marks the configured output end without hiding out-of-range placements", () => {
+    const state = fixture()
+    state.h3Output = { fps: 24, totalFrames: 124 }
+    state.h3Timeline.guides[0]!.frameIndex = 200
+    const { root } = mount(state)
+
+    expect(root.querySelector('[role="separator"]')?.getAttribute("aria-label")).toBe(
+      "Output end · 5.167s · 124f",
+    )
+    expect(root.querySelectorAll(".rl-h3-timeline__output-boundary-line")).toHaveLength(3)
+    const marker = root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')
+    expect(marker).not.toBeNull()
+    expect(marker?.classList.contains("is-out-of-range")).toBe(true)
+    expect(marker?.title).toContain("Out of range · output ends at 124f")
   })
 
   test("uses trimmed audio intervals, ignores paused ranges, and keeps End out of the view extent", () => {
@@ -203,7 +236,7 @@ describe("Guide timeline", () => {
       marks.find((mark) => mark.channel === "audio" && mark.placement.guideId === "pair")?.frames,
     ).toBe(48)
     expect(marks.filter((mark) => mark.warning)).toHaveLength(2)
-    expect(timelineExtent(marks)).toBe(240)
+    expect(timelineExtent(marks)).toBe(124)
     state.h3Timeline.disabledAudioIds = ["music"]
     expect(timelineMarks(state, runtime).some((mark) => mark.warning)).toBe(false)
     delete voice.crop
@@ -456,7 +489,7 @@ describe("Guide timeline", () => {
     const { root, controller } = mount()
     root.querySelector<HTMLButtonElement>(".rl-h3-timeline__end-mark")!.click()
     root
-      .querySelector<HTMLButtonElement>('[data-h3-element-remove][aria-label="Remove End"]')!
+      .querySelector<HTMLButtonElement>('[data-h3-action="remove-draft-role"][data-h3-role="end"]')!
       .click()
 
     expect(controller.getViewSnapshot().h3?.timeline.endImageId).toBeNull()
@@ -523,7 +556,10 @@ describe("Guide timeline", () => {
     flushSync(() => frame.dispatchEvent(new Event("input", { bubbles: true })))
     frame.dispatchEvent(new Event("change", { bubbles: true }))
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
-    expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(144)
+    expect(controller.state.h3Timeline.guides).toEqual([
+      { id: "pair", frameIndex: 48, visualId: null, audioId: "voice" },
+      { id: expect.any(String), frameIndex: 144, visualId: "scene", audioId: null },
+    ])
     expect(controller.state.h3Timeline.endImageId).toBe("scene")
   })
 

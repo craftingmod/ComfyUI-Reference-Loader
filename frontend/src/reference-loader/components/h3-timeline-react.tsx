@@ -212,7 +212,7 @@ function displayFrame(
   return preview && preview.id === mark.placement.guideId ? preview.frame : mark.frame
 }
 
-function markerTitle(mark: TimelineMark, frame: number, fps: number): string {
+function markerTitle(mark: TimelineMark, frame: number, fps: number, frameCount: number): string {
   const position =
     mark.placement.kind === "start"
       ? "Start"
@@ -227,7 +227,11 @@ function markerTitle(mark: TimelineMark, frame: number, fps: number): string {
         ? " · duration unknown"
         : ` · ${timelineSeconds(mark.frames, fps)}s source span`
       : ""
-  const state = `${mark.disabled ? " · paused" : ""}${mark.incomplete ? " · incomplete" : ""}${mark.warning ? ` · ${mark.warning}` : ""}`
+  const outOfRange =
+    Number.isSafeInteger(frame) && frame >= frameCount
+      ? ` · Out of range · output ends at ${frameCount}f`
+      : ""
+  const state = `${mark.disabled ? " · paused" : ""}${mark.incomplete ? " · incomplete" : ""}${mark.warning ? ` · ${mark.warning}` : ""}${outOfRange}`
   return `${position} · ${mark.label} · ${mark.placement.kind === "end" ? "time unknown" : timing(frame, fps)}${duration}${state}`
 }
 
@@ -584,13 +588,14 @@ export function H3TimelineReact({
       : isSelectedMark(mark, h3)
     const frame = displayFrame(mark, preview)
     const draggable = mark.placement.kind !== "end" && Boolean(mark.placement.guideId)
-    const title = markerTitle(mark, frame, fps)
+    const outOfRange = Number.isSafeInteger(frame) && frame >= frameCount
+    const title = markerTitle(mark, frame, fps, frameCount)
     const key = `${mark.placement.guideId ?? mark.placement.kind}:${mark.channel}:${mark.shotTag ?? mark.label}`
     return (
       <button
         key={key}
         type="button"
-        className={`rl-h3-timeline__mark${mark.disabled ? " is-paused" : ""}${mark.incomplete ? " is-incomplete" : ""}${mark.warning ? " is-warning" : ""}${selected ? " is-selected" : ""}${mark.channel === "audio" ? " is-audio" : ""}${mark.channel === "shot" ? " is-shot" : ""}${mark.frames === undefined ? " is-unknown" : ""}${preview?.id === mark.placement.guideId ? " is-dragging" : ""}`}
+        className={`rl-h3-timeline__mark${mark.disabled ? " is-paused" : ""}${mark.incomplete ? " is-incomplete" : ""}${mark.warning ? " is-warning" : ""}${outOfRange ? " is-out-of-range" : ""}${selected ? " is-selected" : ""}${mark.channel === "audio" ? " is-audio" : ""}${mark.channel === "shot" ? " is-shot" : ""}${mark.frames === undefined ? " is-unknown" : ""}${preview?.id === mark.placement.guideId ? " is-dragging" : ""}`}
         data-timeline-mark={index}
         data-timeline-guide={mark.placement.guideId}
         data-timeline-shot={mark.shotTag}
@@ -652,14 +657,22 @@ export function H3TimelineReact({
     fps,
     Math.ceil(extent / Math.max(2, Math.floor(layoutWidth / 76)) / fps) * fps,
   )
-  const ticks: ReactNode[] = []
+  const tickValues: number[] = []
   for (let frame = 0; frame <= extent; frame += tickFrames) {
-    ticks.push(
-      <span key={frame} style={{ left: `${(frame / extent) * 100}%` }}>
-        {timelineSeconds(frame, fps)}s · {frame}f
-      </span>,
-    )
+    tickValues.push(frame)
   }
+  if (tickValues[tickValues.length - 1] !== extent) tickValues.push(extent)
+  const ticks: ReactNode[] = tickValues.map((frame) => (
+    <span key={frame} style={{ left: `${(frame / extent) * 100}%` }}>
+      {timelineSeconds(frame, fps)}s · {frame}f
+    </span>
+  ))
+  const outputBoundaryLeft =
+    frameCount < extent ? `${(frameCount / extent) * 100}%` : undefined
+  const outputBoundaryLabel =
+    outputBoundaryLeft === undefined
+      ? undefined
+      : `Output end · ${timelineSeconds(frameCount, fps)}s · ${frameCount}f`
 
   return (
     <div className="rl-h3-timeline-react" data-h3-timeline-react="">
@@ -676,7 +689,19 @@ export function H3TimelineReact({
         >
           <div className="rl-h3-timeline__ruler">
             <span className="rl-h3-timeline__lane-label">Time</span>
-            <div className="rl-h3-timeline__ruler-axis">{ticks}</div>
+            <div className="rl-h3-timeline__ruler-axis">
+              {ticks}
+              {outputBoundaryLeft !== undefined ? (
+                <span
+                  className="rl-h3-timeline__output-boundary"
+                  style={{ left: outputBoundaryLeft }}
+                  role="separator"
+                  aria-label={outputBoundaryLabel}
+                >
+                  <span>{outputBoundaryLabel}</span>
+                </span>
+              ) : null}
+            </div>
           </div>
           {CHANNELS.map((channel) => {
             const laneMarks = marks
@@ -716,13 +741,23 @@ export function H3TimelineReact({
                   aria-label={
                     channel === "shot" ? "Shot markers" : `${channelLabel(channel)} guides`
                   }
-                  style={{ height: `${laneHeight}px` }}
+                  style={{
+                    height: `${laneHeight}px`,
+                    backgroundSize: `${(fps / extent) * 100}% 100%`,
+                  }}
                   onDragOver={
                     channel === "shot" ? undefined : (event) => laneDragOver(channel, event)
                   }
                   onDragLeave={channel === "shot" ? undefined : laneLeave}
                   onDrop={channel === "shot" ? undefined : (event) => laneDrop(channel, event)}
                 >
+                  {outputBoundaryLeft !== undefined ? (
+                    <span
+                      className="rl-h3-timeline__output-boundary-line"
+                      style={{ left: outputBoundaryLeft }}
+                      aria-hidden="true"
+                    />
+                  ) : null}
                   {drop?.channel === channel ? (
                     <span
                       className="rl-h3-timeline__drop-caret"

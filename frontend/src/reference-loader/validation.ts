@@ -1,9 +1,10 @@
 import {
   DEFAULT_UI_PREFERENCES,
-  H3_TIMELINE_MAX_FPS,
-  H3_TIMELINE_MAX_FRAME_COUNT,
-  H3_TIMELINE_MIN_FPS,
-  H3_TIMELINE_MIN_FRAME_COUNT,
+  DEFAULT_H3_OUTPUT,
+  H3_OUTPUT_MAX_FPS,
+  H3_OUTPUT_MAX_TOTAL_FRAMES,
+  H3_OUTPUT_MIN_FPS,
+  H3_OUTPUT_MIN_TOTAL_FRAMES,
   H3_TIMELINE_VERSION,
   LOADER_STATE_VERSION,
   MAX_H3_GUIDES,
@@ -16,6 +17,7 @@ import {
   type LoaderUiPreferences,
   type ImageEditRecipe,
   type H3GuideEntry,
+  type H3OutputSettings,
   type H3TimelineState,
   type MediaItem,
   type MediaKind,
@@ -216,8 +218,6 @@ function sanitizeUi(value: unknown): LoaderUiPreferences {
   if (!isRecord(value)) return { ...DEFAULT_UI_PREFERENCES }
   const aspect = stringValue(value.cardAspectRatio)
   const columns = finiteNumber(value.gridColumns)
-  const timelineFps = finiteNumber(value.h3TimelineFps)
-  const timelineFrameCount = finiteNumber(value.h3TimelineFrameCount)
   const preview = finiteNumber(value.previewMaxPixels)
   const previewFit = stringValue(value.previewFit)
   const peaks = finiteNumber(value.waveformPeaks)
@@ -229,17 +229,6 @@ function sanitizeUi(value: unknown): LoaderUiPreferences {
       columns === undefined
         ? DEFAULT_UI_PREFERENCES.gridColumns
         : Math.min(8, Math.max(1, Math.round(columns))),
-    h3TimelineFps:
-      timelineFps === undefined
-        ? DEFAULT_UI_PREFERENCES.h3TimelineFps
-        : Math.min(H3_TIMELINE_MAX_FPS, Math.max(H3_TIMELINE_MIN_FPS, Math.round(timelineFps))),
-    h3TimelineFrameCount:
-      timelineFrameCount === undefined
-        ? DEFAULT_UI_PREFERENCES.h3TimelineFrameCount
-        : Math.min(
-            H3_TIMELINE_MAX_FRAME_COUNT,
-            Math.max(H3_TIMELINE_MIN_FRAME_COUNT, Math.round(timelineFrameCount)),
-          ),
     previewMaxPixels:
       preview === undefined
         ? DEFAULT_UI_PREFERENCES.previewMaxPixels
@@ -249,6 +238,28 @@ function sanitizeUi(value: unknown): LoaderUiPreferences {
       peaks !== undefined
         ? Math.min(1000, Math.max(100, Math.round(peaks)))
         : DEFAULT_UI_PREFERENCES.waveformPeaks,
+  }
+}
+
+function sanitizeH3Output(value: unknown, issues: string[]): H3OutputSettings {
+  if (!isRecord(value)) {
+    if (value !== undefined) issues.push("h3Output was not an object and was reset.")
+    return { ...DEFAULT_H3_OUTPUT }
+  }
+  const fps = finiteNumber(value.fps)
+  const totalFrames = finiteNumber(value.totalFrames)
+  return {
+    fps:
+      fps === undefined
+        ? DEFAULT_H3_OUTPUT.fps
+        : Math.min(H3_OUTPUT_MAX_FPS, Math.max(H3_OUTPUT_MIN_FPS, Math.round(fps))),
+    totalFrames:
+      totalFrames === undefined
+        ? DEFAULT_H3_OUTPUT.totalFrames
+        : Math.min(
+            H3_OUTPUT_MAX_TOTAL_FRAMES,
+            Math.max(H3_OUTPUT_MIN_TOTAL_FRAMES, Math.round(totalFrames)),
+          ),
   }
 }
 
@@ -490,6 +501,7 @@ export function validateLoaderState(value: unknown): LoaderValidationResult {
     issues.push("Unsupported videoAudioPolicy was reset to preserve.")
   }
   const h3Timeline = sanitizeH3Timeline(value.h3Timeline, items, issues)
+  const h3Output = sanitizeH3Output(value.h3Output, issues)
 
   return {
     state: {
@@ -499,6 +511,7 @@ export function validateLoaderState(value: unknown): LoaderValidationResult {
       videoOrder,
       audioOrder,
       videoAudioPolicy: VIDEO_AUDIO_POLICY,
+      h3Output,
       h3Timeline,
       ui: sanitizeUi(value.ui),
     },

@@ -113,6 +113,20 @@ def test_contract_projection_is_deterministic_and_excludes_ui_state():
   assert projection["images"][0]["edit"]["removeBackground"] is True
 
 
+def test_h3_output_settings_are_execution_visible_and_round_trip_through_manifest():
+  raw = loader_state()
+  raw["h3Output"] = {"fps": 24, "totalFrames": 200}
+  state = parse_reference_state(raw)
+
+  assert state.h3_output.fps == 24
+  assert state.h3_output.total_frames == 200
+  assert execution_projection(state)["h3Output"] == raw["h3Output"]
+
+  manifest = build_reference_manifest(state)
+  assert manifest["h3_output"] == {"fps": 24, "total_frames": 200}
+  assert parse_reference_manifest_state(manifest).h3_output == state.h3_output
+
+
 @pytest.mark.parametrize(
   ("mutate", "match"),
   [

@@ -47,12 +47,12 @@ function enter(input: HTMLInputElement, value: string) {
 }
 
 function position(root: HTMLElement, value: "start" | "guide" | "end") {
-  const input = root.querySelector<HTMLInputElement>(
+  const button = root.querySelector<HTMLButtonElement>(
     `[data-h3-add-field="position"][value="${value}"]`,
   )
-  if (!input) throw new Error(`Missing Guide position ${value}.`)
-  input.click()
-  return input
+  if (!button) throw new Error(`Missing Guide position ${value}.`)
+  flushSync(() => button.click())
+  return button
 }
 
 describe("React Guide inspector boundary", () => {
@@ -91,6 +91,35 @@ describe("React Guide inspector boundary", () => {
     expect(controller.state.h3Timeline.guides.map((entry) => entry.frameIndex)).toEqual([72, 96])
     root.querySelector<HTMLButtonElement>('[data-action="undo"]')!.click()
     expect(controller.serialize()).toBe(before)
+  })
+
+  test("renders Position as an accessible segmented radio button group", () => {
+    const { root } = mount()
+    const group = root.querySelector<HTMLElement>('[role="radiogroup"]')
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>('[data-h3-add-field="position"]')]
+
+    expect(group?.getAttribute("aria-label")).toBe("Guide position")
+    expect(buttons.map((button) => button.textContent)).toEqual(["Start", "Frame", "End"])
+    expect(buttons.map((button) => button.getAttribute("role"))).toEqual([
+      "radio",
+      "radio",
+      "radio",
+    ])
+    expect(buttons.map((button) => button.getAttribute("aria-checked"))).toEqual([
+      "false",
+      "true",
+      "false",
+    ])
+    expect(buttons.map((button) => button.tabIndex)).toEqual([-1, 0, -1])
+
+    flushSync(() => {
+      buttons[1]!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }),
+      )
+    })
+    expect(document.activeElement).toBe(buttons[2])
+    expect(buttons[2]?.getAttribute("aria-checked")).toBe("true")
+    expect(root.querySelector("[data-h3-add-frame][hidden]")).not.toBeNull()
   })
 
   test("isolates node instances and cleans up the permanent roots on restore and destroy", () => {

@@ -107,6 +107,7 @@ describe("Reference Loader Media Timeline integration", () => {
   test("renders Media-owned guides in the permanent workspace and applies atomically", () => {
     const state = stateWithImage()
     const root = document.createElement("div")
+    document.body.append(root)
     const controller = new ReferenceLoaderController(
       root,
       node,
@@ -131,6 +132,7 @@ describe("Reference Loader Media Timeline integration", () => {
     ).toBe("Ref #1")
     root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
     expect(workspace?.classList.contains("is-collapsed")).toBe(false)
+    expect(document.activeElement).toBe(root.querySelector('[data-h3-action="collapse"]'))
     expect(
       root.querySelector('.rl-card[data-id="scene"]')?.classList.contains("rl-card--h3-editor"),
     ).toBe(false)
@@ -149,6 +151,11 @@ describe("Reference Loader Media Timeline integration", () => {
     expect(root.querySelector('.rl-card[data-id="scene"] [data-h3-editor]')).toBeNull()
     expect(root.querySelector('[data-h3-inspector] [data-h3-draft-field="visual"]')).toBeNull()
     expect(root.querySelector('[data-h3-inspector] [data-h3-draft-field="audio"]')).toBeNull()
+    root.querySelector<HTMLButtonElement>('[data-h3-action="collapse"]')?.click()
+    expect(workspace?.classList.contains("is-collapsed")).toBe(true)
+    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
+    expect(workspace?.classList.contains("is-collapsed")).toBe(false)
+    expect(document.activeElement).toBe(root.querySelector('[data-h3-action="collapse"]'))
     addGuide(root, "0")
     expect(root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')?.disabled).toBe(
       false,
@@ -178,6 +185,7 @@ describe("Reference Loader Media Timeline integration", () => {
     ).toBe(false)
     expect(root.querySelector('.rl-card[data-id="scene"] .rl-h3-card-badges')).not.toBeNull()
     controller.destroy()
+    root.remove()
   })
 
   test("renders every Guide role and frame badge", () => {
@@ -274,11 +282,11 @@ describe("Reference Loader Media Timeline integration", () => {
 
     root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')?.click()
     for (const role of ["start", "end"] as const) {
-      const position = root.querySelector<HTMLInputElement>(
+      const position = root.querySelector<HTMLButtonElement>(
         `[data-h3-add-field="position"][value="${role}"]`,
       )
-      if (!position) throw new Error("Missing Guide position input.")
-      position.click()
+      if (!position) throw new Error("Missing Guide position button.")
+      flushSync(() => position.click())
       root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
     }
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')?.click()
@@ -533,10 +541,10 @@ describe("Reference Loader Media Timeline integration", () => {
     root
       .querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="second"]')
       ?.click()
-    const position = root.querySelector<HTMLInputElement>(
+    const position = root.querySelector<HTMLButtonElement>(
       '[data-h3-add-field="position"][value="start"]',
     )
-    if (!position) throw new Error("Missing Guide position input.")
+    if (!position) throw new Error("Missing Guide position button.")
     flushSync(() => position.click())
     root.querySelector<HTMLButtonElement>('[data-h3-action="add-draft-placement"]')?.click()
     expect(root.querySelector("[data-h3-add-error]")?.textContent).toContain("Image · scene.png")

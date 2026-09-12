@@ -1,5 +1,6 @@
 import importlib
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -101,7 +102,6 @@ def test_wrapper_schema_reuses_native_controls(monkeypatch):
     "prompt",
     "width",
     "height",
-    "length",
     "ref_image_size",
   ]
   assert schema.inputs[3].data_type == "REFERENCE_LOADER_BUNDLE"
@@ -121,12 +121,12 @@ def test_wrapper_maps_toggle_policy_and_samples_video_at_24fps(monkeypatch):
     prompt="<Audio 1> then <Audio 2> and <Audio 3>",
     width=1344,
     height=768,
-    length=124,
     ref_image_size="match",
   )
 
   assert output == ("conditioning", "latent")
   call = FakeMiniMaxH3.calls[-1]
+  assert call["length"] == 124
   assert call["prompt"] == "<Audio 1> then <Audio 2> and <Audio 3>"
   assert call["ref_images"] == {"ref_image_0": "image"}
   assert call["ref_videos"]["ref_video_0"] == tuple(
@@ -137,6 +137,25 @@ def test_wrapper_maps_toggle_policy_and_samples_video_at_24fps(monkeypatch):
     "ref_audio_0": "audio-only video",
     "ref_audio_1": "standalone",
   }
+
+
+def test_wrapper_reads_bundle_frames_and_rejects_non_native_fps(monkeypatch):
+  module = importlib.import_module("backend.nodes.minimax_h3_reference_wrapper")
+  FakeMiniMaxH3.calls.clear()
+  monkeypatch.setattr(module, "_minimax_h3_node", lambda: FakeMiniMaxH3)
+  bundle = replace(_bundle(module), h3_total_frames=200)
+
+  module.MiniMaxH3ReferenceToVideoWrapperNode.execute(
+    clip="clip",
+    references=bundle,
+  )
+  assert FakeMiniMaxH3.calls[-1]["length"] == 200
+
+  with pytest.raises(ValueError, match="requires an H3 output frame rate"):
+    module.MiniMaxH3ReferenceToVideoWrapperNode.execute(
+      clip="clip",
+      references=replace(bundle, h3_fps=30),
+    )
 
 
 def test_wrapper_remaps_loader_audio_order_to_h3_presentation_order(monkeypatch):
@@ -168,7 +187,6 @@ def test_wrapper_remaps_loader_audio_order_to_h3_presentation_order(monkeypatch)
     prompt="Use <Audio 1>, <Audio 2>, and leave <Audio 10> unchanged.",
     width=1344,
     height=768,
-    length=124,
   )
 
   call = FakeMiniMaxH3.calls[-1]
@@ -211,7 +229,6 @@ def test_wrapper_remaps_multiple_soundtracks_in_video_order(monkeypatch):
     prompt="<Audio 1> <Audio 2> <Audio 3> <Audio 4>",
     width=1344,
     height=768,
-    length=124,
   )
 
   call = FakeMiniMaxH3.calls[-1]
@@ -249,7 +266,6 @@ def test_wrapper_rejects_manifest_alignment_mismatch(monkeypatch):
       prompt="",
       width=1344,
       height=768,
-      length=124,
     )
 
 
@@ -307,7 +323,6 @@ def test_wrapper_applies_enabled_timeline_in_native_order(monkeypatch):
     prompt="prompt",
     width=1344,
     height=768,
-    length=120,
   )
 
   assert output == ("positive-3", {"frame_count": 124})
@@ -368,7 +383,6 @@ def test_wrapper_skips_disabled_timeline_sources_without_deleting_them(monkeypat
     prompt="prompt",
     width=1344,
     height=768,
-    length=120,
   )
 
   assert output == ("base-positive", {"frame_count": 124})
@@ -425,7 +439,6 @@ def test_wrapper_allows_audio_only_timeline_guides_with_reference_inputs(monkeyp
     prompt="prompt",
     width=1344,
     height=768,
-    length=120,
   )
 
   assert output == ("positive-1", {"frame_count": 124})

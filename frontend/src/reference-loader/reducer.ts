@@ -5,10 +5,15 @@ import {
 } from "./h3-media-guides.ts"
 import {
   isAudioItem,
+  H3_OUTPUT_MAX_FPS,
+  H3_OUTPUT_MAX_TOTAL_FRAMES,
+  H3_OUTPUT_MIN_FPS,
+  H3_OUTPUT_MIN_TOTAL_FRAMES,
   createEmptyH3Timeline,
   MAX_H3_GUIDES,
   type LoaderState,
   type LoaderUiPreferences,
+  type H3OutputSettings,
   type ImageEditRecipe,
   type MediaItem,
   type TimeRange,
@@ -46,6 +51,7 @@ export type LoaderAction =
       channel?: LoaderChannel
     }
   | { type: "set-ui"; values: Partial<LoaderUiPreferences> }
+  | { type: "set-h3-output"; values: Partial<H3OutputSettings> }
   | { type: "set-h3-timeline"; timeline: H3TimelineState }
   | { type: "toggle-h3-timeline"; enabled: boolean }
   | { type: "set-h3-start"; id: string | null }
@@ -315,6 +321,21 @@ export function loaderReducer(state: LoaderState, action: LoaderAction): LoaderS
     }
     case "set-ui":
       return { ...state, ui: { ...state.ui, ...action.values } }
+    case "set-h3-output": {
+      const fps =
+        action.values.fps === undefined
+          ? state.h3Output.fps
+          : Math.min(H3_OUTPUT_MAX_FPS, Math.max(H3_OUTPUT_MIN_FPS, Math.round(action.values.fps)))
+      const totalFrames =
+        action.values.totalFrames === undefined
+          ? state.h3Output.totalFrames
+          : Math.min(
+              H3_OUTPUT_MAX_TOTAL_FRAMES,
+              Math.max(H3_OUTPUT_MIN_TOTAL_FRAMES, Math.round(action.values.totalFrames)),
+            )
+      if (fps === state.h3Output.fps && totalFrames === state.h3Output.totalFrames) return state
+      return { ...state, h3Output: { fps, totalFrames } }
+    }
     case "set-h3-timeline":
       return replaceTimeline(state, action.timeline)
     case "toggle-h3-timeline":

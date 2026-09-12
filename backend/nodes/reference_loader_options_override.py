@@ -163,6 +163,8 @@ class ReferenceLoaderOptionsOverrideNode(io.ComfyNode):
         audio_captions=references.audio_captions,
         videos=references.videos,
         video_captions=references.video_captions,
+        h3_fps=references.h3_fps,
+        h3_total_frames=references.h3_total_frames,
         guide_media=guide_media,
         manifest_json=manifest_json,
         prompt_state_json=references.prompt_state_json,

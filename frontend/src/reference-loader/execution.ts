@@ -1,5 +1,6 @@
 import type {
   H3TimelineState,
+  H3OutputSettings,
   ImageEditRecipe,
   LoaderState,
   MediaSource,
@@ -25,6 +26,7 @@ export interface LoaderExecutionProjection {
   videoOrder: string[]
   audioOrder: string[]
   videoAudioPolicy: "preserve"
+  h3Output: H3OutputSettings
   h3Timeline: H3TimelineState
   images: ExecutionItem[]
   audios: ExecutionItem[]
@@ -120,6 +122,7 @@ export function projectLoaderExecution(state: LoaderState): LoaderExecutionProje
     videoOrder: [...canonical.videoOrder],
     audioOrder: [...canonical.audioOrder],
     videoAudioPolicy: canonical.videoAudioPolicy,
+    h3Output: { ...canonical.h3Output },
     h3Timeline: {
       ...canonical.h3Timeline,
       guides: canonical.h3Timeline.guides.map((guide) => ({ ...guide })),

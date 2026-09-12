@@ -474,6 +474,44 @@ describe("history and execution projection", () => {
     expect(history.undo()).toBe(1)
   })
 
+  test("publishes stable snapshots and supports independent subscriptions", () => {
+    const history = new LocalHistory(0)
+    const initialSnapshot = history.snapshot
+    let firstNotifications = 0
+    let secondNotifications = 0
+    const unsubscribeFirst = history.subscribe(() => {
+      firstNotifications += 1
+    })
+    const unsubscribeSecond = history.subscribe(() => {
+      secondNotifications += 1
+    })
+
+    expect(firstNotifications).toBe(1)
+    expect(secondNotifications).toBe(1)
+    history.commit(0)
+    history.replace(0)
+    history.undo()
+    history.redo()
+    expect(history.snapshot).toBe(initialSnapshot)
+    expect(firstNotifications).toBe(1)
+    expect(secondNotifications).toBe(1)
+
+    history.commit(1)
+    const committedSnapshot = history.snapshot
+    expect(committedSnapshot).not.toBe(initialSnapshot)
+    expect(committedSnapshot).toEqual({ value: 1, canUndo: true, canRedo: false })
+    expect(firstNotifications).toBe(2)
+    expect(secondNotifications).toBe(2)
+
+    unsubscribeFirst()
+    history.undo()
+    expect(firstNotifications).toBe(2)
+    expect(secondNotifications).toBe(3)
+    unsubscribeSecond()
+    history.redo()
+    expect(secondNotifications).toBe(3)
+  })
+
   test("maps video sound to a derived audio id and excludes UI from fingerprint", () => {
     const video = createMediaItem("video", source("v.mp4", "video/mp4"), "v")
     if (video.kind !== "video") throw new Error("Expected a video test item.")

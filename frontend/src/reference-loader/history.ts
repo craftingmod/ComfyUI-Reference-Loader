@@ -5,6 +5,12 @@ export interface HistoryState<T> {
   mergeKey?: string
 }
 
+export interface HistorySnapshot<T> {
+  value: T
+  canUndo: boolean
+  canRedo: boolean
+}
+
 export function createHistory<T>(initial: T): HistoryState<T> {
   return { past: [], present: initial, future: [] }
 }
@@ -54,14 +60,21 @@ export function canRedo<T>(history: HistoryState<T>): boolean {
 export class LocalHistory<T> {
   #history: HistoryState<T>
   #limit: number
+  #snapshot: HistorySnapshot<T>
+  #listeners = new Set<() => void>()
 
   constructor(initial: T, limit = 100) {
     this.#history = createHistory(initial)
     this.#limit = Math.max(1, limit)
+    this.#snapshot = this.#createSnapshot()
   }
 
   get value(): T {
     return this.#history.present
+  }
+
+  get snapshot(): HistorySnapshot<T> {
+    return this.#snapshot
   }
 
   get canUndo(): boolean {
@@ -72,23 +85,58 @@ export class LocalHistory<T> {
     return canRedo(this.#history)
   }
 
+  subscribe(listener: () => void): () => void {
+    this.#listeners.add(listener)
+    listener()
+    return () => this.#listeners.delete(listener)
+  }
+
   commit(value: T, options: { mergeKey?: string } = {}): T {
+    const previous = this.#snapshot
     this.#history = commitHistory(this.#history, value, { limit: this.#limit, ...options })
+    this.#publish(previous)
     return value
   }
 
   replace(value: T): T {
+    const previous = this.#snapshot
+    if (Object.is(this.#history.present, value)) return value
     this.#history = { ...this.#history, present: value }
+    this.#publish(previous)
     return value
   }
 
   undo(): T {
+    const previous = this.#snapshot
     this.#history = undoHistory(this.#history)
+    this.#publish(previous)
     return this.value
   }
 
   redo(): T {
+    const previous = this.#snapshot
     this.#history = redoHistory(this.#history)
+    this.#publish(previous)
     return this.value
+  }
+
+  #createSnapshot(): HistorySnapshot<T> {
+    return {
+      value: this.#history.present,
+      canUndo: canUndo(this.#history),
+      canRedo: canRedo(this.#history),
+    }
+  }
+
+  #publish(previous: HistorySnapshot<T>): void {
+    const next = this.#createSnapshot()
+    if (
+      Object.is(previous.value, next.value) &&
+      previous.canUndo === next.canUndo &&
+      previous.canRedo === next.canRedo
+    )
+      return
+    this.#snapshot = next
+    for (const listener of this.#listeners) listener()
   }
 }

@@ -45,7 +45,7 @@ export function Field({
 
   return (
     <div {...props} className={classes}>
-      <label className="rl-field__label" htmlFor={htmlFor ?? controlId}>
+      <label className="rl-field__label" htmlFor={controlId}>
         {label}
       </label>
       {control}

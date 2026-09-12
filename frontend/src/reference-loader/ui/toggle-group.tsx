@@ -25,9 +25,12 @@ export interface ToggleGroupProps<T extends string = string> {
 function moveFocus(event: KeyboardEvent<HTMLButtonElement>): void {
   const key = event.key
   if (key !== "ArrowLeft" && key !== "ArrowRight" && key !== "Home" && key !== "End") return
-  const buttons = Array.from(
-    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button") ?? [],
-  ).filter((button) => !button.disabled)
+  const buttons = Array.from(event.currentTarget.parentElement?.children ?? []).filter(
+    (element): element is HTMLButtonElement =>
+      element.tagName === "BUTTON" &&
+      element.hasAttribute("data-rl-toggle-item") &&
+      !(element as HTMLButtonElement).disabled,
+  )
   if (buttons.length === 0) return
   event.preventDefault()
   const currentIndex = buttons.indexOf(event.currentTarget)
@@ -58,6 +61,7 @@ export function ToggleGroup<T extends string>({
           key={item.value}
           ref={item.ref}
           type="button"
+          data-rl-toggle-item=""
           data-action={item.action}
           data-value={item.value}
           aria-label={item.ariaLabel}

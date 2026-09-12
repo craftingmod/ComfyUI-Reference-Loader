@@ -10,6 +10,7 @@ import {
 import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
+import { Button } from "../ui/button.tsx"
 import { normalizeDefinitionTagInput, subjectColor } from "./prompt-dom.ts"
 import {
   type PromptDefinitionKind,
@@ -96,7 +97,7 @@ function PromptDefinitionCard({
       onDragEnd={actions.endDefinitionDrag}
     >
       <header className="rl-prompt-definition__toolbar">
-        <button
+        <Button
           type="button"
           className="rl-prompt-definition__drag"
           data-prompt-definition-drag-handle=""
@@ -108,7 +109,7 @@ function PromptDefinitionCard({
           }
         >
           ⠿
-        </button>
+        </Button>
         <div className="rl-prompt-definition__identity">
           <span className="rl-prompt-definition__ordinal" aria-hidden="true">
             {definition.kind === "subject" ? "S" : "SH"}
@@ -171,7 +172,7 @@ function PromptDefinitionCard({
           ) : null}
         </div>
         <div className="rl-prompt-definition__actions">
-          <button
+          <Button
             type="button"
             data-prompt-action="definition-up"
             data-prompt-definition-kind={definition.kind}
@@ -182,8 +183,8 @@ function PromptDefinitionCard({
             onClick={() => actions.reorderDefinition(definition.kind, definition.identity, -1)}
           >
             ↑
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             data-prompt-action="definition-down"
             data-prompt-definition-kind={definition.kind}
@@ -194,8 +195,8 @@ function PromptDefinitionCard({
             onClick={() => actions.reorderDefinition(definition.kind, definition.identity, 1)}
           >
             ↓
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             data-prompt-action="remove-definition"
             data-prompt-definition-kind={definition.kind}
@@ -206,7 +207,7 @@ function PromptDefinitionCard({
             onClick={() => actions.removeDefinition(definition.kind, definition.identity)}
           >
             ×
-          </button>
+          </Button>
         </div>
       </header>
       <PromptEditor
@@ -252,41 +253,41 @@ export function PromptDefinitionsReactRoot({
           <small>Definitions keep #tags; indexes are generated only in compiled output.</small>
         </div>
         <div className="rl-prompt-toolbar__actions">
-          <button
+          <Button
             type="button"
             data-prompt-action="add-subject"
             disabled={snapshot.draft}
             onClick={() => actions.addDefinition("subject")}
           >
             + Subject
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             data-prompt-action="add-shot"
             disabled={snapshot.draft}
             onClick={() => actions.addDefinition("shot")}
           >
             + Shot
-          </button>
+          </Button>
         </div>
       </header>
       {snapshot.draft ? (
         <div className="rl-prompt-definitions__draft" role="status">
           <span>Shot timing is unsaved. Apply or Cancel.</span>
-          <button
+          <Button
             type="button"
             data-prompt-action="cancel-shot-draft"
             onClick={actions.cancelShotDraft}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             data-prompt-action="apply-shot-draft"
             onClick={actions.applyShotDraft}
           >
             Apply
-          </button>
+          </Button>
         </div>
       ) : null}
       <section className="rl-channel" data-prompt-definition-category="subject">

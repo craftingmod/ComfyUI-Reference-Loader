@@ -62,6 +62,18 @@ describe("Reference Loader UI primitives", () => {
     expect(error.getAttribute("role")).toBe("alert")
   })
 
+  test("uses the child control id when htmlFor and child id differ", () => {
+    const container = mount(
+      <Field label="Caption" htmlFor="legacy-caption">
+        <textarea id="caption" />
+      </Field>,
+    )
+    const control = container.querySelector<HTMLTextAreaElement>("textarea")!
+    const label = container.querySelector<HTMLLabelElement>("label")!
+    expect(control.id).toBe("caption")
+    expect(label.htmlFor).toBe("caption")
+  })
+
   test("keeps toggle values pressed and moves focus with arrow keys", () => {
     const values: string[] = []
     const container = mount(
@@ -84,6 +96,27 @@ describe("Reference Loader UI primitives", () => {
     buttons[0]?.focus()
     buttons[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
     expect(document.activeElement).toBe(buttons[1])
+  })
+
+  test("does not include unrelated legend buttons in keyboard navigation", () => {
+    const container = mount(
+      <ToggleGroup
+        legend={<button type="button">Help</button>}
+        value="view"
+        items={[
+          { value: "view", label: "View" },
+          { value: "crop", label: "Crop" },
+        ]}
+      />,
+    )
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")]
+    const view = buttons.find((button) => button.textContent === "View")!
+    const crop = buttons.find((button) => button.textContent === "Crop")!
+    view.focus()
+    view.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }))
+    expect(document.activeElement).toBe(view)
+    view.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
+    expect(document.activeElement).toBe(crop)
   })
 
   test("provides semantic status and shared editor actions", () => {

@@ -1,5 +1,8 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react"
 
+import { Button } from "../ui/button.tsx"
+import { StatusMessage } from "../ui/status-message.tsx"
+
 export type H3GuidePosition = "start" | "guide" | "end"
 
 export interface H3GuideEditorProps {
@@ -105,7 +108,7 @@ function GuideFrame({
         <span id={descriptionId} className="rl-h3-editor__seconds">
           {validFrame ? `${(guide.frameIndex / props.fps).toFixed(2)}s` : ""}
         </span>
-        <button
+        <Button
           type="button"
           data-h3-action="delete-draft-placement"
           data-h3-guide-id={guide.id}
@@ -114,7 +117,7 @@ function GuideFrame({
           onClick={() => props.onRemoveGuide(guide.id)}
         >
           ×
-        </button>
+        </Button>
       </div>
       {guide.pairedLabel && (
         <small className="rl-h3-editor__paired">Also connected: {guide.pairedLabel}</small>
@@ -134,7 +137,7 @@ function Role({ role, onRemove }: { role: "start" | "end"; onRemove(): void }) {
         <strong>{label}</strong>
         <small>{role === "start" ? "frame 0" : "final output frame"}</small>
       </div>
-      <button
+      <Button
         type="button"
         data-h3-action="remove-draft-role"
         data-h3-role={role}
@@ -143,7 +146,7 @@ function Role({ role, onRemove }: { role: "start" | "end"; onRemove(): void }) {
         onClick={onRemove}
       >
         ×
-      </button>
+      </Button>
     </article>
   )
 }
@@ -289,7 +292,7 @@ export function H3GuideInspector({
             </small>
           </span>
         </label>
-        <button
+        <Button
           type="button"
           data-h3-action="add-draft-placement"
           className="rl-h3-editor__add"
@@ -299,31 +302,31 @@ export function H3GuideInspector({
           onClick={() => props.onAdd(position, frame)}
         >
           +
-        </button>
+        </Button>
       </div>
       {props.addError && (
-        <p className="rl-h3-editor__error" role="alert" data-h3-add-error="">
+        <StatusMessage status="error" className="rl-h3-editor__error" data-h3-add-error="">
           {props.addError}
-        </p>
+        </StatusMessage>
       )}
       {props.issue && (
-        <p className="rl-h3-editor__error" role="alert" data-h3-editor-error="">
+        <StatusMessage status="error" className="rl-h3-editor__error" data-h3-editor-error="">
           {props.issue}
-        </p>
+        </StatusMessage>
       )}
       {showActions && (
         <div className="rl-h3-editor__actions">
-          <button type="button" data-h3-action="cancel-editor" onClick={props.onCancel}>
+          <Button type="button" data-h3-action="cancel-editor" onClick={props.onCancel}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             data-h3-action="apply-editor"
             disabled={Boolean(props.issue)}
             onClick={props.onApply}
           >
             Apply
-          </button>
+          </Button>
         </div>
       )}
     </section>

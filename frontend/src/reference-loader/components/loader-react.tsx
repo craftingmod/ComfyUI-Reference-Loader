@@ -15,6 +15,8 @@ import {
 import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
+import { Button } from "../ui/button.tsx"
+import { StatusMessage } from "../ui/status-message.tsx"
 import {
   projectLoaderChannels,
   type LoaderCardView,
@@ -245,7 +247,7 @@ function SnapshotMenu({ actions }: { actions: LoaderReactActions }): ReactNode {
 
   return (
     <span className="rl-snapshot" ref={wrapper}>
-      <button
+      <Button
         type="button"
         className="rl-snapshot__trigger"
         data-action="snapshot-menu"
@@ -260,7 +262,7 @@ function SnapshotMenu({ actions }: { actions: LoaderReactActions }): ReactNode {
         onKeyDown={onTriggerKeyDown}
       >
         Snapshot <span aria-hidden="true">▾</span>
-      </button>
+      </Button>
       <span
         className="rl-snapshot__menu"
         ref={menu}
@@ -268,7 +270,7 @@ function SnapshotMenu({ actions }: { actions: LoaderReactActions }): ReactNode {
         hidden={!open}
         onKeyDown={onMenuKeyDown}
       >
-        <button
+        <Button
           type="button"
           role="menuitem"
           data-action="snapshot-save"
@@ -279,8 +281,8 @@ function SnapshotMenu({ actions }: { actions: LoaderReactActions }): ReactNode {
           }}
         >
           Save
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           role="menuitem"
           data-action="snapshot-load"
@@ -291,7 +293,7 @@ function SnapshotMenu({ actions }: { actions: LoaderReactActions }): ReactNode {
           }}
         >
           Load
-        </button>
+        </Button>
       </span>
       <input
         ref={input}
@@ -354,7 +356,7 @@ function LoaderToolbar({
             onChange={fileInputHandler(actions)}
           />
         </label>
-        <button
+        <Button
           type="button"
           data-action="undo"
           disabled={!snapshot.canUndo}
@@ -365,8 +367,8 @@ function LoaderToolbar({
           }}
         >
           ↶ Undo
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           data-action="redo"
           disabled={!snapshot.canRedo}
@@ -377,8 +379,8 @@ function LoaderToolbar({
           }}
         >
           ↷ Redo
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="rl-clear"
           data-action="clear"
@@ -390,9 +392,9 @@ function LoaderToolbar({
           }}
         >
           Clear
-        </button>
+        </Button>
         {snapshot.h3 ? (
-          <button
+          <Button
             type="button"
             data-action="toggle-h3-workspace"
             aria-expanded={!snapshot.h3.collapsed}
@@ -403,7 +405,7 @@ function LoaderToolbar({
             }}
           >
             Timeline
-          </button>
+          </Button>
         ) : null}
         <SnapshotMenu actions={actions} />
       </section>
@@ -595,16 +597,16 @@ function MediaCard({
         <span className="rl-media-filename" title={card.filename}>
           {card.filename}
         </span>
-        <button
+        <Button
           type="button"
-          className="rl-button rl-button--remove rl-remove"
+          className="rl-button--remove rl-remove"
           data-action="remove"
           aria-label="Remove reference"
           title="Delete reference"
           onClick={remove}
         >
           ×
-        </button>
+        </Button>
         <LoadingState card={card} />
       </div>
       <div className="rl-card__body">
@@ -634,33 +636,33 @@ function MediaCard({
         ) : null}
         <div className="rl-card__actions">
           {card.channel === "image" && card.kind === "image" ? (
-            <button
+            <Button
               type="button"
               data-action="toggle-image"
-              className={`rl-button rl-button--output rl-button--card-action rl-output-button${card.imageEnabled ? " is-on" : ""}`}
+              className={`rl-button--output rl-button--card-action rl-output-button${card.imageEnabled ? " is-on" : ""}`}
               aria-label="Toggle image output"
               aria-pressed={card.imageEnabled}
               onClick={toggle("image")}
             >
               I
-            </button>
+            </Button>
           ) : null}
           {card.channel === "video" && card.kind === "video" ? (
             <>
-              <button
+              <Button
                 type="button"
                 data-action="toggle-video"
-                className={`rl-button rl-button--output rl-button--card-action rl-output-button${card.videoEnabled ? " is-on" : ""}`}
+                className={`rl-button--output rl-button--card-action rl-output-button${card.videoEnabled ? " is-on" : ""}`}
                 aria-label="Toggle video output"
                 aria-pressed={card.videoEnabled}
                 onClick={toggle("video")}
               >
                 V
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 data-action="toggle-video-audio"
-                className={`rl-button rl-button--output rl-button--card-action rl-output-button${card.videoAudioEnabled ? " is-on" : ""}`}
+                className={`rl-button--output rl-button--card-action rl-output-button${card.videoAudioEnabled ? " is-on" : ""}`}
                 aria-label="Include embedded audio in video output"
                 aria-pressed={card.videoAudioEnabled}
                 title={
@@ -677,14 +679,14 @@ function MediaCard({
                 }}
               >
                 VA
-              </button>
+              </Button>
             </>
           ) : null}
           {card.channel === "audio" && (card.kind === "audio" || card.kind === "video") ? (
-            <button
+            <Button
               type="button"
               data-action="toggle-audio"
-              className={`rl-button rl-button--output rl-button--card-action rl-output-button${card.audioEnabled ? " is-on" : ""}`}
+              className={`rl-button--output rl-button--card-action rl-output-button${card.audioEnabled ? " is-on" : ""}`}
               aria-label="Toggle audio output"
               aria-pressed={card.audioEnabled}
               disabled={card.silentVideo}
@@ -692,15 +694,15 @@ function MediaCard({
               onClick={toggle("audio")}
             >
               A
-            </button>
+            </Button>
           ) : null}
           {card.guideAvailable && card.guideChannel ? (
-            <button
+            <Button
               type="button"
               data-action="toggle-h3-guide"
               data-id={card.id}
               data-h3-channel={card.guideChannel}
-              className={`rl-button rl-button--guide rl-button--card-action rl-output-button rl-guide-button${card.guideEnabled ? " is-on" : ""}`}
+              className={`rl-button--guide rl-button--card-action rl-output-button rl-guide-button${card.guideEnabled ? " is-on" : ""}`}
               aria-label="Toggle Guide usage"
               aria-pressed={card.guideEnabled}
               title={
@@ -716,14 +718,14 @@ function MediaCard({
               }}
             >
               G
-            </button>
+            </Button>
           ) : null}
           {card.channel === "video" && card.kind === "video" ? (
-            <button
+            <Button
               type="button"
               data-action="preview-video"
               data-playback-owner={`grid:${card.id}`}
-              className="rl-button rl-button--preview rl-button--card-action rl-preview-media"
+              className="rl-button--preview rl-button--card-action rl-preview-media"
               aria-label={`Play video preview ${card.videoAudioEnabled ? "with audio" : "muted"}`}
               title={
                 card.loading || card.playbackDuration === undefined
@@ -736,14 +738,14 @@ function MediaCard({
               onClick={preview("video")}
             >
               ▶
-            </button>
+            </Button>
           ) : null}
           {card.channel === "audio" && (card.kind === "audio" || card.kind === "video") ? (
-            <button
+            <Button
               type="button"
               data-action="preview-audio"
               data-playback-owner={`grid:${card.id}`}
-              className="rl-button rl-button--preview rl-button--card-action rl-preview-media"
+              className="rl-button--preview rl-button--card-action rl-preview-media"
               aria-label="Play audio preview"
               title={
                 card.silentVideo || card.loading || card.playbackDuration === undefined
@@ -756,11 +758,11 @@ function MediaCard({
               onClick={preview("audio")}
             >
               ▶
-            </button>
+            </Button>
           ) : null}
-          <button
+          <Button
             type="button"
-            className="rl-button rl-button--card-action"
+            className="rl-button--card-action"
             data-action="move-back"
             aria-label="Move earlier"
             title="Move earlier (Alt+ArrowLeft)"
@@ -770,10 +772,10 @@ function MediaCard({
             }}
           >
             ←
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="rl-button rl-button--card-action"
+            className="rl-button--card-action"
             data-action="move-forward"
             aria-label="Move later"
             title="Move later (Alt+ArrowRight)"
@@ -783,12 +785,12 @@ function MediaCard({
             }}
           >
             →
-          </button>
+          </Button>
           <span className="rl-edit-actions">
             {card.guideAvailable && card.guideChannel ? (
-              <button
+              <Button
                 type="button"
-                className="rl-button rl-button--guide-edit rl-button--card-action rl-edit-button rl-edit-button--guide"
+                className="rl-button--guide-edit rl-button--card-action rl-edit-button rl-edit-button--guide"
                 data-action="edit-h3-guide"
                 data-id={card.id}
                 data-h3-channel={card.guideChannel}
@@ -804,11 +806,11 @@ function MediaCard({
                   <path d="M4 20h4L19 9l-4-4L4 16v4Z" />
                   <path d="m13.5 6.5 4 4" />
                 </svg>
-              </button>
+              </Button>
             ) : null}
-            <button
+            <Button
               type="button"
-              className="rl-button rl-button--edit rl-button--card-action rl-edit-button"
+              className="rl-button--edit rl-button--card-action rl-edit-button"
               data-action="edit"
               aria-label="Edit reference"
               title="Edit reference"
@@ -820,13 +822,13 @@ function MediaCard({
                 <path d="M4 20h4L19 9l-4-4L4 16v4Z" />
                 <path d="m13.5 6.5 4 4" />
               </svg>
-            </button>
+            </Button>
           </span>
         </div>
         {card.error ? (
-          <p className="rl-card__error" role="alert">
+          <StatusMessage status="error" className="rl-card__error">
             {card.error}
-          </p>
+          </StatusMessage>
         ) : null}
       </div>
     </article>
@@ -1020,7 +1022,7 @@ function SingleImagePanel({
             onChange={chooseFile}
           />
         </label>
-        <button
+        <Button
           type="button"
           className="rl-single-image-edit"
           data-action="edit"
@@ -1030,7 +1032,7 @@ function SingleImagePanel({
           onClick={edit}
         >
           Edit
-        </button>
+        </Button>
       </div>
       {card ? (
         <article
@@ -1049,9 +1051,9 @@ function SingleImagePanel({
             {preview}
           </div>
           {error ? (
-            <p className="rl-card__error" role="alert">
+            <StatusMessage status="error" className="rl-card__error">
               {error}
-            </p>
+            </StatusMessage>
           ) : null}
         </article>
       ) : (

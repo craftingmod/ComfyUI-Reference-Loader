@@ -8,6 +8,9 @@ import {
   type H3TimelinePlacement,
 } from "../h3-media-guides.ts"
 import type { MediaItem } from "../types.ts"
+import { Button } from "../ui/button.tsx"
+import { StatusMessage } from "../ui/status-message.tsx"
+import { ToggleGroup } from "../ui/toggle-group.tsx"
 import type { H3WorkspaceView, LoaderViewSnapshot } from "../view-model.ts"
 import { H3GuideInspector, type H3GuideEditorProps } from "./h3-guide-editor.tsx"
 import {
@@ -145,7 +148,7 @@ function GuideList({
             className={`rl-h3-workspace__list-row${selected ? " is-selected" : ""}${mark.incomplete ? " is-incomplete" : ""}`}
             data-h3-list-item=""
           >
-            <button
+            <Button
               type="button"
               className="rl-h3-workspace__list-select"
               aria-pressed={Boolean(selected)}
@@ -182,7 +185,7 @@ function GuideList({
                     ? sourceLabel(snapshot, mark.placement.audioId, "audio")
                     : sourceLabel(snapshot, mark.placement.visualId, "visual")}
               </span>
-            </button>
+            </Button>
             {guideControl ? (
               <H3FrameControl
                 id={mark.placement.guideId!}
@@ -230,7 +233,7 @@ function GuideList({
                 className="rl-h3-element-controls is-compact is-role"
                 data-h3-element-controls=""
               >
-                <button
+                <Button
                   type="button"
                   data-h3-element-remove=""
                   aria-label={`Remove ${mark.placement.kind === "start" ? "Start" : "End"}`}
@@ -240,7 +243,7 @@ function GuideList({
                   }}
                 >
                   Remove
-                </button>
+                </Button>
               </div>
             ) : null}
           </div>
@@ -444,17 +447,17 @@ function RecoveryInspector({
         </select>
       </label>
       {h3.issue ? (
-        <p className="rl-h3-editor__error" role="alert">
+        <StatusMessage status="error" className="rl-h3-editor__error">
           {h3.issue}
-        </p>
+        </StatusMessage>
       ) : null}
-      <button
+      <Button
         type="button"
         className="rl-h3-guide-details__remove"
         onClick={() => actions.h3RemovePlacement(guide.id)}
       >
         Delete incomplete Guide
-      </button>
+      </Button>
     </section>
   )
 }
@@ -494,7 +497,7 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
         aria-label="H3 Guide Timeline workspace"
       >
         <header className="rl-h3-workspace__header">
-          <button
+          <Button
             type="button"
             className="rl-h3-workspace__collapse"
             data-h3-action="collapse"
@@ -506,7 +509,7 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
             }}
           >
             <span aria-hidden="true">{h3.collapsed ? "▸" : "▾"}</span> H3 Timeline
-          </button>
+          </Button>
           <span className={`rl-h3-workspace__status${h3.timeline.enabled ? " is-on" : ""}`}>
             {h3.timeline.enabled ? "ON" : "OFF"}
           </span>
@@ -532,7 +535,7 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
               ●
             </span>
           ) : null}
-          <button
+          <Button
             type="button"
             className={`rl-h3-workspace__toggle${h3.timeline.enabled ? " is-on" : ""}`}
             data-h3-action="toggle"
@@ -543,21 +546,19 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
             }}
           >
             {h3.timeline.enabled ? "Guides On" : "Guides Off"}
-          </button>
+          </Button>
         </header>
         <div className="rl-h3-workspace__tools" hidden={h3.collapsed}>
-          <div className="rl-h3-workspace__view-group" aria-label="Timeline view">
-            <button
-              type="button"
-              aria-pressed={mode === "timeline"}
-              onClick={() => setMode("timeline")}
-            >
-              Timeline
-            </button>
-            <button type="button" aria-pressed={mode === "list"} onClick={() => setMode("list")}>
-              List
-            </button>
-          </div>
+          <ToggleGroup
+            value={mode}
+            items={[
+              { value: "timeline", label: "Timeline" },
+              { value: "list", label: "List" },
+            ]}
+            onValueChange={setMode}
+            ariaLabel="Timeline view"
+            className="rl-h3-workspace__view-group"
+          />
           <label className="rl-h3-workspace__zoom">
             Zoom
             <select
@@ -572,7 +573,7 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
               ))}
             </select>
           </label>
-          <button
+          <Button
             type="button"
             onClick={() => {
               setZoom(1)
@@ -580,7 +581,7 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
             }}
           >
             Fit
-          </button>
+          </Button>
         </div>
         <div id={pageId} className="rl-h3-workspace__body" hidden={h3.collapsed}>
           <div className="rl-h3-stage">
@@ -622,23 +623,24 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
             {scope}
             {h3.dirty ? " pending" : ""}
           </span>
-          <button
+          <Button
             type="button"
             data-h3-action="cancel-editor"
             disabled={!h3.dirty}
             onClick={() => actions.h3Cancel()}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="rl-button rl-button--primary rl-primary"
+            variant="primary"
+            className="rl-primary"
             data-h3-action="apply-editor"
             disabled={!h3.canApply}
             onClick={() => actions.h3Apply()}
           >
             Apply
-          </button>
+          </Button>
         </footer>
       </section>
     </div>

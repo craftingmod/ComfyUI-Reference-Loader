@@ -13,6 +13,7 @@ import {
 import { createPortal, flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
+import { Button } from "../ui/button.tsx"
 import { sectionColor, SHOT_COLOR, subjectColor } from "./prompt-dom.ts"
 import type {
   PromptBodyEdit,
@@ -194,7 +195,7 @@ function PromptToolbar({
         <small data-prompt-subtitle="">{snapshot.subtitle}</small>
       </div>
       <div className="rl-prompt-toolbar__actions">
-        <button
+        <Button
           type="button"
           data-prompt-action="copy-source"
           title="Copy source with #tags"
@@ -202,8 +203,8 @@ function PromptToolbar({
           onClick={() => void actions.copySource()}
         >
           Copy source
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           data-prompt-action="copy-compiled"
           title="Copy compiled model prompt"
@@ -211,8 +212,8 @@ function PromptToolbar({
           onClick={() => void actions.copyCompiled()}
         >
           Copy compiled
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="rl-clear"
           data-prompt-action="clear"
@@ -222,8 +223,8 @@ function PromptToolbar({
           onClick={actions.clear}
         >
           {snapshot.clearLabel}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           data-prompt-action="toggle-view"
           title={raw ? snapshot.backToStructuredTitle : snapshot.showRawTitle}
@@ -232,7 +233,7 @@ function PromptToolbar({
           onClick={actions.toggleView}
         >
           {raw ? snapshot.structuredLabel : snapshot.rawLabel}
-        </button>
+        </Button>
       </div>
     </header>
   )
@@ -319,7 +320,7 @@ function PromptSectionCard({
       onDragEnd={actions.endSectionDrag}
     >
       <header className="rl-prompt-section__header" draggable>
-        <button
+        <Button
           type="button"
           className="rl-prompt-section__drag"
           data-prompt-section-drag-handle={section.title}
@@ -334,9 +335,9 @@ function PromptSectionCard({
           }}
         >
           ⠿
-        </button>
+        </Button>
         <code>{section.title}:</code>
-        <button
+        <Button
           type="button"
           data-prompt-action="remove-section"
           data-prompt-section-title={section.title}
@@ -346,7 +347,7 @@ function PromptSectionCard({
           onClick={() => actions.removeSection(section.title)}
         >
           ×
-        </button>
+        </Button>
       </header>
       <PromptEditor
         actions={actions}

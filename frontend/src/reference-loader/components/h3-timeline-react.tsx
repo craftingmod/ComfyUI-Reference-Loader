@@ -12,6 +12,7 @@ import {
 
 import type { H3TimelinePlacement } from "../h3-media-guides.ts"
 import { H3_TIMELINE_NATIVE_FPS, type ItemRuntime, type LoaderState } from "../types.ts"
+import { Button } from "../ui/button.tsx"
 import type { H3WorkspaceView, LoaderViewChannel } from "../view-model.ts"
 import {
   draggedFrame,
@@ -171,7 +172,7 @@ export function H3FrameControl({
           {Number.isSafeInteger(frameIndex) ? `${timelineSeconds(frameIndex, fps)}s` : ""}
         </small>
       </label>
-      <button
+      <Button
         type="button"
         data-h3-element-remove=""
         data-h3-guide-id={id}
@@ -183,7 +184,7 @@ export function H3FrameControl({
         }}
       >
         Remove
-      </button>
+      </Button>
       <strong className="rl-h3-element-controls__label">{label}</strong>
     </div>
   )
@@ -328,7 +329,7 @@ function SelectedElementControls({
     >
       <strong className="rl-h3-element-controls__label">{label}</strong>
       <small>{role === "start" ? "0f · 0.000s" : "final output frame"}</small>
-      <button
+      <Button
         type="button"
         data-h3-element-remove=""
         aria-label={`Remove ${label}`}
@@ -339,7 +340,7 @@ function SelectedElementControls({
         }}
       >
         Remove
-      </button>
+      </Button>
     </div>
   )
 }
@@ -362,7 +363,7 @@ function EndDock({
   return (
     <div className="rl-h3-timeline__end-dock" data-h3-end-dock="">
       <span className="rl-h3-timeline__end-label">End image</span>
-      <button
+      <Button
         type="button"
         className={`rl-h3-timeline__end-mark${selected ? " is-selected" : ""}${id ? "" : " is-empty"}`}
         aria-label={`End image: ${sourceLabel(state, id, "visual")}`}
@@ -378,7 +379,7 @@ function EndDock({
           <span aria-hidden="true">▧</span>
         )}
         <span>{sourceLabel(state, id, "visual")}</span>
-      </button>
+      </Button>
       <SelectedElementControls h3={h3} actions={actions} preview={preview} fps={fps} />
     </div>
   )
@@ -592,7 +593,7 @@ export function H3TimelineReact({
     const title = markerTitle(mark, frame, fps, frameCount)
     const key = `${mark.placement.guideId ?? mark.placement.kind}:${mark.channel}:${mark.shotTag ?? mark.label}`
     return (
-      <button
+      <Button
         key={key}
         type="button"
         className={`rl-h3-timeline__mark${mark.disabled ? " is-paused" : ""}${mark.incomplete ? " is-incomplete" : ""}${mark.warning ? " is-warning" : ""}${outOfRange ? " is-out-of-range" : ""}${selected ? " is-selected" : ""}${mark.channel === "audio" ? " is-audio" : ""}${mark.channel === "shot" ? " is-shot" : ""}${mark.frames === undefined ? " is-unknown" : ""}${preview?.id === mark.placement.guideId ? " is-dragging" : ""}`}
@@ -647,7 +648,7 @@ export function H3TimelineReact({
         <small data-timeline-time="">
           {mark.placement.kind === "end" ? "End · final output" : timing(frame, fps)}
         </small>
-      </button>
+      </Button>
     )
   }
 
@@ -667,8 +668,7 @@ export function H3TimelineReact({
       {timelineSeconds(frame, fps)}s · {frame}f
     </span>
   ))
-  const outputBoundaryLeft =
-    frameCount < extent ? `${(frameCount / extent) * 100}%` : undefined
+  const outputBoundaryLeft = frameCount < extent ? `${(frameCount / extent) * 100}%` : undefined
   const outputBoundaryLabel =
     outputBoundaryLeft === undefined
       ? undefined

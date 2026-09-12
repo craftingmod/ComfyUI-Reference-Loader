@@ -115,8 +115,6 @@ function GuideList({
   const selectedGuideId =
     h3.editor?.selectedGuideId ??
     (h3.selection?.kind === "guide" ? h3.selection.guideId : undefined)
-  const selectedGuideChannel =
-    h3.editor?.channel ?? (h3.selection?.kind === "guide" ? h3.selection.channel : undefined)
 
   const selectMark = (mark: (typeof marks)[number]): void => {
     if (mark.shotTag) actions.selectShot(mark.shotTag)
@@ -130,18 +128,19 @@ function GuideList({
         const selectedGuide =
           Boolean(mark.placement.guideId) &&
           mark.placement.guideId === selectedGuideId &&
-          (h3.selection?.kind === "guide" || Boolean(h3.editor?.selectedGuideId))
+          (h3.selection?.kind === "guide" || h3.selection?.kind === "source")
+        const role =
+          mark.placement.kind === "start" || mark.placement.kind === "end"
+            ? mark.placement.kind
+            : undefined
         const selected =
-          h3.selection?.kind === "shot" ? h3.selection.tag === mark.shotTag : selectedGuide
+          h3.selection?.kind === "shot"
+            ? h3.selection.tag === mark.shotTag
+            : role !== undefined
+              ? h3.selection?.kind === role
+              : selectedGuide
         const key = `${mark.placement.guideId ?? mark.placement.kind}:${mark.channel}:${mark.shotTag ?? mark.label}`
-        const guideControl =
-          selected &&
-          Boolean(mark.placement.guideId) &&
-          mark.channel === selectedGuideChannel &&
-          mark.placement.guideId === selectedGuideId
         const shotControl = selected && Boolean(mark.shotTag)
-        const roleControl =
-          selected && (mark.placement.kind === "start" || mark.placement.kind === "end")
         return (
           <div
             key={key}
@@ -154,7 +153,10 @@ function GuideList({
               aria-pressed={Boolean(selected)}
               onClick={(event) => {
                 event.stopPropagation()
+                const select = event.currentTarget
                 selectMark(mark)
+                if (mark.placement.kind === "start" || mark.placement.kind === "end")
+                  select.focus({ preventScroll: true })
               }}
             >
               <span className={`rl-h3-workspace__list-icon is-${mark.channel}`} aria-hidden="true">
@@ -186,30 +188,6 @@ function GuideList({
                     : sourceLabel(snapshot, mark.placement.visualId, "visual")}
               </span>
             </Button>
-            {guideControl ? (
-              <H3FrameControl
-                id={mark.placement.guideId!}
-                frameIndex={mark.frame}
-                label={`Guide ${mark.placement.guideId}`}
-                removeLabel="Remove Guide"
-                frameAriaLabel="Guide frame"
-                fps={fps}
-                compact
-                onInput={(value) =>
-                  actions.h3InputFrame(
-                    mark.placement.guideId!,
-                    timelineFrameInputToNative(value, fps),
-                  )
-                }
-                onCommit={(value) =>
-                  actions.h3CommitFrame(
-                    mark.placement.guideId!,
-                    timelineFrameInputToNative(value, fps),
-                  )
-                }
-                onRemove={() => actions.h3RemovePlacement(mark.placement.guideId!)}
-              />
-            ) : null}
             {shotControl ? (
               <H3FrameControl
                 id={mark.shotTag!}
@@ -227,24 +205,6 @@ function GuideList({
                 }}
                 onRemove={() => actions.removeShot(mark.shotTag!)}
               />
-            ) : null}
-            {roleControl ? (
-              <div
-                className="rl-h3-element-controls is-compact is-role"
-                data-h3-element-controls=""
-              >
-                <Button
-                  type="button"
-                  data-h3-element-remove=""
-                  aria-label={`Remove ${mark.placement.kind === "start" ? "Start" : "End"}`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    actions.h3RemoveRole(mark.placement.kind as "start" | "end")
-                  }}
-                >
-                  Remove
-                </Button>
-              </div>
             ) : null}
           </div>
         )
@@ -287,6 +247,16 @@ function guideEditorProps(
     fps,
     start: editor.channel === "visual" && h3.timeline.startImageId === mediaId,
     end: editor.channel === "visual" && h3.timeline.endImageId === mediaId,
+    selectedRole:
+      editor.channel === "visual" &&
+      h3.selection?.kind === "start" &&
+      h3.timeline.startImageId === mediaId
+        ? "start"
+        : editor.channel === "visual" &&
+            h3.selection?.kind === "end" &&
+            h3.timeline.endImageId === mediaId
+          ? "end"
+          : undefined,
     guides,
     atGuideLimit: h3.timeline.guides.length >= 32,
     issue: h3.issue,
@@ -465,8 +435,6 @@ function RecoveryInspector({
 export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): ReactNode {
   const h3 = snapshot.h3
   const [mode, setMode] = useState<"timeline" | "list">("timeline")
-  const [zoom, setZoom] = useState(1)
-  const [fitToken, setFitToken] = useState(0)
   const pageId = useId()
 
   if (!h3) return null
@@ -476,17 +444,13 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
   const count = Object.keys(snapshot.state.items).length
   const status = h3.issue
     ? h3.issue
-    : h3.dirty
-      ? "Unsaved changes"
-      : h3.timeline.enabled
-        ? "Ready"
-        : "Guides are off"
-  const scope =
-    h3.editScope === "shot"
-      ? "Shot changes"
-      : h3.shotDirty
-        ? "Guide + Shot changes"
-        : "Guide changes"
+    : h3.shotDirty
+      ? "Shot timing is unsaved"
+      : h3.dirty
+        ? "Unsaved changes"
+        : h3.timeline.enabled
+          ? "Ready"
+          : "Guides are off"
   return (
     <div className="rl-h3-workspace-container">
       <section
@@ -510,9 +474,20 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
           >
             <span aria-hidden="true">{h3.collapsed ? "▸" : "▾"}</span> H3 Timeline
           </Button>
-          <span className={`rl-h3-workspace__status${h3.timeline.enabled ? " is-on" : ""}`}>
+          <Button
+            type="button"
+            className={`rl-h3-workspace__status${h3.timeline.enabled ? " is-on" : ""}`}
+            data-h3-action="toggle"
+            aria-label="Toggle Guides"
+            title="Toggle Guides"
+            aria-pressed={h3.timeline.enabled}
+            onClick={(event) => {
+              event.stopPropagation()
+              actions.h3Toggle()
+            }}
+          >
             {h3.timeline.enabled ? "ON" : "OFF"}
-          </span>
+          </Button>
           <span
             className="rl-h3-workspace__summary"
             title={`${count} media · ${placements.length} placements · ${h3.shots.length} shots`}
@@ -535,54 +510,19 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
               ●
             </span>
           ) : null}
-          <Button
-            type="button"
-            className={`rl-h3-workspace__toggle${h3.timeline.enabled ? " is-on" : ""}`}
-            data-h3-action="toggle"
-            aria-pressed={h3.timeline.enabled}
-            onClick={(event) => {
-              event.stopPropagation()
-              actions.h3Toggle()
-            }}
-          >
-            {h3.timeline.enabled ? "Guides On" : "Guides Off"}
-          </Button>
+          <div className="rl-h3-workspace__tools" hidden={h3.collapsed}>
+            <ToggleGroup
+              value={mode}
+              items={[
+                { value: "timeline", label: "Timeline" },
+                { value: "list", label: "List" },
+              ]}
+              onValueChange={setMode}
+              ariaLabel="Timeline view"
+              className="rl-h3-workspace__view-group"
+            />
+          </div>
         </header>
-        <div className="rl-h3-workspace__tools" hidden={h3.collapsed}>
-          <ToggleGroup
-            value={mode}
-            items={[
-              { value: "timeline", label: "Timeline" },
-              { value: "list", label: "List" },
-            ]}
-            onValueChange={setMode}
-            ariaLabel="Timeline view"
-            className="rl-h3-workspace__view-group"
-          />
-          <label className="rl-h3-workspace__zoom">
-            Zoom
-            <select
-              aria-label="Timeline zoom"
-              value={String(zoom)}
-              onChange={(event) => setZoom(Number(event.currentTarget.value))}
-            >
-              {[1, 2, 4, 8].map((value) => (
-                <option key={value} value={value}>
-                  {value}×
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button
-            type="button"
-            onClick={() => {
-              setZoom(1)
-              setFitToken((value) => value + 1)
-            }}
-          >
-            Fit
-          </Button>
-        </div>
         <div id={pageId} className="rl-h3-workspace__body" hidden={h3.collapsed}>
           <div className="rl-h3-stage">
             {mode === "timeline" ? (
@@ -593,8 +533,7 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
                 actions={actions}
                 fps={fps}
                 frameCount={frameCount}
-                zoom={zoom}
-                fitToken={fitToken}
+                zoom={1}
               />
             ) : (
               <GuideList snapshot={snapshot} h3={h3} actions={actions} fps={fps} />
@@ -610,23 +549,17 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
             ) : null}
           </div>
         </div>
-        <div
-          className={`rl-h3-workspace__status-row${h3.issue ? " has-issue" : ""}`}
+        <footer
+          className={`rl-h3-workspace__footer${h3.issue ? " has-issue" : ""}`}
           hidden={h3.collapsed}
           role="status"
           aria-live="polite"
         >
           <span title={status}>{status}</span>
-        </div>
-        <footer className="rl-h3-workspace__footer" hidden={h3.collapsed}>
-          <span>
-            {scope}
-            {h3.dirty ? " pending" : ""}
-          </span>
           <Button
             type="button"
             data-h3-action="cancel-editor"
-            disabled={!h3.dirty}
+            disabled={!h3.editor && !h3.dirty}
             onClick={() => actions.h3Cancel()}
           >
             Cancel

@@ -100,6 +100,7 @@
 }
 
 .rl-h3-editor__placement-heading > label > span {
+  padding-inline-start: 4px;
   flex-basis: 34px;
 }
 
@@ -135,17 +136,15 @@
   font-size: 10px;
 }
 
-.rl-h3-editor__role {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 7px;
-  grid-column: 1 / -1;
-}
-
 .rl-h3-editor__role > div {
   display: grid;
   min-width: 0;
+}
+
+.rl-h3-editor__role.is-selected {
+  border-color: var(--rl-accent);
+  background: color-mix(in srgb, var(--rl-accent) 18%, var(--rl-panel));
+  box-shadow: 0 0 0 1px var(--rl-accent);
 }
 
 .rl-h3-editor__role small,
@@ -272,7 +271,6 @@
 
 .rl-h3-editor__frame-field small {
   flex: none;
-  min-width: 27px;
   color: var(--rl-muted);
   font-size: 9px;
   font-variant-numeric: tabular-nums;

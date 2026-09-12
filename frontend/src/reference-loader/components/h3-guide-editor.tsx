@@ -13,6 +13,7 @@ export interface H3GuideEditorProps {
   fps: number
   start: boolean
   end: boolean
+  selectedRole?: "start" | "end"
   guides: readonly { id: string; frameIndex: number; pairedLabel?: string }[]
   atGuideLimit: boolean
   issue?: string
@@ -110,6 +111,7 @@ function GuideFrame({
         </span>
         <Button
           type="button"
+          className="rl-button--remove"
           data-h3-action="delete-draft-placement"
           data-h3-guide-id={guide.id}
           aria-label={`Delete ${frameLabel} ${props.channel === "visual" ? "image" : "audio"} connection`}
@@ -126,11 +128,19 @@ function GuideFrame({
   )
 }
 
-function Role({ role, onRemove }: { role: "start" | "end"; onRemove(): void }) {
+function Role({
+  role,
+  selected,
+  onRemove,
+}: {
+  role: "start" | "end"
+  selected: boolean
+  onRemove(): void
+}) {
   const label = role === "start" ? "Start" : "End"
   return (
     <article
-      className="rl-h3-editor__placement rl-h3-editor__stack-row rl-h3-editor__role"
+      className={`rl-h3-editor__placement rl-h3-editor__stack-row rl-h3-editor__role${selected ? " is-selected" : ""}`}
       data-h3-role={role}
     >
       <div>
@@ -139,6 +149,7 @@ function Role({ role, onRemove }: { role: "start" | "end"; onRemove(): void }) {
       </div>
       <Button
         type="button"
+        className="rl-button--remove"
         data-h3-action="remove-draft-role"
         data-h3-role={role}
         aria-label={`Delete ${label} image connection`}
@@ -218,11 +229,23 @@ export function H3GuideInspector({
       </p>
       <div className="rl-h3-editor__stack" data-h3-placement-list="">
         <div className="rl-h3-editor__placements">
-          {props.start && <Role role="start" onRemove={() => props.onRemoveRole("start")} />}
+          {props.start && (
+            <Role
+              role="start"
+              selected={props.selectedRole === "start"}
+              onRemove={() => props.onRemoveRole("start")}
+            />
+          )}
           {props.guides.map((guide) => (
             <GuideFrame key={guide.id} guide={guide} props={props} />
           ))}
-          {props.end && <Role role="end" onRemove={() => props.onRemoveRole("end")} />}
+          {props.end && (
+            <Role
+              role="end"
+              selected={props.selectedRole === "end"}
+              onRemove={() => props.onRemoveRole("end")}
+            />
+          )}
           {!props.start && !props.end && props.guides.length === 0 && (
             <p className="rl-h3-editor__empty">No placements yet.</p>
           )}
@@ -295,7 +318,7 @@ export function H3GuideInspector({
         <Button
           type="button"
           data-h3-action="add-draft-placement"
-          className="rl-h3-editor__add"
+          className="rl-button--add rl-h3-editor__add"
           aria-label="Add Guide"
           title="Add Guide"
           disabled={showFrame && props.atGuideLimit}

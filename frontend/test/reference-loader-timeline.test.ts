@@ -160,6 +160,32 @@ function sizeSurface(root: HTMLElement, width = 640) {
 }
 
 describe("Guide timeline", () => {
+  test("keeps workspace tools in the header and toggles Guides from the left status chip", () => {
+    const { root, controller } = mount()
+    const header = root.querySelector<HTMLElement>(".rl-h3-workspace__header")!
+    const status = header.querySelector<HTMLButtonElement>(".rl-h3-workspace__status")!
+
+    expect(header.querySelector(".rl-h3-workspace__tools")).not.toBeNull()
+    expect(root.querySelector(".rl-h3-workspace > .rl-h3-workspace__tools")).toBeNull()
+    expect(root.querySelector('[aria-label="Timeline zoom"]')).toBeNull()
+    expect(
+      [...root.querySelectorAll("button")].some((button) => button.textContent?.trim() === "Fit"),
+    ).toBe(false)
+    expect(status.title).toBe("Toggle Guides")
+    expect(
+      [...header.querySelectorAll<HTMLButtonElement>('[aria-label="Timeline view"] button')].map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["Timeline", "List"])
+    expect(status.textContent).toBe("ON")
+    expect(status.getAttribute("aria-pressed")).toBe("true")
+
+    status.click()
+    expect(controller.getViewSnapshot().h3?.timeline.enabled).toBe(false)
+    expect(status.textContent).toBe("OFF")
+    expect(status.getAttribute("aria-pressed")).toBe("false")
+  })
+
   test("uses the Reference Loader H3 output settings and opens selected Guides in the Inspector", () => {
     const { root, controller } = mount()
     const executionBefore = executionFingerprintSource(controller.state)
@@ -196,7 +222,9 @@ describe("Guide timeline", () => {
         '[data-h3-inspector] [data-h3-draft-field="frame"][data-h3-guide-id="pair"]',
       ),
     )
-    const guideInput = root.querySelector<HTMLInputElement>('[aria-label="Guide frame"]')!
+    const guideInput = root.querySelector<HTMLInputElement>(
+      '[data-h3-inspector] [data-h3-draft-field="frame"][data-h3-guide-id="pair"]',
+    )!
     expect(guideInput.value).toBe("60")
     guideInput.value = "61"
     flushSync(() => guideInput.dispatchEvent(new Event("input", { bubbles: true })))
@@ -222,6 +250,54 @@ describe("Guide timeline", () => {
     expect(marker).not.toBeNull()
     expect(marker?.classList.contains("is-out-of-range")).toBe(true)
     expect(marker?.title).toContain("Out of range · output ends at 124f")
+    expect(root.querySelector("[data-h3-end-dock] .rl-h3-timeline__end-mark")).toBeNull()
+    const endMark = root.querySelector<HTMLButtonElement>(
+      '[data-timeline-channel="visual"] .rl-h3-timeline__end-mark',
+    )
+    expect(endMark).not.toBeNull()
+    expect(endMark?.textContent).not.toContain("scene.png")
+    expect(endMark?.title).toContain("scene.png")
+    endMark?.click()
+    expect(
+      root
+        .querySelector<HTMLButtonElement>(
+          '[data-timeline-channel="visual"] .rl-h3-timeline__end-mark',
+        )
+        ?.classList.contains("is-selected"),
+    ).toBe(true)
+  })
+
+  test("does not render an empty End marker over other Guides", () => {
+    const state = fixture()
+    state.h3Timeline.endImageId = null
+    const { root } = mount(state)
+
+    expect(root.querySelector('[data-timeline-guide="pair"]')).not.toBeNull()
+    expect(root.querySelector(".rl-h3-timeline__end-mark")).toBeNull()
+  })
+
+  test("highlights the selected Start or End role in the Guide Inspector", () => {
+    const state = fixture()
+    state.h3Timeline.startImageId = "scene"
+    const { root } = mount(state)
+
+    for (const [role, selector] of [
+      ["start", 'button[aria-label^="Start ·"]'],
+      ["end", ".rl-h3-timeline__end-mark"],
+    ] as const) {
+      root.querySelector<HTMLButtonElement>(selector)!.click()
+      expect(
+        root
+          .querySelector(`[data-h3-inspector] [data-h3-role="${role}"]`)
+          ?.classList.contains("is-selected"),
+      ).toBe(true)
+      const otherRole = role === "start" ? "end" : "start"
+      expect(
+        root
+          .querySelector(`[data-h3-inspector] [data-h3-role="${otherRole}"]`)
+          ?.classList.contains("is-selected"),
+      ).toBe(false)
+    }
   })
 
   test("uses trimmed audio intervals, ignores paused ranges, and keeps End out of the view extent", () => {
@@ -259,19 +335,19 @@ describe("Guide timeline", () => {
   test("sizes each timeline lane from overlapping placement rows", () => {
     const { root, controller } = mount()
     const state = fixture()
+    state.h3Timeline.endImageId = null
     state.h3Timeline.guides = [
-      { id: "late", frameIndex: 180, visualId: "scene", audioId: null },
+      { id: "late", frameIndex: 200, visualId: "scene", audioId: null },
       { id: "middle", frameIndex: 100, visualId: "scene", audioId: null },
       { id: "early", frameIndex: 0, visualId: "scene", audioId: null },
     ]
     controller.restore(serializeLoaderState(state))
-
     const visualLane = root.querySelector<HTMLElement>('[data-timeline-channel="visual"]')!
     expect(visualLane.style.height).toBe("48px")
 
     state.h3Timeline.guides.push({
       id: "overlap",
-      frameIndex: 48,
+      frameIndex: 84,
       visualId: "scene",
       audioId: null,
     })
@@ -279,6 +355,46 @@ describe("Guide timeline", () => {
     expect(root.querySelector<HTMLElement>('[data-timeline-channel="visual"]')?.style.height).toBe(
       "84px",
     )
+  })
+
+  test("packs an attached End marker into an available visual Guide row", () => {
+    const state = fixture()
+    state.h3Timeline.guides = [
+      { id: "before-end", frameIndex: 100, visualId: "scene", audioId: null },
+    ]
+    const { root, controller } = mount(state)
+
+    const visualLane = root.querySelector<HTMLElement>('[data-timeline-channel="visual"]')!
+    const endPosition = root.querySelector<HTMLElement>(
+      '[data-timeline-channel="visual"] [data-h3-end-position]',
+    )
+    expect(endPosition?.style.top).toBe("4px")
+    expect(visualLane.style.height).toBe("48px")
+
+    state.h3Timeline.guides[0]!.frameIndex = 200
+    controller.restore(serializeLoaderState(state))
+    expect(endPosition?.style.top).toBe("44px")
+    expect(visualLane.style.height).toBe("84px")
+  })
+
+  test("does not let out-of-range visual Guides push the End marker into a new row", () => {
+    const state = fixture()
+    state.h3Output = { fps: 24, totalFrames: 124 }
+    state.h3Timeline.guides = [
+      { id: "first", frameIndex: 0, visualId: "scene", audioId: null },
+      { id: "out-of-range", frameIndex: 200, visualId: "scene", audioId: null },
+    ]
+    const { root } = mount(state)
+
+    const visualLane = root.querySelector<HTMLElement>('[data-timeline-channel="visual"]')!
+    const endPosition = root.querySelector<HTMLElement>(
+      '[data-timeline-channel="visual"] [data-h3-end-position]',
+    )
+    expect(root.querySelector('[data-timeline-guide="out-of-range"]')?.classList).toContain(
+      "is-out-of-range",
+    )
+    expect(endPosition?.style.top).toBe("4px")
+    expect(visualLane.style.height).toBe("48px")
   })
 
   test("gives short audio markers the normal readable marker width", () => {
@@ -343,22 +459,63 @@ describe("Guide timeline", () => {
     pointer(document, "pointerup", 240)
   })
 
-  test("keeps the lower Guide Frame field live while a marker is dragged", () => {
+  test("keeps the Guide Inspector Frame field live while a marker is dragged", () => {
     const { root, controller } = mount()
     root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
-    const frame = root.querySelector<HTMLInputElement>('[aria-label="Guide frame"]')!
+    const frame = root.querySelector<HTMLInputElement>(
+      '[data-h3-inspector] [data-h3-draft-field="frame"][data-h3-guide-id="pair"]',
+    )!
     const marker = root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!
     sizeSurface(root)
 
     expect(frame.value).toBe("48")
+    expect(root.querySelector("[data-h3-end-dock] [data-h3-element-controls]")).toBeNull()
     pointer(marker, "pointerdown", 128)
     pointer(document, "pointermove", 192)
-    expect(frame.value).toBe("72")
-    expect(frame.parentElement?.querySelector("small")?.textContent).toBe("3.000s")
+    expect(frame.value).toBe("48")
     expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
 
     pointer(document, "pointercancel", 192)
     expect(frame.value).toBe("48")
+  })
+
+  test("selects the dragged Guide in the Guide Inspector before moving it", () => {
+    const state = fixture()
+    state.h3Timeline.guides.push({
+      id: "other",
+      frameIndex: 120,
+      visualId: null,
+      audioId: "music",
+    })
+    const { root } = mount(state)
+    root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
+    sizeSurface(root)
+
+    pointer(
+      root.querySelector<HTMLButtonElement>('[data-timeline-guide="other"]')!,
+      "pointerdown",
+      128,
+    )
+    expect(
+      root.querySelector('[data-h3-inspector][aria-label="Audio Guide Inspector"]'),
+    ).not.toBeNull()
+    expect(root.querySelector('[data-h3-inspector] [data-h3-guide-id="other"]')).not.toBeNull()
+
+    pointer(document, "pointercancel", 128)
+  })
+
+  test("keeps a dragged Shot selected without waiting for focus to leave", () => {
+    const { root, controller } = mount()
+    dirtyShot(controller)
+    sizeSurface(root)
+    const shot = root.querySelector<HTMLButtonElement>('[data-timeline-shot="opening"]')!
+
+    pointer(shot, "pointerdown", 128)
+    pointer(document, "pointermove", 192)
+    pointer(document, "pointerup", 192)
+
+    expect(shot.classList.contains("is-selected")).toBe(true)
+    expect(shot.getAttribute("aria-pressed")).toBe("true")
   })
 
   test("starts and continues a drag when a Nodes 2.0 wrapper stops bubbling", () => {
@@ -373,7 +530,7 @@ describe("Guide timeline", () => {
     pointer(mark, "pointerdown", 128)
     pointer(mark, "pointermove", 192)
     pointer(mark, "pointerup", 192)
-    expect(root.querySelector<HTMLElement>(".rl-h3-workspace__status-row")?.textContent).toContain(
+    expect(root.querySelector<HTMLElement>(".rl-h3-workspace__footer")?.textContent).toContain(
       "Unsaved changes",
     )
     host.remove()
@@ -446,43 +603,66 @@ describe("Guide timeline", () => {
     })
   })
 
-  test("removes the selected Guide from the Timeline draft", () => {
+  test("removes the selected Guide source connection from the Inspector draft", () => {
     const { root, controller } = mount()
     const marker = root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!
     marker.click()
     root
-      .querySelector<HTMLButtonElement>('[data-h3-element-remove][aria-label="Remove Guide"]')!
+      .querySelector<HTMLButtonElement>(
+        '[data-h3-action="delete-draft-placement"][data-h3-guide-id="pair"]',
+      )!
       .click()
 
     expect(controller.state.h3Timeline.guides).toHaveLength(1)
     expect(controller.getViewSnapshot().h3?.dirty).toBe(true)
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
-    expect(controller.state.h3Timeline.guides).toEqual([])
+    expect(controller.state.h3Timeline.guides).toEqual([
+      { id: "pair", frameIndex: 48, visualId: null, audioId: "voice" },
+    ])
   })
 
-  test("shows the selected Guide controls beside End and in List rows", () => {
+  test("shows the selected Guide only in the Guide Inspector", () => {
     const { root } = mount()
     const marker = root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!
     marker.click()
 
     const dock = root.querySelector<HTMLElement>("[data-h3-end-dock]")!
-    expect(dock.querySelector('[data-h3-inline-frame][aria-label="Guide frame"]')).not.toBeNull()
-    expect(dock.querySelector('[data-h3-element-remove][aria-label="Remove Guide"]')).not.toBeNull()
+    expect(dock.querySelector("[data-h3-element-controls]")).toBeNull()
     expect(
-      dock
-        .querySelector<HTMLElement>('[data-h3-inline-frame][aria-label="Guide frame"]')
-        ?.closest("[data-h3-element-controls]")
-        ?.lastElementChild?.classList.contains("rl-h3-element-controls__label"),
-    ).toBe(true)
+      root.querySelector('[data-h3-inspector][aria-label="Image Guide Inspector"]'),
+    ).not.toBeNull()
 
     flushSync(() => {
       root
         .querySelector<HTMLButtonElement>('[aria-label="Timeline view"] button:nth-child(2)')!
         .click()
     })
-    const row = root.querySelector<HTMLElement>("[data-h3-list-item]")!
-    expect(row.querySelector("[data-h3-element-controls]")).not.toBeNull()
-    expect(row.querySelector('[data-h3-inline-frame][aria-label="Guide frame"]')).not.toBeNull()
+    expect(root.querySelector("[data-h3-list] [data-h3-element-controls]")).toBeNull()
+    expect(
+      root.querySelector('[data-h3-inspector][aria-label="Image Guide Inspector"]'),
+    ).not.toBeNull()
+  })
+
+  test("keeps Shot auxiliary controls in the Timeline Dock and List row", () => {
+    const { root, controller } = mount()
+    dirtyShot(controller)
+    root.querySelector<HTMLButtonElement>('[data-timeline-shot="opening"]')!.click()
+
+    const dock = root.querySelector<HTMLElement>("[data-h3-end-dock]")!
+    expect(dock.querySelector('[data-h3-inline-frame][aria-label="Shot frame"]')).not.toBeNull()
+    expect(dock.querySelector('[data-h3-element-remove][aria-label="Remove Shot"]')).not.toBeNull()
+
+    flushSync(() => {
+      root
+        .querySelector<HTMLButtonElement>('[aria-label="Timeline view"] button:nth-child(2)')!
+        .click()
+    })
+    const row = [...root.querySelectorAll<HTMLElement>("[data-h3-list-item]")].find((item) =>
+      item.textContent?.includes("Shot #opening"),
+    )
+    expect(row).toBeDefined()
+    expect(row?.querySelector('[data-h3-inline-frame][aria-label="Shot frame"]')).not.toBeNull()
+    expect(row?.querySelector('[data-h3-element-remove][aria-label="Remove Shot"]')).not.toBeNull()
   })
 
   test("removes a selected End role through the timeline draft", () => {
@@ -496,6 +676,114 @@ describe("Guide timeline", () => {
     expect(controller.getViewSnapshot().h3?.dirty).toBe(true)
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
     expect(controller.state.h3Timeline.endImageId).toBeNull()
+  })
+
+  test("removes a selected Start role through the timeline draft", () => {
+    const state = fixture()
+    state.h3Timeline.startImageId = "scene"
+    const { root, controller } = mount(state)
+    root.querySelector<HTMLButtonElement>('button[aria-label^="Start ·"]')!.click()
+    root
+      .querySelector<HTMLButtonElement>(
+        '[data-h3-action="remove-draft-role"][data-h3-role="start"]',
+      )!
+      .click()
+
+    expect(controller.getViewSnapshot().h3?.timeline.startImageId).toBeNull()
+    expect(controller.getViewSnapshot().h3?.dirty).toBe(true)
+    root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
+    expect(controller.state.h3Timeline.startImageId).toBeNull()
+  })
+
+  test("selects Start and End in List view and keeps focus on their rows", () => {
+    const state = fixture()
+    state.h3Timeline.startImageId = "scene"
+    const { root } = mount(state)
+    flushSync(() => {
+      root
+        .querySelector<HTMLButtonElement>('[aria-label="Timeline view"] button:nth-child(2)')!
+        .click()
+    })
+
+    const selectListRow = (label: "Start" | "End"): HTMLButtonElement => {
+      const row = [...root.querySelectorAll<HTMLElement>("[data-h3-list-item]")].find(
+        (item) => item.querySelector("strong")?.textContent === label,
+      )
+      if (!row) throw new Error(`Missing ${label} List row.`)
+      const button = row.querySelector<HTMLButtonElement>(".rl-h3-workspace__list-select")
+      if (!button) throw new Error(`Missing ${label} List select button.`)
+      button.click()
+      return button
+    }
+    for (const label of ["Start", "End"] as const) {
+      const button = selectListRow(label)
+      const row = button.closest<HTMLElement>("[data-h3-list-item]")!
+      expect(row.classList.contains("is-selected")).toBe(true)
+      expect(button.getAttribute("aria-pressed")).toBe("true")
+      expect(document.activeElement).toBe(button)
+      expect(root.querySelector("[data-h3-list] [data-h3-element-controls]")).toBeNull()
+    }
+  })
+
+  test("does not keep a same-image Frame Guide selected with Start or End", () => {
+    const state = fixture()
+    state.h3Timeline.startImageId = "scene"
+    const { root } = mount(state)
+    flushSync(() => {
+      root
+        .querySelector<HTMLButtonElement>('[aria-label="Timeline view"] button:nth-child(2)')!
+        .click()
+    })
+
+    const selectListRow = (label: string): HTMLButtonElement => {
+      const row = [...root.querySelectorAll<HTMLElement>("[data-h3-list-item]")].find(
+        (item) => item.querySelector("strong")?.textContent === label,
+      )
+      if (!row) throw new Error(`Missing ${label} List row.`)
+      const button = row.querySelector<HTMLButtonElement>(".rl-h3-workspace__list-select")
+      if (!button) throw new Error(`Missing ${label} List select button.`)
+      button.click()
+      return button
+    }
+    const selectedLabels = (): string[] =>
+      [...root.querySelectorAll<HTMLElement>("[data-h3-list-item].is-selected")].map(
+        (item) => item.querySelector("strong")?.textContent ?? "",
+      )
+
+    selectListRow("Guide pair")
+    expect(selectedLabels()).toEqual(["Guide pair", "Guide pair"])
+    const startButton = selectListRow("Start")
+    expect(selectedLabels()).toEqual(["Start"])
+    expect(document.activeElement).toBe(startButton)
+    const endButton = selectListRow("End")
+    expect(selectedLabels()).toEqual(["End"])
+    expect(document.activeElement).toBe(endButton)
+  })
+
+  test("removes Start and End independently when they share one image", () => {
+    const state = fixture()
+    state.h3Timeline.startImageId = "scene"
+    const { root, controller } = mount(state)
+
+    root.querySelector<HTMLButtonElement>('button[aria-label^="Start ·"]')!.click()
+    root
+      .querySelector<HTMLButtonElement>(
+        '[data-h3-action="remove-draft-role"][data-h3-role="start"]',
+      )!
+      .click()
+    expect(controller.getViewSnapshot().h3?.timeline).toMatchObject({
+      startImageId: null,
+      endImageId: "scene",
+    })
+
+    root.querySelector<HTMLButtonElement>(".rl-h3-timeline__end-mark")!.click()
+    root
+      .querySelector<HTMLButtonElement>('[data-h3-action="remove-draft-role"][data-h3-role="end"]')!
+      .click()
+    expect(controller.getViewSnapshot().h3?.timeline).toMatchObject({
+      startImageId: null,
+      endImageId: null,
+    })
   })
 
   test("removes the selected Guide with Backspace or Delete", () => {
@@ -531,11 +819,8 @@ describe("Guide timeline", () => {
     expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("48f · 2.000s")
   })
 
-  test("shares card draft frames with the timeline and preserves zoom across edits", () => {
+  test("shares card draft frames with the timeline and keeps the fixed default layout", () => {
     const { root, controller } = mount()
-    const zoom = root.querySelector<HTMLSelectElement>('[aria-label="Timeline zoom"]')!
-    zoom.value = "4"
-    zoom.dispatchEvent(new Event("change", { bubbles: true }))
     root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')!.click()
     const input = root.querySelector<HTMLInputElement>(
       '[data-h3-inspector] [data-h3-draft-field="frame"]',
@@ -547,11 +832,13 @@ describe("Guide timeline", () => {
         ...root.querySelectorAll<HTMLElement>('[data-timeline-guide="pair"] [data-timeline-time]'),
       ].every((element) => element.textContent === "96f · 4.000s"),
     ).toBe(true)
-    expect(root.querySelector<HTMLSelectElement>('[aria-label="Timeline zoom"]')?.value).toBe("4")
+    expect(root.querySelector('[aria-label="Timeline zoom"]')).toBeNull()
     root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')!.click()
     expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
     root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
-    const frame = root.querySelector<HTMLInputElement>('[aria-label="Guide frame"]')!
+    const frame = root.querySelector<HTMLInputElement>(
+      '[data-h3-inspector] [data-h3-draft-field="frame"][data-h3-guide-id="pair"]',
+    )!
     frame.value = "144"
     flushSync(() => frame.dispatchEvent(new Event("input", { bubbles: true })))
     frame.dispatchEvent(new Event("change", { bubbles: true }))
@@ -588,9 +875,6 @@ describe("Guide timeline", () => {
     ).toBe("60")
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
     expect(controller.state.h3Timeline.guides.map((guide) => guide.frameIndex)).toEqual([60, 121])
-    const zoom = root.querySelector<HTMLSelectElement>('[aria-label="Timeline zoom"]')!
-    zoom.value = "4"
-    zoom.dispatchEvent(new Event("change", { bubbles: true }))
     const scroll = root.querySelector<HTMLElement>(".rl-h3-timeline__track-scroll")!
     scroll.scrollLeft = 250
     scroll.dispatchEvent(new Event("scroll"))
@@ -598,9 +882,56 @@ describe("Guide timeline", () => {
     expect(root.querySelector<HTMLElement>(".rl-h3-timeline__track-scroll")?.scrollLeft).toBe(250)
   })
 
+  test("switches dirty Timeline selections across Image, Audio, and Shot before one Apply", () => {
+    const { root, controller } = mount()
+    const state = fixture()
+    state.h3Timeline.guides.push({
+      id: "other",
+      frameIndex: 120,
+      visualId: null,
+      audioId: "music",
+    })
+    controller.restore(serializeLoaderState(state))
+
+    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')!.click()
+    const imageFrame = root.querySelector<HTMLInputElement>(
+      '[data-h3-inspector] [data-h3-draft-field="frame"][data-h3-guide-id="pair"]',
+    )!
+    imageFrame.value = "60"
+    flushSync(() => imageFrame.dispatchEvent(new Event("input", { bubbles: true })))
+
+    root.querySelector<HTMLButtonElement>('[data-timeline-guide="other"]')!.click()
+    expect(
+      root.querySelector('[data-h3-inspector][aria-label="Audio Guide Inspector"]'),
+    ).not.toBeNull()
+    const audioFrame = root.querySelector<HTMLInputElement>(
+      '[data-h3-inspector] [data-h3-draft-field="frame"][data-h3-guide-id="other"]',
+    )!
+    audioFrame.value = "144"
+    flushSync(() => audioFrame.dispatchEvent(new Event("input", { bubbles: true })))
+
+    const shot = dirtyShot(controller)
+    root.querySelector<HTMLButtonElement>('[data-timeline-shot="opening"]')!.click()
+    expect(
+      root
+        .querySelector<HTMLButtonElement>('[data-timeline-shot="opening"]')
+        ?.classList.contains("is-selected"),
+    ).toBe(true)
+
+    root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
+    expect(controller.state.h3Timeline.guides).toEqual([
+      { id: "pair", frameIndex: 60, visualId: "scene", audioId: "voice" },
+      { id: "other", frameIndex: 144, visualId: null, audioId: "music" },
+    ])
+    expect(shot.isDirty).toBe(false)
+  })
+
   test("moves a Guide while a Shot draft is dirty and applies both drafts", () => {
     const { root, controller } = mount()
     const shot = dirtyShot(controller)
+    expect(root.querySelector<HTMLElement>(".rl-h3-workspace__footer")?.textContent).toContain(
+      "Shot timing is unsaved",
+    )
     root
       .querySelector('[data-timeline-guide="pair"]')!
       .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
@@ -653,7 +984,9 @@ describe("Guide timeline", () => {
     pointer(document, "pointerup", 192)
     expect(controller.getViewSnapshot().h3?.dirty).toBe(false)
     root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
-    const input = root.querySelector<HTMLInputElement>('[aria-label="Guide frame"]')!
+    const input = root.querySelector<HTMLInputElement>(
+      '[data-h3-inspector] [data-h3-draft-field="frame"][data-h3-guide-id="pair"]',
+    )!
     for (const invalid of ["", "-1", "1.5", "9007199254740992"]) {
       input.value = invalid
       flushSync(() => input.dispatchEvent(new Event("input", { bubbles: true })))

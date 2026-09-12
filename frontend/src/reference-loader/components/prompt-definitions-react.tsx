@@ -30,8 +30,6 @@ export interface PromptDefinitionsReactActions extends PromptEditorActions {
   endDefinitionDrag(): void
   removeDefinition(kind: PromptDefinitionKind, identity: string): void
   setShotFrame(identity: string, frameIndex: number): void
-  applyShotDraft(): void
-  cancelShotDraft(): void
 }
 
 export interface PromptDefinitionsReactOptions {
@@ -271,25 +269,6 @@ export function PromptDefinitionsReactRoot({
           </Button>
         </div>
       </header>
-      {snapshot.draft ? (
-        <div className="rl-prompt-definitions__draft" role="status">
-          <span>Shot timing is unsaved. Apply or Cancel.</span>
-          <Button
-            type="button"
-            data-prompt-action="cancel-shot-draft"
-            onClick={actions.cancelShotDraft}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            data-prompt-action="apply-shot-draft"
-            onClick={actions.applyShotDraft}
-          >
-            Apply
-          </Button>
-        </div>
-      ) : null}
       <section className="rl-channel" data-prompt-definition-category="subject">
         <header>
           <div>
@@ -347,8 +326,6 @@ export function createPromptDefinitionsReact(
     endDefinitionDrag: () => controller.endDefinitionDrag(),
     removeDefinition: (kind, identity) => controller.removeDefinition(kind, identity),
     setShotFrame: (identity, frameIndex) => controller.setShotFrameByIdentity(identity, frameIndex),
-    applyShotDraft: () => controller.applyShotDraft(),
-    cancelShotDraft: () => controller.cancelShotDraft(),
     handleReactEditorInput: (target, editor, input) =>
       controller.handleReactEditorInput(target, editor, input),
     handleReactEditorKeydown: (event) => controller.handleReactEditorKeydown(event),

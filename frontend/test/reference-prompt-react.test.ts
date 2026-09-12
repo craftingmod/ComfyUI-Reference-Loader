@@ -1029,15 +1029,11 @@ describe("Reference Prompt React shell", () => {
     expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(49)
 
     flushSync(() => controller.setShotFrameDraft("opening", 72))
-    expect(definitionsRoot.querySelector('[data-prompt-action="apply-shot-draft"]')).not.toBeNull()
+    expect(definitionsRoot.querySelector(".rl-prompt-definitions__draft")).toBeNull()
     expect(
       definitionsRoot.querySelector<HTMLInputElement>("[data-prompt-shot-frame]")?.disabled,
     ).toBe(true)
-    flushSync(() =>
-      definitionsRoot
-        .querySelector<HTMLButtonElement>('[data-prompt-action="cancel-shot-draft"]')
-        ?.click(),
-    )
+    flushSync(() => controller.cancelShotDraft())
     expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(49)
 
     definitionsMount.destroy()

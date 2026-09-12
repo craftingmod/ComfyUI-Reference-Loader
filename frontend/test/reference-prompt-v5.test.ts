@@ -65,7 +65,7 @@ describe("Reference Prompt v6 authoring", () => {
     flushSync(() => expect(controller.setShotFrameDraft("opening", 24)).toBe(true))
     expect(controller.shots[0]?.frameIndex).toBe(24)
     expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(0)
-    expect(root.querySelector('[data-prompt-action="apply-shot-draft"]')).not.toBeNull()
+    expect(root.querySelector(".rl-prompt-definitions__draft")).toBeNull()
     expect(transactions).toEqual([])
 
     expect(controller.applyShotDraft()).toBe(true)

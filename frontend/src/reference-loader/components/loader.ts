@@ -352,23 +352,14 @@ export class ReferenceLoaderController {
     previewVideo: (id) => this.previewVideo(id),
     move: (id, channel, delta) => this.moveItem(id, channel, delta),
     movePlacement: (id, frame) => this.#moveH3TimelineGuide(id, frame),
-    selectPlacement: (placement, channel) => this.#selectH3Placement(placement, channel),
+    selectPlacement: (placement, channel, focusGuide) =>
+      this.#selectH3Placement(placement, channel, focusGuide),
     removePlacement: (id) => this.#removeH3TimelineGuide(id),
-    selectShot: (tag) => {
-      this.#h3SelectedShot = tag
-      this.#h3SelectedRole = undefined
-      this.#promptShotSelect?.(tag)
-      this.render(true)
-    },
+    selectShot: (tag) => this.#selectH3Shot(tag),
     changeShot: (tag, frame) => {
       this.#promptShotChange?.(tag, frame)
     },
     removeShot: (tag) => {
-      if (this.#h3EditorDirty()) {
-        this.#status = "Apply or cancel Guide changes before editing a Shot."
-        this.render(true)
-        return
-      }
       this.#promptShotRemove?.(tag)
     },
     canDrop: (channel, dataTransfer) => {
@@ -977,7 +968,7 @@ export class ReferenceLoaderController {
           : "none",
       sessionId: this.#h3Session,
       dirty: guideDirty || this.#promptShotDirty,
-      canApply: editor ? !issue : this.#promptShotDirty,
+      canApply: editor ? guideDirty && !issue : this.#promptShotDirty,
       shotDirty: this.#promptShotDirty,
       shotCanApply: this.#promptShotDirty,
       issue,
@@ -1364,21 +1355,25 @@ export class ReferenceLoaderController {
     this.#dispatch({ type: "toggle-h3-timeline", enabled: !this.state.h3Timeline.enabled })
   }
 
-  #selectH3Placement(placement: H3TimelinePlacement, channel: "visual" | "audio"): void {
-    if (this.#promptShotDirty) {
-      this.#status = "Apply or cancel Shot changes before editing a Guide."
-      this.render(true)
-      return
-    }
+  #selectH3Placement(
+    placement: H3TimelinePlacement,
+    channel: "visual" | "audio",
+    focusGuide = true,
+  ): boolean {
+    const sessionBefore = this.#h3Session
     if (placement.kind === "start" || placement.kind === "end") {
-      if (this.#h3EditorDirty()) {
-        this.#status = "Apply or cancel the current Guide edit before selecting Start or End."
-        this.render(true)
-        return
-      }
       if (placement.visualId) {
-        this.#openH3EditorForMedia(placement.visualId, "visual")
-        return
+        this.#openH3EditorForMedia(
+          placement.visualId,
+          "visual",
+          undefined,
+          "edit",
+          false,
+          focusGuide,
+          true,
+          placement.kind,
+        )
+        return this.#h3Session !== sessionBefore
       }
       if (this.#h3Editor) {
         this.#h3Editor = undefined
@@ -1387,19 +1382,21 @@ export class ReferenceLoaderController {
       this.#h3SelectedShot = undefined
       this.#h3SelectedRole = placement.kind
       this.render(true)
-      return
+      return this.#h3Session !== sessionBefore
     }
     this.#h3SelectedShot = undefined
     this.#h3SelectedRole = undefined
     if (placement.kind === "guide" && placement.guideId) {
       const id = channel === "visual" ? placement.visualId : placement.audioId
-      if (id) this.#openH3EditorForMedia(id, channel, placement.guideId)
-      else this.#openH3EditorForGuide(placement.guideId)
-      return
+      if (id)
+        this.#openH3EditorForMedia(id, channel, placement.guideId, "edit", false, focusGuide, true)
+      else this.#openH3EditorForGuide(placement.guideId, focusGuide)
+      return this.#h3Session !== sessionBefore
     }
     const id = channel === "visual" ? placement.visualId : placement.audioId
-    if (id) this.#openH3EditorForMedia(id, channel, placement.guideId, "edit", false, false)
-    else if (placement.guideId) this.#openH3EditorForGuide(placement.guideId)
+    if (id) this.#openH3EditorForMedia(id, channel, placement.guideId, "edit", false, false, true)
+    else if (placement.guideId) this.#openH3EditorForGuide(placement.guideId, focusGuide)
+    return this.#h3Session !== sessionBefore
   }
 
   #changeH3DraftSource(id: string, channel: H3GuideChannel, mediaId: string | null): void {
@@ -1438,6 +1435,31 @@ export class ReferenceLoaderController {
     if (this.#promptShotDirty) this.#promptShotCancel?.()
   }
 
+  #selectH3Shot(tag: string): boolean {
+    const sessionBefore = this.#h3Session
+    const editor = this.#h3Editor
+    if (editor && this.#h3EditorDirty()) {
+      editor.mediaId = undefined
+      editor.selectedGuideId = undefined
+      editor.allowTimelineOnly = true
+      editor.timelineEdit = true
+      editor.ownedGuideIds = new Set(editor.timeline.guides.map((guide) => guide.id))
+      this.#h3Session += 1
+    } else if (editor) {
+      this.#h3Editor = undefined
+      this.#h3Session += 1
+    }
+    this.#h3SelectedShot = tag
+    this.#h3SelectedRole = undefined
+    this.#promptShotSelect?.(tag)
+    this.render(true)
+    const mark = [...this.root.querySelectorAll<HTMLButtonElement>("[data-timeline-shot]")].find(
+      (button) => button.dataset.timelineShot === tag,
+    )
+    mark?.focus({ preventScroll: true })
+    return this.#h3Session !== sessionBefore
+  }
+
   #openH3EditorForMedia(
     mediaId: string,
     channel: H3GuideChannel,
@@ -1445,22 +1467,15 @@ export class ReferenceLoaderController {
     control: "toggle" | "edit" = "edit",
     requireGuide = false,
     focusGuide = true,
+    preserveDraft = false,
+    selectedRole?: "start" | "end",
   ): void {
     const wasCollapsed = this.#h3Collapsed
     this.#h3SelectedShot = undefined
     this.#h3SelectedRole = undefined
-    if (this.#promptShotDirty) {
+    if (this.#promptShotDirty && !preserveDraft) {
       this.#status = "Apply or cancel Shot changes before editing a Guide."
       this.render(true)
-      return
-    }
-    if (!this.#canSwitchH3Editor(mediaId, channel)) return
-    if (this.#h3Editor?.mediaId === mediaId && this.#h3Editor.channel === channel) {
-      if (guideId) this.#h3Editor.selectedGuideId = guideId
-      this.#h3Collapsed = false
-      this.render(true)
-      if (guideId && focusGuide) this.#focusH3EditorGuide(guideId)
-      else if (!guideId && wasCollapsed) this.#focusH3Workspace()
       return
     }
     const itemId = mediaId.endsWith(":audio") ? mediaId.slice(0, -6) : mediaId
@@ -1470,6 +1485,36 @@ export class ReferenceLoaderController {
       this.render(true)
       return
     }
+    this.#h3SelectedRole = selectedRole
+    const editor = this.#h3Editor
+    if (editor?.mediaId === mediaId && editor.channel === channel) {
+      if (guideId) editor.selectedGuideId = guideId
+      this.#h3Collapsed = false
+      this.render(true)
+      if (guideId && focusGuide) this.#focusH3EditorGuide(guideId)
+      else if (!guideId && wasCollapsed) this.#focusH3Workspace()
+      return
+    }
+    if (preserveDraft && editor && this.#h3EditorDirty()) {
+      for (const guide of editor.timeline.guides) {
+        if (guideUsesMedia(guide, mediaId, channel)) editor.ownedGuideIds.add(guide.id)
+      }
+      if (guideId) editor.ownedGuideIds.add(guideId)
+      editor.mediaId = mediaId
+      editor.channel = channel
+      editor.timelineEdit = true
+      editor.allowTimelineOnly = true
+      editor.selectedGuideId = guideId
+      editor.returnFocus = { mediaId, channel, control }
+      this.#h3Session += 1
+      this.#selectedId = item.id
+      this.#h3Collapsed = false
+      this.render(true)
+      if (guideId && focusGuide) this.#focusH3EditorGuide(guideId)
+      else if (!guideId && wasCollapsed) this.#focusH3Workspace()
+      return
+    }
+    if (!this.#canSwitchH3Editor(mediaId, channel)) return
     const timeline = cloneH3Timeline(this.state.h3Timeline)
     const ownedGuideIds = new Set(
       timeline.guides
@@ -1499,25 +1544,32 @@ export class ReferenceLoaderController {
     else if (wasCollapsed) this.#focusH3Workspace()
   }
 
-  #openH3EditorForGuide(guideId: string): void {
+  #openH3EditorForGuide(guideId: string, focusGuide = true): void {
     this.#h3SelectedShot = undefined
     this.#h3SelectedRole = undefined
-    if (this.#promptShotDirty) {
-      this.#status = "Apply or cancel Shot changes before editing a Guide."
-      this.render(true)
-      return
-    }
-    if (
-      this.#h3Editor &&
-      !(this.#h3Editor.mediaId === undefined && this.#h3Editor.selectedGuideId === guideId) &&
-      this.#h3EditorDirty()
-    ) {
-      this.#status = "Apply or cancel the current Guide edit before opening another Guide."
-      this.render(true)
-      return
-    }
     const guide = this.state.h3Timeline.guides.find((candidate) => candidate.id === guideId)
     if (!guide) return
+    const editor = this.#h3Editor
+    if (editor && editor.mediaId === undefined && editor.selectedGuideId === guideId) {
+      this.#h3Collapsed = false
+      this.render(true)
+      if (focusGuide) this.#focusH3EditorGuide(guideId)
+      return
+    }
+    if (editor && this.#h3EditorDirty()) {
+      editor.mediaId = undefined
+      editor.channel = guide.visualId !== null ? "visual" : "audio"
+      editor.allowTimelineOnly = true
+      editor.timelineEdit = true
+      editor.ownedGuideIds.add(guideId)
+      editor.selectedGuideId = guideId
+      editor.returnFocus = { guideId }
+      this.#h3Session += 1
+      this.#h3Collapsed = false
+      this.render(true)
+      if (focusGuide) this.#focusH3EditorGuide(guideId)
+      return
+    }
     const timeline = cloneH3Timeline(this.state.h3Timeline)
     this.#h3Editor = {
       mediaId: undefined,
@@ -1534,7 +1586,7 @@ export class ReferenceLoaderController {
     this.#h3Session += 1
     this.#h3Collapsed = false
     this.render(true)
-    this.#focusH3EditorGuide(guideId)
+    if (focusGuide) this.#focusH3EditorGuide(guideId)
   }
 
   #focusH3EditorGuide(guideId: string): void {

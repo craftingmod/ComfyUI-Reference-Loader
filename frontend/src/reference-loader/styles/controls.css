@@ -93,8 +93,8 @@
 }
 
 :where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
-  .rl-button.rl-button--remove {
-  background: #05070bcc;
+.rl-button.rl-button--remove {
+  background: color-mix(in srgb, var(--rl-danger) 12%, var(--rl-panel));
   border-color: color-mix(in srgb, var(--rl-danger) 65%, var(--rl-border));
   color: var(--rl-danger);
   font-weight: 800;
@@ -104,6 +104,21 @@
   .rl-button.rl-button--remove:where(:hover:not(:disabled)) {
   background: color-mix(in srgb, var(--rl-danger) 38%, var(--rl-panel));
   border-color: var(--rl-danger);
+  color: #fff;
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--add {
+  background: color-mix(in srgb, #2f8f60 18%, var(--rl-panel));
+  border-color: color-mix(in srgb, #2f8f60 65%, var(--rl-border));
+  color: #b9f3d1;
+  font-weight: 800;
+}
+
+:where(.reference-loader, .reference-prompt, .reference-prompt-definitions, .rl-modal)
+  .rl-button.rl-button--add:where(:hover:not(:disabled)) {
+  background: color-mix(in srgb, #2f8f60 38%, var(--rl-panel));
+  border-color: #2f8f60;
   color: #fff;
 }
 

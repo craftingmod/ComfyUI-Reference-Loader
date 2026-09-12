@@ -282,6 +282,65 @@ describe("Reference Loader Media Timeline integration", () => {
     controller.destroy()
   })
 
+  test("allows Cancel when a new Guide still needs a frame placement", () => {
+    const state = stateWithImage()
+    const root = document.createElement("div")
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
+      serializeLoaderState(state),
+    )
+    const before = controller.serialize()
+
+    root
+      .querySelector<HTMLButtonElement>('[data-action="toggle-h3-guide"][data-id="scene"]')
+      ?.click()
+
+    expect(root.querySelector(".rl-h3-workspace__footer")?.textContent).toContain(
+      "Add a frame placement or select Start/End.",
+    )
+    const cancel = root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')
+    expect(cancel?.disabled).toBe(false)
+    expect(root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')?.disabled).toBe(
+      true,
+    )
+    cancel?.click()
+
+    expect(root.querySelector("[data-h3-inspector]")).toBeNull()
+    expect(controller.serialize()).toBe(before)
+    controller.destroy()
+  })
+
+  test("allows Cancel from a clean Guide editor before adding a placement", () => {
+    const state = stateWithImage()
+    const root = document.createElement("div")
+    const controller = new ReferenceLoaderController(
+      root,
+      node,
+      new ReferenceLoaderApi({ fetchApi: async () => new Response("{}") }),
+      serializeLoaderState(state),
+    )
+    const before = controller.serialize()
+
+    root
+      .querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')
+      ?.click()
+
+    expect(root.querySelector("[data-h3-inspector]")).not.toBeNull()
+    expect(root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')?.disabled).toBe(
+      false,
+    )
+    expect(root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')?.disabled).toBe(
+      true,
+    )
+    root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')?.click()
+
+    expect(root.querySelector("[data-h3-inspector]")).toBeNull()
+    expect(controller.serialize()).toBe(before)
+    controller.destroy()
+  })
+
   test("edits Start and End roles from the source Inspector", () => {
     const state = stateWithImage()
     const root = document.createElement("div")

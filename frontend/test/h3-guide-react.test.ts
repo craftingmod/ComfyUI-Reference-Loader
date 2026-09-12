@@ -63,6 +63,16 @@ describe("React Guide inspector boundary", () => {
     const inspector = root.querySelector<HTMLElement>("[data-h3-inspector]")!
     const guide = inspector.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')!
     const add = root.querySelector<HTMLInputElement>('[data-h3-add-field="frame"]')!
+    expect(
+      inspector.querySelector('[data-h3-action="delete-draft-placement"]')?.classList.contains(
+        "rl-button--remove",
+      ),
+    ).toBe(true)
+    expect(
+      root.querySelector('[data-h3-action="add-draft-placement"]')?.classList.contains(
+        "rl-button--add",
+      ),
+    ).toBe(true)
 
     enter(guide, "72")
     guide.dispatchEvent(new Event("change", { bubbles: true }))
@@ -111,6 +121,7 @@ describe("React Guide inspector boundary", () => {
       "false",
     ])
     expect(buttons.map((button) => button.tabIndex)).toEqual([-1, 0, -1])
+    expect(root.querySelector<HTMLElement>("[data-h3-add-frame]")?.hidden).toBe(false)
 
     flushSync(() => {
       buttons[1]!.dispatchEvent(
@@ -119,7 +130,10 @@ describe("React Guide inspector boundary", () => {
     })
     expect(document.activeElement).toBe(buttons[2])
     expect(buttons[2]?.getAttribute("aria-checked")).toBe("true")
-    expect(root.querySelector("[data-h3-add-frame][hidden]")).not.toBeNull()
+    expect(root.querySelector<HTMLElement>("[data-h3-add-frame]")?.hidden).toBe(true)
+
+    flushSync(() => buttons[1]!.click())
+    expect(root.querySelector<HTMLElement>("[data-h3-add-frame]")?.hidden).toBe(false)
   })
 
   test("isolates node instances and cleans up the permanent roots on restore and destroy", () => {

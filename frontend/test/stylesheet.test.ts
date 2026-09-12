@@ -65,6 +65,7 @@ describe("Reference Loader stylesheet", () => {
     for (const variant of [
       "primary",
       "remove",
+      "add",
       "edit",
       "guide-edit",
       "output",
@@ -76,6 +77,9 @@ describe("Reference Loader stylesheet", () => {
     }
     expect(controls).toContain(":where(.is-on:not(:disabled))")
     expect(controls).toContain(":where(.is-playing:not(:disabled))")
+    expect(controls).toContain(
+      "background: color-mix(in srgb, var(--rl-danger) 12%, var(--rl-panel));",
+    )
     expect(controls).toContain(".rl-button.rl-button--card-action:where(:disabled)")
     expect(controls).not.toContain("!important")
     expect(cards).toContain(".rl-remove")
@@ -211,9 +215,10 @@ describe("Reference Loader stylesheet", () => {
     const workspaceRule = workspace.match(/\.rl-h3-workspace\s*\{([^}]*)\}/)?.[1]
     const collapsedRule = workspace.match(/\.rl-h3-workspace\.is-collapsed\s*\{([^}]*)\}/)?.[1]
 
-    expect(workspaceRule).toContain("grid-template-rows: auto auto auto auto;")
+    expect(workspaceRule).toContain("grid-template-rows: auto auto auto;")
     expect(workspaceRule).not.toContain("height:")
     expect(workspaceRule).not.toContain("max-height:")
+    expect(workspaceRule).toContain("overflow: hidden;")
     expect(collapsedRule).toContain("grid-template-rows: auto;")
     expect(collapsedRule).not.toContain("height:")
     expect(css).toContain("overflow-x: auto;")
@@ -225,6 +230,9 @@ describe("Reference Loader stylesheet", () => {
     expect(css).not.toContain(".rl-time-axis")
     expect(css).not.toContain(".rl-card--h3-editor")
     expect(css).not.toContain(".rl-h3-editor__background")
+    expect(workspace).toContain("grid-template-columns: max-content max-content auto;")
+    expect(workspace).toContain(".rl-h3-editor__add-form > .rl-h3-editor__add")
+    expect(workspace).toContain("justify-self: start;")
   })
 
   it("keeps H3 surface ownership explicit", async () => {
@@ -258,6 +266,8 @@ describe("Reference Loader stylesheet", () => {
     expect(cards).toContain(".rl-h3-card-badges")
     expect(cards).not.toContain(".rl-guide-button.is-on")
     expect(workspace).toContain(".rl-h3-workspace__footer button")
+    expect(workspace).not.toContain(".rl-h3-workspace__status-row")
+    expect(workspace).toContain("padding-block-end: 8px;")
     expect(index.indexOf('@import "./h3-editor.css";')).toBeLessThan(
       index.indexOf('@import "./h3-timeline.css";'),
     )
@@ -535,6 +545,18 @@ describe("Reference Loader stylesheet", () => {
 
     expect(shotRule).toContain("border-color: #2f8f60;")
     expect(shotRule).toContain("color: #b9f3d1;")
+  })
+
+  it("separates the Output end label from the Timeline ticks", async () => {
+    const timeline = await Bun.file(
+      new URL("../src/reference-loader/styles/h3-timeline.css", import.meta.url),
+    ).text()
+    const rulerRule = timeline.match(/\.rl-h3-timeline__ruler\s*\{([^}]*)\}/)?.[1]
+    const outputRule = timeline.match(/\.rl-h3-timeline__output-boundary > span\s*\{([^}]*)\}/)?.[1]
+
+    expect(rulerRule).toContain("height: 36px;")
+    expect(outputRule).toContain("bottom: 2px;")
+    expect(outputRule).not.toContain("top: 2px;")
   })
 
   it("groups Prompt actions and styles its scoped Clear action as destructive", async () => {

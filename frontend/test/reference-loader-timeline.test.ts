@@ -222,6 +222,29 @@ describe("Guide timeline", () => {
     expect(status.getAttribute("aria-pressed")).toBe("false")
   })
 
+  test("uses the mention badges for Audio and Shot timeline previews", () => {
+    const state = fixture()
+    state.h3Timeline.guides.push({
+      id: "music-guide",
+      frameIndex: 96,
+      visualId: null,
+      audioId: "music",
+    })
+    const { root, controller } = mount(state)
+    root.querySelector<HTMLButtonElement>('[data-h3-action="collapse"]')!.click()
+    const audioBadges = root.querySelectorAll<HTMLElement>(
+      '[data-timeline-channel="audio"] .rl-h3-timeline__mark .rl-prompt-reference-icon',
+    )
+
+    expect([...audioBadges].map((badge) => badge.textContent)).toEqual(["A1", "A2"])
+
+    dirtyShot(controller)
+    const shotBadge = root.querySelector<HTMLElement>(
+      '[data-timeline-channel="shot"] .rl-h3-timeline__mark .rl-prompt-subject-icon',
+    )
+    expect(shotBadge?.textContent).toBe("SH1")
+  })
+
   test("uses the Reference Loader H3 output settings and opens selected Guides in the Inspector", () => {
     const { root, controller } = mount()
     root.querySelector<HTMLButtonElement>('[data-h3-action="collapse"]')!.click()

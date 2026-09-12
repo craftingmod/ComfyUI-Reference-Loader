@@ -80,7 +80,7 @@ describe("Reference Prompt v6 authoring", () => {
     controller.destroy()
   })
 
-  test("updates Shot timing from the frame change event", () => {
+  test("shows Shot timing and the Guide edit shortcut in the frame slot", () => {
     const root = document.createElement("div")
     const promptRoot = document.createElement("div")
     const definitionsRoot = document.createElement("div")
@@ -101,28 +101,61 @@ describe("Reference Prompt v6 authoring", () => {
       container: definitionsRoot,
       controller,
     })
-    const frame = definitionsRoot.querySelector<HTMLInputElement>("[data-prompt-shot-frame]")!
+    const frame = definitionsRoot.querySelector("[data-prompt-shot-frame]")
+    const guideEdit = definitionsRoot.querySelector<HTMLButtonElement>(
+      '[data-prompt-action="edit-shot-guides"]',
+    )
 
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(frame, "49")
-    flushSync(() => frame.dispatchEvent(new Event("input", { bubbles: true })))
+    expect(frame).toBeNull()
+    expect(guideEdit?.parentElement?.classList.contains("rl-prompt-definition__identity")).toBe(
+      true,
+    )
+    expect(guideEdit?.classList.contains("rl-prompt-definition__frame")).toBe(true)
+    expect(guideEdit?.querySelector("svg")).not.toBeNull()
     expect(
       definitionsRoot.querySelector<HTMLElement>("[data-prompt-shot-seconds]")?.textContent,
     ).toBe("0f · 0.000s")
     expect(definitionsRoot.querySelector('[data-prompt-action="apply-shot-draft"]')).toBeNull()
-    flushSync(() => frame.dispatchEvent(new Event("change", { bubbles: true })))
-    flushSync(() => {
-      frame.focus()
-      frame.blur()
-    })
-
-    expect(controller.shots[0]?.frameIndex).toBe(49)
-    expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(49)
-    expect(
-      definitionsRoot.querySelector<HTMLElement>("[data-prompt-shot-seconds]")?.textContent,
-    ).toBe("49f · 2.042s")
-    expect(definitionsRoot.querySelector('[data-prompt-action="apply-shot-draft"]')).toBeNull()
     definitionsMount.destroy()
     promptMount.destroy()
+    controller.destroy()
+  })
+
+  test("shows the Media-style Guide edit shortcut on Shot cards", () => {
+    const root = document.createElement("div")
+    const definitionsRoot = document.createElement("div")
+    root.append(definitionsRoot)
+    document.body.append(root)
+    const initial = {
+      ...createEmptyPromptDocumentV6(),
+      shots: [{ id: createPromptDefinitionId(), tag: "opening", frameIndex: 49, parts: [] }],
+    }
+    const controller = new ReferencePromptController(
+      node([]),
+      () => [],
+      serializePromptDocumentV6(initial),
+    )
+    controller.mountDefinitions(definitionsRoot)
+    const edited: string[] = []
+    const definitionsMount = createPromptDefinitionsReact({
+      container: definitionsRoot,
+      controller,
+      onEditShotGuides: (tag) => edited.push(tag),
+    })
+
+    const button = definitionsRoot.querySelector<HTMLButtonElement>(
+      '[data-prompt-action="edit-shot-guides"][data-prompt-definition-tag="opening"]',
+    )
+    expect(button).not.toBeNull()
+    expect(button?.classList.contains("rl-button--guide-edit")).toBe(true)
+    expect(button?.classList.contains("rl-prompt-definition__frame")).toBe(true)
+    expect(button?.classList.contains("rl-button--card-action")).toBe(false)
+    expect(button?.querySelector("svg")).not.toBeNull()
+    expect(button?.getAttribute("aria-label")).toBe("Edit Guides at Shot #opening")
+    button?.click()
+    expect(edited).toEqual(["opening"])
+
+    definitionsMount.destroy()
     controller.destroy()
   })
 

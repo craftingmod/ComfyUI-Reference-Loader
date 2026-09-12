@@ -37,6 +37,7 @@ export function timelineSeconds(frame: number, fps = FPS): string {
 export interface TimelineMark {
   placement: H3TimelinePlacement
   channel: "visual" | "audio" | "shot"
+  audioOrdinal?: number
   shotTag?: string
   label: string
   previewUrl?: string
@@ -57,6 +58,7 @@ export function timelineMarks(
 ): TimelineMark[] {
   const displayFps = safeFps(fps)
   const marks: TimelineMark[] = []
+  let audioOrdinal = 0
   for (const placement of h3Placements(state.h3Timeline)) {
     for (const channel of ["visual", "audio"] as const) {
       const id = channel === "visual" ? placement.visualId : placement.audioId
@@ -78,6 +80,7 @@ export function timelineMarks(
       marks.push({
         placement,
         channel,
+        ...(channel === "audio" ? { audioOrdinal: ++audioOrdinal } : {}),
         label: item?.sourceFilename || item?.source.path.split("/").pop() || "Media needed",
         previewUrl: channel === "visual" ? loaded?.previewUrl : undefined,
         frame: nativeToTimelineFrame(nativeFrame, displayFps),

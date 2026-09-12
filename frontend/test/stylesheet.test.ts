@@ -420,7 +420,25 @@ describe("Reference Loader stylesheet", () => {
 
     expect(mentionRule).toContain("vertical-align: middle;")
     expect(mentionRule).toContain("margin: 1px 2px;")
+    expect(mentionRule).toContain("--rl-prompt-icon-size: 25px;")
+    expect(mentionRule).toContain("height: var(--rl-prompt-icon-size);")
+    expect(css).toContain("width: var(--rl-prompt-icon-size);")
+    expect(css).not.toContain("var(--rl-prompt-icon-size, 25px)")
     expect(mentionRule).not.toMatch(/vertical-align:\s*-?\d/)
+  })
+
+  it("colors media prompt mentions by media kind", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/prompt-editor.css", import.meta.url),
+    ).text()
+
+    expect(css).toContain(".rl-prompt-lexical-reference.is-image")
+    expect(css).toContain("--rl-prompt-mention-color: #6fa9e6;")
+    expect(css).toContain(".rl-prompt-lexical-reference.is-video")
+    expect(css).toContain("--rl-prompt-mention-color: #b197e8;")
+    expect(css).toContain(".rl-prompt-lexical-reference.is-audio")
+    expect(css).toContain("--rl-prompt-mention-color: #48b9a5;")
+    expect(css).toContain("background: #16483f;")
   })
 
   it("lays autocomplete out inline at its active DOM anchor", async () => {
@@ -428,6 +446,7 @@ describe("Reference Loader stylesheet", () => {
       new URL("../src/reference-loader/styles/prompt-editor.css", import.meta.url),
     ).text()
     const pickerRule = css.match(/\.rl-prompt-picker\s*\{([^}]*)\}/)?.[1]
+    const pickerButtonRule = css.match(/\.rl-prompt-picker button\s*\{([^}]*)\}/)?.[1]
 
     expect(pickerRule).toContain("position: relative;")
     expect(pickerRule).toContain("width: 100%;")
@@ -435,6 +454,7 @@ describe("Reference Loader stylesheet", () => {
     expect(pickerRule).not.toContain("transform:")
     expect(pickerRule).toContain("overflow: auto;")
     expect(pickerRule).toContain("overscroll-behavior: contain;")
+    expect(pickerButtonRule).toContain("--rl-prompt-icon-size: 40px;")
   })
 
   it("renders prompt title sections as independent stacked cards", async () => {
@@ -459,13 +479,16 @@ describe("Reference Loader stylesheet", () => {
   })
 
   it("renders Subject and Shot cards with colored toolbars", async () => {
+    const controls = await Bun.file(
+      new URL("../src/reference-loader/styles/controls.css", import.meta.url),
+    ).text()
     const prompt = await Bun.file(
       new URL("../src/reference-loader/styles/prompt.css", import.meta.url),
     ).text()
     const promptEditor = await Bun.file(
       new URL("../src/reference-loader/styles/prompt-editor.css", import.meta.url),
     ).text()
-    const css = `${prompt}\n${promptEditor}`
+    const css = `${controls}\n${prompt}\n${promptEditor}`
     const definitionRule = css.match(/\.rl-prompt-definition\s*\{([^}]*)\}/)?.[1]
     const identityRule = css.match(/\.rl-prompt-definition__identity\s*\{([^}]*)\}/)?.[1]
     const tagRule = css.match(/\.rl-prompt-definition__tag\s*\{([^}]*)\}/)?.[1]
@@ -492,9 +515,10 @@ describe("Reference Loader stylesheet", () => {
     expect(tagRule).toContain("width: auto;")
     expect(tagRule).toContain("border-radius: 999px;")
     expect(tagRule).toContain("font-weight: 700;")
-    expect(frameRule).toContain("width: 58px;")
+    expect(frameRule).toContain("min-height: 0;")
     expect(frameRule).toContain("border-radius: 999px;")
-    expect(frameRule).toContain("background: color-mix(in srgb, #2f8f60 18%, var(--rl-bg));")
+    expect(frameRule).not.toContain("width: 58px;")
+    expect(css).toContain(".rl-button.rl-button--guide-edit")
     expect(actionsRule).toContain("margin-left: auto;")
     expect(bodyRule).toContain("padding: 7px 9px;")
     expect(bodyRule).toContain("white-space: pre-wrap;")
@@ -552,6 +576,21 @@ describe("Reference Loader stylesheet", () => {
 
     expect(shotRule).toContain("border-color: #2f8f60;")
     expect(shotRule).toContain("color: #b9f3d1;")
+  })
+
+  it("places Audio and Shot mention badges in Timeline previews", async () => {
+    const css = await Bun.file(
+      new URL("../src/reference-loader/styles/h3-timeline.css", import.meta.url),
+    ).text()
+
+    expect(css).toContain(".rl-h3-timeline__mark > .rl-prompt-reference-icon")
+    expect(css).toContain(".rl-h3-timeline__mark > .rl-prompt-subject-icon")
+    expect(css).toContain("--rl-prompt-icon-size: 24px;")
+    expect(css).toContain("grid-template-columns: 28px minmax(0, 1fr);")
+    expect(css).toContain("margin-inline-end: 4px;")
+    expect(css).toContain("border-radius: 4px;")
+    expect(css).toContain("grid-column: 1;")
+    expect(css).toContain("grid-row: 1 / 3;")
   })
 
   it("separates the Output end label from the Timeline ticks", async () => {

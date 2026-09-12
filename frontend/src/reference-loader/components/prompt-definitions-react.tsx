@@ -30,11 +30,13 @@ export interface PromptDefinitionsReactActions extends PromptEditorActions {
   endDefinitionDrag(): void
   removeDefinition(kind: PromptDefinitionKind, identity: string): void
   setShotFrame(identity: string, frameIndex: number): void
+  editShotGuides(tag: string): void
 }
 
 export interface PromptDefinitionsReactOptions {
   container: HTMLElement
   controller: ReferencePromptController
+  onEditShotGuides?: (tag: string) => void
 }
 
 export interface PromptDefinitionsReactMount {
@@ -51,16 +53,9 @@ function PromptDefinitionCard({
   actions: PromptDefinitionsReactActions
 }): ReactNode {
   const [tagValue, setTagValue] = useState(`#${definition.tag}`)
-  const [frameValue, setFrameValue] = useState(String(definition.frameIndex ?? 0))
   const tagInput = useRef<HTMLInputElement>(null)
-  const frameInput = useRef<HTMLInputElement>(null)
   const commitTag = (value = tagValue): void => {
     actions.renameDefinition(definition.kind, definition.identity, value)
-  }
-  const commitFrame = (value = frameValue): void => {
-    const frame = Number(value)
-    if (Number.isSafeInteger(frame) && frame >= 0) actions.setShotFrame(definition.identity, frame)
-    else setFrameValue(String(definition.frameIndex ?? 0))
   }
   const updateTagValue = (input: HTMLInputElement): void => {
     setTagValue(normalizeDefinitionTagInput(input))
@@ -75,9 +70,7 @@ function PromptDefinitionCard({
 
   useLayoutEffect(() => {
     if (document.activeElement !== tagInput.current) setTagValue(`#${definition.tag}`)
-    if (document.activeElement !== frameInput.current)
-      setFrameValue(String(definition.frameIndex ?? 0))
-  }, [definition.tag, definition.frameIndex])
+  }, [definition.tag])
 
   return (
     <article
@@ -140,29 +133,27 @@ function PromptDefinitionCard({
           />
           {definition.kind === "shot" ? (
             <>
-              <input
-                ref={frameInput}
-                type="number"
-                className="rl-prompt-definition__frame"
-                min="0"
-                step="1"
-                value={frameValue}
+              <Button
+                type="button"
+                className="rl-prompt-definition__frame rl-button--guide-edit rl-edit-button rl-edit-button--guide"
+                data-prompt-action="edit-shot-guides"
+                data-prompt-definition-kind="shot"
+                data-prompt-definition-identity={definition.identity}
+                data-prompt-definition-tag={definition.tag}
+                aria-label={`Edit Guides at Shot #${definition.tag}`}
+                title={`Edit Guides at Shot #${definition.tag} · ${definition.frameIndex}f`}
                 disabled={draft}
-                data-prompt-shot-frame=""
-                aria-label="Shot frame"
-                onInput={(event) => setFrameValue(event.currentTarget.value)}
-                onChange={(event) => {
-                  setFrameValue(event.currentTarget.value)
-                  if (event.nativeEvent.type === "change") commitFrame(event.currentTarget.value)
+                onClick={(event) => {
+                  event.stopPropagation()
+                  actions.editShotGuides(definition.tag)
                 }}
-                onBlur={() => commitFrame()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault()
-                    event.currentTarget.blur()
-                  }
-                }}
-              />
+              >
+                <span aria-hidden="true">G</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M4 20h4L19 9l-4-4L4 16v4Z" />
+                  <path d="m13.5 6.5 4 4" />
+                </svg>
+              </Button>
               <small data-prompt-shot-seconds="">
                 {definition.frameIndex}f · {((definition.frameIndex ?? 0) / 24).toFixed(3)}s
               </small>
@@ -326,6 +317,7 @@ export function createPromptDefinitionsReact(
     endDefinitionDrag: () => controller.endDefinitionDrag(),
     removeDefinition: (kind, identity) => controller.removeDefinition(kind, identity),
     setShotFrame: (identity, frameIndex) => controller.setShotFrameByIdentity(identity, frameIndex),
+    editShotGuides: (tag) => options.onEditShotGuides?.(tag),
     handleReactEditorInput: (target, editor, input) =>
       controller.handleReactEditorInput(target, editor, input),
     handleReactEditorKeydown: (event) => controller.handleReactEditorKeydown(event),

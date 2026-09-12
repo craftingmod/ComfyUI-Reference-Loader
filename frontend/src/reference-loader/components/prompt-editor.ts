@@ -376,6 +376,7 @@ export class ReferencePromptController {
       return reference
         ? {
             previewUrl: reference.previewUrl,
+            ordinal: reference.ordinal,
           }
         : undefined
     }

@@ -237,13 +237,10 @@
 }
 
 .rl-prompt-definition__frame {
-  width: 58px;
+  min-height: 0;
   box-sizing: border-box;
   padding: 3px 7px;
-  border: 1px solid color-mix(in srgb, #2f8f60 72%, var(--rl-border));
   border-radius: 999px;
-  color: color-mix(in srgb, #2f8f60 72%, #fff);
-  background: color-mix(in srgb, #2f8f60 18%, var(--rl-bg));
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   font-weight: 700;

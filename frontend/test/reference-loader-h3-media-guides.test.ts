@@ -212,6 +212,63 @@ describe("Reference Loader Media Timeline integration", () => {
     root.remove()
   })
 
+  test("opens the Guide editor from a Shot at the matching frame", () => {
+    let state = stateWithImage()
+    state = loaderReducer(state, {
+      type: "set-h3-timeline",
+      timeline: {
+        ...state.h3Timeline,
+        guides: [{ id: "shot-guide", frameIndex: 48, visualId: "scene", audioId: null }],
+      },
+    })
+    const root = document.createElement("div")
+    document.body.append(root)
+    const controller = mountController(root, serializeLoaderState(state))
+    controller.setPromptShots([{ tag: "opening", frameIndex: 48 }])
+
+    controller.editH3GuidesForShot("opening")
+
+    expect(
+      root.querySelector<HTMLElement>("[data-h3-workspace]")?.classList.contains("is-collapsed"),
+    ).toBe(false)
+    expect(
+      root.querySelector('[data-h3-inspector][aria-label="Image Guide Inspector"]'),
+    ).not.toBeNull()
+    expect(
+      root.querySelector<HTMLInputElement>('[data-h3-inspector] [data-h3-draft-field="frame"]')
+        ?.value,
+    ).toBe("48")
+    expect(
+      root
+        .querySelector<HTMLButtonElement>('[data-timeline-guide="shot-guide"]')
+        ?.classList.contains("is-selected"),
+    ).toBe(true)
+
+    controller.destroy()
+    root.remove()
+  })
+
+  test("opens Timeline Guides and selects the Shot when no Guide exists at its frame", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const controller = mountController(root, serializeLoaderState(stateWithImage()))
+    controller.setPromptShots([{ tag: "opening", frameIndex: 48 }])
+
+    controller.editH3GuidesForShot("opening")
+
+    expect(
+      root.querySelector<HTMLElement>("[data-h3-workspace]")?.classList.contains("is-collapsed"),
+    ).toBe(false)
+    expect(
+      root.querySelector<HTMLButtonElement>('[data-timeline-shot="opening"]')?.getAttribute(
+        "aria-pressed",
+      ),
+    ).toBe("true")
+
+    controller.destroy()
+    root.remove()
+  })
+
   test("renders every Guide role and frame badge", () => {
     let state = stateWithImage()
     state = loaderReducer(state, { type: "toggle-h3-timeline", enabled: true })

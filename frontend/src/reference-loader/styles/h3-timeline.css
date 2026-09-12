@@ -120,8 +120,10 @@
 }
 
 .rl-h3-timeline__mark {
+  --rl-prompt-icon-size: 24px;
+
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-columns: 28px minmax(0, 1fr);
   grid-template-rows: 1fr 1fr;
   align-items: center;
   width: 96px;
@@ -144,8 +146,18 @@
   grid-row: 1 / 3;
   width: 22px;
   height: 26px;
+  margin-inline-end: 4px;
+  border-radius: 4px;
   object-fit: contain;
   pointer-events: none;
+}
+
+.rl-h3-timeline__mark > .rl-prompt-reference-icon,
+.rl-h3-timeline__mark > .rl-prompt-subject-icon {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  margin-inline-end: 4px;
+  border-radius: 4px;
 }
 
 .rl-h3-timeline__mark > span,

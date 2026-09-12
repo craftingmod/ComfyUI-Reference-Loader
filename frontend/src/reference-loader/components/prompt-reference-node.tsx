@@ -89,7 +89,13 @@ function PromptReferenceChip({
           className={`rl-prompt-reference-icon is-${referenceAvailable ? part.mediaKind : "missing"}`}
           aria-hidden="true"
         >
-          {part.mediaKind === "image" ? "I" : part.mediaKind === "video" ? "V" : "A"}
+          {part.mediaKind === "image"
+            ? "I"
+            : part.mediaKind === "video"
+              ? "V"
+              : referenceAvailable
+                ? `A${visual?.ordinal ?? "?"}`
+                : "A"}
         </span>
       )}
       <span className="rl-prompt-mention__label">{text}</span>

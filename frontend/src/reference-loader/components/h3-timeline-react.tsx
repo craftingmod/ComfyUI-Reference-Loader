@@ -23,6 +23,7 @@ import {
   timelineToNativeFrame,
   type TimelineMark,
 } from "./h3-timeline.ts"
+import { SHOT_COLOR } from "./prompt-dom.ts"
 
 export const H3_TIMELINE_FPS = H3_TIMELINE_NATIVE_FPS
 
@@ -319,9 +320,7 @@ function EndTimelineMark({
     >
       <Button
         type="button"
-        className={`rl-h3-timeline__end-mark${
-          selected ? " is-selected" : ""
-        }`}
+        className={`rl-h3-timeline__end-mark${selected ? " is-selected" : ""}`}
         aria-label={`End image: ${sourceLabel(state, id, "visual")}`}
         title={`End image: ${sourceLabel(state, id, "visual")}`}
         aria-pressed={selected}
@@ -573,6 +572,9 @@ export function H3TimelineReact({
     const outOfRange = Number.isSafeInteger(frame) && frame >= frameCount
     const title = markerTitle(mark, frame, fps, frameCount)
     const key = `${mark.placement.guideId ?? mark.placement.kind}:${mark.channel}:${mark.shotTag ?? mark.label}`
+    const shotOrdinal = mark.shotTag
+      ? h3.shots.findIndex((shot) => shot.tag === mark.shotTag) + 1
+      : undefined
     return (
       <Button
         key={key}
@@ -621,7 +623,21 @@ export function H3TimelineReact({
             actions.movePlacement(mark.placement.guideId, nativeFrame)
         }}
       >
-        {mark.previewUrl ? <img src={mark.previewUrl} alt="" draggable={false} /> : null}
+        {mark.channel === "audio" ? (
+          <span className="rl-prompt-reference-icon is-audio" aria-hidden="true">
+            {`A${mark.audioOrdinal ?? "?"}`}
+          </span>
+        ) : mark.channel === "shot" ? (
+          <span
+            className="rl-prompt-subject-icon is-shot"
+            style={{ background: SHOT_COLOR }}
+            aria-hidden="true"
+          >
+            {`SH${shotOrdinal && shotOrdinal > 0 ? shotOrdinal : "?"}`}
+          </span>
+        ) : mark.previewUrl ? (
+          <img src={mark.previewUrl} alt="" draggable={false} />
+        ) : null}
         <span>
           {mark.placement.kind === "start" ? "Start · " : ""}
           {mark.label}
@@ -691,7 +707,7 @@ export function H3TimelineReact({
                   (Number.isFinite(leftFrame) ? leftFrame : Number.POSITIVE_INFINITY) -
                   (Number.isFinite(rightFrame) ? rightFrame : Number.POSITIVE_INFINITY)
                 )
-            })
+              })
             const occupied: number[] = []
             const minMarkerFrames = Math.max(1, (extent * 100) / layoutWidth)
             const hasEndMarker = channel === "visual" && Boolean(h3.timeline.endImageId)

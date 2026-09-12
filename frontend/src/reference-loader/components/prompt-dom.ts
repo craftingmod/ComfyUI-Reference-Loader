@@ -7,7 +7,7 @@ const SECTION_COLOR_PALETTE = [
   "#c787d5",
   "#d482b2",
   "#dc927d",
-  "#d8aa66",
+  "#6fa9e6",
   "#c5b96b",
   "#6ebfd3",
   "#64b4bc",

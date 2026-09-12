@@ -251,7 +251,11 @@ export function registerReferenceLoader(
           const controller = promptControllers.get(node)
           controller?.mountDefinitions(root)
           const reactMount = controller
-            ? createPromptDefinitionsReact({ container: root, controller })
+            ? createPromptDefinitionsReact({
+                container: root,
+                controller,
+                onEditShotGuides: (tag) => controllers.get(node)?.editH3GuidesForShot(tag),
+              })
             : undefined
           if (reactMount) promptDefinitionsReactMounts.set(node, reactMount)
           let removed = false
@@ -300,6 +304,7 @@ export function registerReferenceLoader(
             const definitionsReactMount = createPromptDefinitionsReact({
               container: definitionsRoot,
               controller,
+              onEditShotGuides: (tag) => controllers.get(node)?.editH3GuidesForShot(tag),
             })
             promptDefinitionsReactMounts.set(node, definitionsReactMount)
           }

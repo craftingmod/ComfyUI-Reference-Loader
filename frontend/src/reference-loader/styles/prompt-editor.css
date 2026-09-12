@@ -69,19 +69,34 @@
 }
 
 .rl-prompt-mention {
+  --rl-prompt-icon-size: 25px;
+  --rl-prompt-mention-color: var(--rl-accent);
+
   display: inline-flex;
   max-width: min(240px, 75%);
-  height: 25px;
+  height: var(--rl-prompt-icon-size);
   margin: 1px 2px;
   vertical-align: middle;
   align-items: center;
   gap: 5px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--rl-accent) 72%, var(--rl-border));
+  border: 1px solid color-mix(in srgb, var(--rl-prompt-mention-color) 72%, var(--rl-border));
   border-radius: 5px;
-  color: color-mix(in srgb, var(--rl-accent) 65%, #fff);
-  background: color-mix(in srgb, var(--rl-accent) 18%, var(--rl-bg));
+  color: color-mix(in srgb, var(--rl-prompt-mention-color) 65%, #fff);
+  background: color-mix(in srgb, var(--rl-prompt-mention-color) 18%, var(--rl-bg));
   cursor: default;
+}
+
+.rl-prompt-lexical-reference.is-image {
+  --rl-prompt-mention-color: #6fa9e6;
+}
+
+.rl-prompt-lexical-reference.is-video {
+  --rl-prompt-mention-color: #b197e8;
+}
+
+.rl-prompt-lexical-reference.is-audio {
+  --rl-prompt-mention-color: #48b9a5;
 }
 
 .rl-prompt-mention.is-stale {
@@ -101,8 +116,8 @@
 
 .rl-prompt-mention > img,
 .rl-prompt-reference-icon {
-  width: 23px;
-  height: 23px;
+  width: var(--rl-prompt-icon-size);
+  height: var(--rl-prompt-icon-size);
   flex: none;
   object-fit: cover;
   background: #101217;
@@ -110,8 +125,8 @@
 
 .rl-prompt-subject-icon {
   display: inline-grid;
-  width: 23px;
-  height: 23px;
+  width: var(--rl-prompt-icon-size);
+  height: var(--rl-prompt-icon-size);
   flex: none;
   place-items: center;
   color: #fff;
@@ -137,7 +152,7 @@
 }
 
 .rl-prompt-reference-icon.is-audio {
-  background: #1e4130;
+  background: #16483f;
 }
 
 .rl-prompt-reference-icon.is-missing {
@@ -179,6 +194,8 @@
 }
 
 .rl-prompt-picker button {
+  --rl-prompt-icon-size: 40px;
+
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
   min-height: 44px;
@@ -197,8 +214,8 @@
 .rl-prompt-picker button > .rl-prompt-reference-icon,
 .rl-prompt-picker button > .rl-prompt-directive-icon,
 .rl-prompt-picker button > .rl-prompt-subject-icon {
-  width: 40px;
-  height: 40px;
+  width: var(--rl-prompt-icon-size);
+  height: var(--rl-prompt-icon-size);
   border-radius: 4px;
 }
 

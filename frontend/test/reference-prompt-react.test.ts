@@ -630,6 +630,78 @@ describe("Reference Prompt React shell", () => {
     controller.destroy()
   })
 
+  test("renders numbered Audio mentions in Subjects and Shots", () => {
+    const root = document.createElement("div")
+    const definitions = document.createElement("div")
+    document.body.append(root, definitions)
+    const references: PromptReference[] = [
+      {
+        referenceId: "audio-a",
+        itemId: "audio-a",
+        mediaKind: "audio",
+        ordinal: 1,
+        tag: "<Audio 1>",
+        label: "audio1",
+        filename: "voice.wav",
+      },
+      {
+        referenceId: "audio-b",
+        itemId: "audio-b",
+        mediaKind: "audio",
+        ordinal: 2,
+        tag: "<Audio 2>",
+        label: "audio2",
+        filename: "music.wav",
+      },
+    ]
+    const parts = [
+      {
+        type: "mention" as const,
+        referenceId: "audio-a",
+        mediaKind: "audio" as const,
+        label: "audio1",
+      },
+      { type: "text" as const, text: " " },
+      {
+        type: "mention" as const,
+        referenceId: "audio-b",
+        mediaKind: "audio" as const,
+        label: "audio2",
+      },
+    ]
+    const controller = new ReferencePromptController(
+      node,
+      () => references,
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        subjects: [{ tag: "hero", parts }],
+        shots: [{ tag: "opening", frameIndex: 24, parts }],
+      }),
+      { locale: "en" },
+    )
+    const promptMount = createPromptReact({ container: root, controller })
+    flushSync(() => controller.mountDefinitions(definitions))
+    const definitionsMount = createPromptDefinitionsReact({
+      container: definitions,
+      controller,
+    })
+
+    const badgeTexts = (selector: string): string[] =>
+      [...definitions.querySelectorAll<HTMLElement>(selector)].map(
+        (badge) => badge.textContent ?? "",
+      )
+    expect(
+      badgeTexts('[data-prompt-definition="subject"] .rl-prompt-reference-icon.is-audio'),
+    ).toEqual(["A1", "A2"])
+    expect(
+      badgeTexts('[data-prompt-definition="shot"] .rl-prompt-reference-icon.is-audio'),
+    ).toEqual(["A1", "A2"])
+
+    definitionsMount.destroy()
+    promptMount.destroy()
+    controller.destroy()
+  })
+
   test("refreshes a restored mention chip when its runtime preview becomes available", () => {
     const root = document.createElement("div")
     document.body.append(root)
@@ -1031,7 +1103,8 @@ describe("Reference Prompt React shell", () => {
     flushSync(() => controller.setShotFrameDraft("opening", 72))
     expect(definitionsRoot.querySelector(".rl-prompt-definitions__draft")).toBeNull()
     expect(
-      definitionsRoot.querySelector<HTMLInputElement>("[data-prompt-shot-frame]")?.disabled,
+      definitionsRoot.querySelector<HTMLButtonElement>('[data-prompt-action="edit-shot-guides"]')
+        ?.disabled,
     ).toBe(true)
     flushSync(() => controller.cancelShotDraft())
     expect(JSON.parse(controller.serialize()).shots[0].frameIndex).toBe(49)

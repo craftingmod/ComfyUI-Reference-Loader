@@ -580,6 +580,32 @@ export class ReferenceLoaderController {
     this.#selectItem(id)
   }
 
+  editH3GuidesForShot(tag: string): void {
+    if (this.#destroyed) return
+    if (this.#promptShotDirty) {
+      this.#status = "Apply or cancel Shot changes before editing a Guide."
+      this.render(true)
+      return
+    }
+    const shot = this.#promptShots.find((candidate) => candidate.tag === tag)
+    if (!shot) return
+    const guide = this.state.h3Timeline.guides.find(
+      (candidate) => candidate.frameIndex === shot.frameIndex,
+    )
+    if (guide) {
+      const channel: H3GuideChannel = guide.visualId !== null ? "visual" : "audio"
+      const mediaId = channel === "visual" ? guide.visualId : guide.audioId
+      if (mediaId) {
+        this.#openH3EditorForMedia(mediaId, channel, guide.id)
+      } else {
+        this.#openH3EditorForGuide(guide.id)
+      }
+      return
+    }
+    this.#h3Collapsed = false
+    this.#selectH3Shot(tag, true)
+  }
+
   removeItem(id: string): void {
     if (this.#destroyed || !this.state.items[id]) return
     if (this.#audioPreview.snapshot.owner === `grid:${id}`) this.#audioPreview.stop()
@@ -1463,7 +1489,7 @@ export class ReferenceLoaderController {
     if (this.#promptShotDirty) this.#promptShotCancel?.()
   }
 
-  #selectH3Shot(tag: string): boolean {
+  #selectH3Shot(tag: string, scroll = false): boolean {
     const sessionBefore = this.#h3Session
     const editor = this.#h3Editor
     if (editor && this.#h3EditorDirty()) {
@@ -1486,6 +1512,7 @@ export class ReferenceLoaderController {
         "[data-timeline-shot]",
       ),
     ].find((button) => button.dataset.timelineShot === tag)
+    if (scroll) mark?.scrollIntoView?.({ block: "nearest", inline: "center" })
     mark?.focus({ preventScroll: true })
     return this.#h3Session !== sessionBefore
   }

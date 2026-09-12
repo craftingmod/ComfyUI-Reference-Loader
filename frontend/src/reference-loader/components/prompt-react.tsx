@@ -443,7 +443,11 @@ function PromptPickerOptionView({
           <img src={reference.previewUrl} alt="" draggable={false} />
         ) : (
           <span className={`rl-prompt-reference-icon is-${reference.mediaKind}`} aria-hidden="true">
-            {reference.mediaKind === "image" ? "I" : reference.mediaKind === "video" ? "V" : "A"}
+            {reference.mediaKind === "image"
+              ? "I"
+              : reference.mediaKind === "video"
+                ? "V"
+                : `A${reference.ordinal}`}
           </span>
         )}
         <span>

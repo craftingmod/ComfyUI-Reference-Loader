@@ -408,7 +408,7 @@
   justify-self: start;
 }
 
-@container (max-width: 320px) {
+@container (max-width: 420px) {
   .rl-h3-workspace .rl-h3-editor--inspector .rl-h3-editor__add-form {
     grid-template-columns: max-content auto;
   }
@@ -418,6 +418,14 @@
     width: 100%;
     padding-right: 0;
     border-right: 0;
+  }
+
+  .rl-h3-workspace .rl-h3-editor--inspector .rl-h3-editor__frame-label {
+    grid-column: 1;
+  }
+
+  .rl-h3-workspace .rl-h3-editor--inspector .rl-h3-editor__add {
+    grid-column: 2;
   }
 }
 

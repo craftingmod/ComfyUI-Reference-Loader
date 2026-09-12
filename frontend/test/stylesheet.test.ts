@@ -50,6 +50,9 @@ describe("Reference Loader stylesheet", () => {
     expect(css).toContain(".rl-media-header > div")
     expect(css).toContain(".rl-media-header small")
     expect(css).toContain("margin-left: auto")
+    const toolbarRule = css.match(/\.rl-toolbar\s*\{([^}]*)\}/)?.[1]
+    expect(toolbarRule).toContain("flex-wrap: wrap;")
+    expect(toolbarRule).toContain("max-width: 100%;")
     expect(css).toContain(".rl-snapshot")
     expect(css).toContain(".rl-snapshot__menu[hidden]")
   })
@@ -233,6 +236,8 @@ describe("Reference Loader stylesheet", () => {
     expect(workspace).toContain("grid-template-columns: max-content max-content auto;")
     expect(workspace).toContain(".rl-h3-editor__add-form > .rl-h3-editor__add")
     expect(workspace).toContain("justify-self: start;")
+    expect(workspace).toContain("@container (max-width: 420px)")
+    expect(workspace).toContain(".rl-h3-editor__frame-label")
   })
 
   it("keeps H3 surface ownership explicit", async () => {
@@ -568,6 +573,10 @@ describe("Reference Loader stylesheet", () => {
     ).text()
 
     expect(css).toContain(".rl-prompt-toolbar__actions")
+    const toolbarRule = css.match(/\.rl-prompt-toolbar\s*\{([^}]*)\}/)?.[1]
+    expect(toolbarRule).toContain("flex-wrap: wrap;")
+    const toolbarHintRule = css.match(/\.rl-prompt-toolbar__copy > small\s*\{([^}]*)\}/)?.[1]
+    expect(toolbarHintRule).toContain("min-width: 0;")
     expect(loader).toContain(".reference-prompt button.rl-clear")
   })
 

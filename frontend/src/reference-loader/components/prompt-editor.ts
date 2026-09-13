@@ -5,10 +5,10 @@ import {
   PromptMutationCoordinator,
   type PromptMutationOutcome,
 } from "../prompt-mutation-coordinator.ts"
+import { PromptPickerController, type PromptPickerSnapshot } from "../prompt-picker-controller.ts"
 import {
   normalizePromptPresetCatalog,
   resolvePromptPreset,
-  type PromptAlias,
   type PromptLocale,
   type PromptPreset,
   type PromptPresetCatalog,
@@ -20,16 +20,16 @@ import {
   type PromptDocumentV6,
   type PromptPartV6,
   type PromptReference,
-  type PromptSubjectV6,
 } from "../prompt-v6.ts"
 import {
-  closestPromptBody,
   normalizeDefinitionTagValue,
   placeCaretAtEnd,
   SHOT_COLOR,
   sectionColor,
   subjectColor,
 } from "./prompt-dom.ts"
+
+export type { PromptPickerOption, PromptPickerSnapshot } from "../prompt-picker-controller.ts"
 import type {
   PromptBodyEdit,
   PromptBodyEditResult,
@@ -145,49 +145,8 @@ export type PromptEditorTarget =
       readonly identity: string
     }
 
-type PromptPickerShot = PromptDocumentV6["shots"][number]
-
-export type PromptPickerOption =
-  | { readonly kind: "reference"; readonly reference: PromptReference }
-  | { readonly kind: "subject"; readonly subject: PromptSubjectV6; readonly ordinal: number }
-  | {
-      readonly kind: "shot"
-      readonly shot: PromptPickerShot
-      readonly ordinal: number
-    }
-  | {
-      readonly kind: "create-subject"
-      readonly label: string
-      readonly createLabel: string
-      readonly createDetail: string
-    }
-  | {
-      readonly kind: "alias"
-      readonly alias: PromptAlias
-      readonly label: string
-      readonly description: string
-    }
-
-export interface PromptPickerSnapshot {
-  readonly visible: boolean
-  readonly mode: "reference" | "subject" | "alias" | undefined
-  readonly activeIndex: number
-  readonly options: readonly PromptPickerOption[]
-  readonly emptyMessage: string
-  readonly createSubjectLabel: string
-  readonly createSubjectDetail: string
-  readonly target: HTMLElement | undefined
-}
-
 const PROMPT_SECTION_DRAG_MIME = "application/x-reference-loader-prompt-section"
 const PROMPT_DEFINITION_DRAG_MIME = "application/x-reference-loader-prompt-definition"
-
-function normalizeSubjectLabel(value: string): string | undefined {
-  const label = value.trim()
-  return label.length > 0 && label.length <= 64 && /^[\p{L}\p{N}][\p{L}\p{N}_-]*$/u.test(label)
-    ? label
-    : undefined
-}
 
 export class ReferencePromptController {
   #workspaceRoot: HTMLElement | undefined
@@ -198,18 +157,7 @@ export class ReferencePromptController {
   #store: PromptStore
   #editorEngine = new PromptEditorEngine()
   #mutations: PromptMutationCoordinator
-  #v6PickerTarget: PromptEditorTargetV6 | undefined
-  #v6PickerReplaceLength = 0
-  #pickerMode: "reference" | "subject" | "alias" | undefined
-  #pickerReferences: PromptReference[] = []
-  #pickerSubjects: PromptSubjectV6[] = []
-  #pickerShots: PromptPickerShot[] = []
-  #pickerCreateSubject: string | undefined
-  #pickerAliases: PromptAlias[] = []
-  #pickerIndex = 0
-  #pickerAnchor: HTMLElement | undefined
-  #pickerTarget: HTMLElement | undefined
-  #pickerElement: HTMLElement | undefined
+  #picker: PromptPickerController
   #draggedSectionTitle: string | undefined
   #sectionDropTarget: HTMLElement | undefined
   #dropAfter = false
@@ -226,11 +174,9 @@ export class ReferencePromptController {
   #viewListeners = new Set<() => void>()
   #definitionsListeners = new Set<() => void>()
   #sectionsListeners = new Set<() => void>()
-  #pickerListeners = new Set<() => void>()
   #viewSnapshot: PromptViewSnapshot | undefined
   #definitionsSnapshot: PromptDefinitionsSnapshot | undefined
   #sectionsSnapshot: PromptSectionsSnapshot | undefined
-  #pickerSnapshot: PromptPickerSnapshot | undefined
 
   constructor(
     node: ComfyNode,
@@ -256,6 +202,17 @@ export class ReferencePromptController {
       },
       markDirty: () => node.setDirtyCanvas(true, true),
       referenceFingerprint: () => this.#v6ReferenceFingerprint(),
+    })
+    this.#picker = new PromptPickerController({
+      references,
+      document: () => this.#documentV6,
+      preset: () => this.#preset,
+      locale: () => this.#locale,
+      resolveEditorElement: (target) => this.#v6EditorElement(target),
+      insertPart: (target, part, replaceTextLength) =>
+        this.#insertPromptPart(target, part, replaceTextLength),
+      createSubject: (label) => this.#createPickerSubject(label),
+      activateAlias: (alias) => this.#addOrFocusSection(alias.title),
     })
     const issues = this.#store.initialIssues
     this.#mutations.rawDraftText
@@ -297,15 +254,7 @@ export class ReferencePromptController {
     target: PromptEditorTargetV6,
     trigger: PromptBodyTrigger | undefined,
   ): void {
-    if (!trigger) {
-      if (this.#v6PickerTarget?.id === target.id) this.#closePicker()
-      return
-    }
-    this.#v6PickerTarget = target
-    this.#v6PickerReplaceLength = trigger.replaceTextLength
-    this.#pickerAnchor = this.#v6EditorElement(target)
-    if (trigger.trigger === "@") this.#updateReferencePicker(trigger.query)
-    else this.#updateV6SubjectPicker(trigger.query, target)
+    this.#picker.handleBodyTrigger(target, trigger)
   }
 
   resolvePromptPartLabel(part: PromptPartV6): string | undefined {
@@ -401,7 +350,6 @@ export class ReferencePromptController {
   unmountPromptWorkspace(): void {
     this.#closePicker()
     this.#workspaceRoot = undefined
-    this.#pickerElement = undefined
     this.#publishView()
   }
 
@@ -430,44 +378,35 @@ export class ReferencePromptController {
   }
 
   mountPickerElement(element: HTMLElement | undefined): void {
-    if (this.#destroyed || this.#pickerElement === element) return
-    this.#pickerElement = element
+    if (this.#destroyed) return
+    this.#picker.mountElement(element)
     this.#publishView()
   }
 
   unmountPickerElement(element?: HTMLElement): void {
-    if (element && this.#pickerElement !== element) return
-    if (!this.#pickerElement) return
-    this.#pickerElement = undefined
+    if (this.#destroyed) return
+    this.#picker.unmountElement(element)
     this.#publishView()
   }
 
   getPickerSnapshot(): PromptPickerSnapshot {
-    if (!this.#pickerSnapshot) this.#pickerSnapshot = this.#buildPickerSnapshot()
-    return this.#pickerSnapshot
+    return this.#picker.snapshot
   }
 
   subscribePicker(listener: () => void): () => void {
-    if (this.#destroyed) return () => undefined
-    this.#pickerListeners.add(listener)
-    listener()
-    return () => this.#pickerListeners.delete(listener)
+    return this.#picker.subscribe(listener)
   }
 
   movePicker(delta: -1 | 1): void {
-    const count = this.#pickerOptionCount()
-    if (count === 0) return
-    this.#pickerIndex = (this.#pickerIndex + delta + count) % count
-    this.#publishPicker()
+    this.#picker.move(delta)
   }
 
   activatePickerOption(index?: number): void {
-    if (index !== undefined) this.#pickerIndex = Math.max(0, index)
-    this.#activatePickerOption()
+    this.#picker.activate(index)
   }
 
   closePicker(): void {
-    this.#closePicker()
+    this.#picker.close()
   }
 
   handleReactSectionEntryInput(
@@ -477,8 +416,8 @@ export class ReferencePromptController {
   ): void {
     if (this.#destroyed || !entry.matches("[data-prompt-section-entry]")) return
     const isDeletion = input?.inputType?.startsWith("delete") ?? false
-    if (isDeletion && this.#pickerMode === "alias") this.#closePicker()
-    else this.#updateSectionEntryPickerQuery(value, entry)
+    if (isDeletion && this.#picker.mode === "alias") this.#picker.close()
+    else this.#picker.updateSectionEntryQuery(value, entry)
   }
 
   handleReactSectionEntryKeydown(
@@ -487,8 +426,8 @@ export class ReferencePromptController {
     event: KeyboardEvent,
   ): boolean {
     if (this.#destroyed || !entry.matches("[data-prompt-section-entry]")) return false
-    const pickerWasOpen = this.#pickerMode === "alias"
-    if (this.#handlePickerKeydown(event)) return event.key === "Enter" && pickerWasOpen
+    const pickerWasOpen = this.#picker.mode === "alias"
+    if (this.#picker.handleKeydown(event)) return event.key === "Enter" && pickerWasOpen
     if (event.key === "Enter") {
       event.preventDefault()
       return this.#createSectionFromEntry(value)
@@ -554,11 +493,14 @@ export class ReferencePromptController {
     input?: PromptEditorInput,
   ): void {
     if (this.#destroyed || !this.#editorEngine.isReactTextEditor(editor)) return
-    const subjectPickerWasOpen = this.#pickerMode === "subject"
+    const subjectPickerWasOpen = this.#picker.mode === "subject"
     if (input?.inputType?.startsWith("delete") && subjectPickerWasOpen) {
-      this.#closePicker()
+      this.#picker.close()
     } else {
-      this.#updatePickerQuery(!input || input.data === "#" || subjectPickerWasOpen)
+      this.#picker.updateFromSelection(
+        this.#editorRoots,
+        !input || input.data === "#" || subjectPickerWasOpen,
+      )
     }
     this.#notifyShots()
     this.#publishView()
@@ -566,7 +508,7 @@ export class ReferencePromptController {
   }
 
   handleReactEditorKeydown(event: KeyboardEvent): void {
-    this.#editorEngine.handleKeydown(event, (next) => this.#handlePickerKeydown(next))
+    this.#editorEngine.handleKeydown(event, (next) => this.#picker.handleKeydown(next))
   }
 
   moveSection(title: string, delta: -1 | 1): void {
@@ -753,7 +695,7 @@ export class ReferencePromptController {
     this.#store.refresh()
     this.#invalidateV6Snapshots()
     this.#mutations.refreshRawReferenceSession(this.#v6ReferenceFingerprint())
-    if (this.#pickerMode === "reference") this.#updateReferencePicker()
+    this.#picker.refreshReferences()
     this.#publishDefinitions()
     this.#setHint()
   }
@@ -765,13 +707,12 @@ export class ReferencePromptController {
     this.#viewListeners.clear()
     this.#definitionsListeners.clear()
     this.#sectionsListeners.clear()
-    this.#pickerListeners.clear()
     this.#editorEngine.destroy()
+    this.#picker.destroy()
     this.#closePicker()
     this.#clearDefinitionDrag()
     this.#workspaceRoot = undefined
     this.#definitionsRoot = undefined
-    this.#pickerElement = undefined
     this.#store.destroy()
   }
 
@@ -795,7 +736,6 @@ export class ReferencePromptController {
     this.#viewSnapshot = undefined
     this.#sectionsSnapshot = undefined
     this.#definitionsSnapshot = undefined
-    this.#pickerSnapshot = undefined
   }
 
   #v6EditorElement(target: PromptEditorTargetV6): HTMLElement | undefined {
@@ -813,42 +753,6 @@ export class ReferencePromptController {
         `[data-prompt-definition-identity="${CSS.escape(target.id)}"] [data-prompt-react-editor]`,
       ) ?? undefined
     )
-  }
-
-  #updateV6SubjectPicker(query: string, target: PromptEditorTargetV6): void {
-    this.#pickerMode = "subject"
-    this.#pickerReferences = []
-    this.#pickerAliases = []
-    const normalized = query.trim().toLocaleLowerCase()
-    this.#pickerSubjects = this.#documentV6.subjects
-      .filter((subject, index) =>
-        [subject.tag, `subject${index + 1}`, `<Subject ${index + 1}>`].some((value) =>
-          value.toLocaleLowerCase().includes(normalized),
-        ),
-      )
-      .map((subject) => subject)
-    this.#pickerShots = this.#documentV6.shots
-      .filter((shot) => shot.tag.toLocaleLowerCase().includes(normalized))
-      .map((shot) => shot)
-    const label = normalizeSubjectLabel(query)
-    const body = this.#v6EditorElement(target)
-    const creationAllowed =
-      this.#preset.subjectMode === "anywhere" ||
-      (this.#preset.subjectMode === "definitions" &&
-        (body?.closest("[data-prompt-section-body]")?.getAttribute("data-prompt-section-body") ===
-          "subject_definitions" ||
-          Boolean(body?.closest("[data-prompt-definition-body]"))))
-    this.#pickerCreateSubject =
-      creationAllowed &&
-      label &&
-      ![...this.#documentV6.subjects, ...this.#documentV6.shots].some(
-        (definition) => definition.tag.toLowerCase() === label.toLowerCase(),
-      )
-        ? label
-        : undefined
-    this.#pickerIndex = Math.min(this.#pickerIndex, Math.max(0, this.#pickerOptionCount() - 1))
-    this.#pickerAnchor = body
-    this.#publishPicker()
   }
 
   #flushBodyEditors(): void {
@@ -967,91 +871,6 @@ export class ReferencePromptController {
     }
   }
 
-  #buildPickerSnapshot(): PromptPickerSnapshot {
-    const createSubjectLabel = this.#pickerCreateSubject
-      ? localize(PROMPT_MESSAGES.createSubject, this.#locale).replace(
-          "{label}",
-          this.#pickerCreateSubject,
-        )
-      : ""
-    const options: PromptPickerOption[] =
-      this.#pickerMode === "reference"
-        ? this.#pickerReferences.map((reference) => ({ kind: "reference", reference }))
-        : this.#pickerMode === "subject"
-          ? [
-              ...this.#pickerSubjects.map((subject) => ({
-                kind: "subject" as const,
-                subject,
-                ordinal:
-                  this.#documentV6.subjects.findIndex((candidate) => candidate.id === subject.id) +
-                  1,
-              })),
-              ...this.#pickerShots.map((shot) => ({
-                kind: "shot" as const,
-                shot,
-                ordinal:
-                  this.#documentV6.shots.findIndex((candidate) => candidate.id === shot.id) + 1,
-              })),
-              ...(this.#pickerCreateSubject
-                ? [
-                    {
-                      kind: "create-subject" as const,
-                      label: this.#pickerCreateSubject,
-                      createLabel: createSubjectLabel,
-                      createDetail: localize(PROMPT_MESSAGES.createSubjectDetail, this.#locale),
-                    },
-                  ]
-                : []),
-            ]
-          : this.#pickerMode === "alias"
-            ? this.#pickerAliases.map((alias) => ({
-                kind: "alias" as const,
-                alias,
-                label: localize(alias.label, this.#locale),
-                description: localize(alias.description, this.#locale),
-              }))
-            : []
-    const emptyMessage =
-      this.#pickerMode === "alias"
-        ? localize(PROMPT_MESSAGES.noAliases, this.#locale)
-        : this.#pickerMode === "subject"
-          ? localize(PROMPT_MESSAGES.noSubjects, this.#locale)
-          : localize(PROMPT_MESSAGES.noReferences, this.#locale)
-    return {
-      visible: this.#pickerMode !== undefined,
-      mode: this.#pickerMode,
-      activeIndex: this.#pickerIndex,
-      options,
-      emptyMessage,
-      createSubjectLabel,
-      createSubjectDetail: localize(PROMPT_MESSAGES.createSubjectDetail, this.#locale),
-      target: this.#pickerTarget,
-    }
-  }
-
-  #publishPicker(): void {
-    this.#placePicker()
-    const next = this.#buildPickerSnapshot()
-    const previous = this.#pickerSnapshot
-    if (
-      previous &&
-      previous.visible === next.visible &&
-      previous.mode === next.mode &&
-      previous.activeIndex === next.activeIndex &&
-      previous.emptyMessage === next.emptyMessage &&
-      previous.createSubjectLabel === next.createSubjectLabel &&
-      previous.createSubjectDetail === next.createSubjectDetail &&
-      previous.target === next.target &&
-      previous.options.length === next.options.length &&
-      previous.options.every(
-        (option, index) => JSON.stringify(option) === JSON.stringify(next.options[index]),
-      )
-    )
-      return
-    this.#pickerSnapshot = next
-    for (const listener of this.#pickerListeners) listener()
-  }
-
   #publishSections(): void {
     const next = this.#buildSectionsSnapshot()
     const previous = this.#sectionsSnapshot
@@ -1164,7 +983,7 @@ export class ReferencePromptController {
       hint: this.#hintText,
       nativeHosts: {
         workspace: this.#workspaceRoot !== undefined,
-        picker: this.#pickerElement !== undefined,
+        picker: this.#picker.hasElement,
         definitions: this.#definitionsRoot !== undefined,
       },
     }
@@ -1172,7 +991,6 @@ export class ReferencePromptController {
 
   #publishView(): void {
     this.#publishSections()
-    this.#publishPicker()
     const next = this.#buildViewSnapshot()
     const previous = this.#viewSnapshot
     if (
@@ -1245,27 +1063,6 @@ export class ReferencePromptController {
       render: true,
       notifyShots: true,
     })
-  }
-
-  #handlePickerKeydown(event: KeyboardEvent): boolean {
-    if (this.#pickerMode === undefined) return false
-    const count = this.#pickerOptionCount()
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault()
-      this.movePicker(event.key === "ArrowDown" ? 1 : -1)
-      return true
-    }
-    if (event.key === "Enter" && count > 0 && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
-      event.preventDefault()
-      this.#activatePickerOption()
-      return true
-    }
-    if (event.key === "Escape") {
-      event.preventDefault()
-      this.#closePicker()
-      return true
-    }
-    return false
   }
 
   async #copyPrompt(compiled: boolean): Promise<void> {
@@ -1482,199 +1279,27 @@ export class ReferencePromptController {
     this.#draggedSectionTitle = undefined
   }
 
-  #updatePickerQuery(canOpenSubjectPicker = true): void {
-    const selection = globalThis.getSelection?.()
-    if (!selection?.rangeCount || !selection.isCollapsed) {
-      this.#closePicker()
-      return
-    }
-    const caret = selection.getRangeAt(0)
-    const container = caret.startContainer
-    const body = closestPromptBody(this.#editorRoots, container)
-    if (container.nodeType !== Node.TEXT_NODE || !body) {
-      this.#closePicker()
-      return
-    }
-    const before = (container.textContent ?? "").slice(0, caret.startOffset)
-    const referenceMatch = before.match(/@([^\s@]*)$/u)
-    const subjectMatch = before.match(/#([^\s#]*)$/u)
-    const match = referenceMatch ?? subjectMatch
-    if (!match) return this.#closePicker()
-    this.#pickerAnchor = body.closest<HTMLElement>("[data-prompt-section]") ?? body
-    if (referenceMatch) this.#updateReferencePicker(match[1] ?? "")
-    else if (canOpenSubjectPicker) this.#updateSubjectPicker(subjectMatch?.[1] ?? "", body)
-    else this.#closePicker()
+  #closePicker(): void {
+    this.#picker.close()
   }
 
-  #updateSectionEntryPickerQuery(value: string, entry: HTMLInputElement): void {
-    if (document.activeElement !== entry) {
-      this.#closePicker()
-      return
-    }
-    const match = value.trim().match(/^\/([a-z]*)$/iu)
-    if (match) {
-      this.#pickerAnchor = entry
-      this.#updateAliasPicker(match[1] ?? "")
-    } else this.#closePicker()
-  }
-
-  #updateReferencePicker(query = ""): void {
-    this.#pickerMode = "reference"
-    this.#pickerSubjects = []
-    this.#pickerShots = []
-    this.#pickerCreateSubject = undefined
-    this.#pickerAliases = []
-    const normalized = query.trim().toLowerCase()
-    this.#pickerReferences = this.#references().filter((reference) =>
-      [reference.label, reference.filename, reference.tag, reference.mediaKind].some((value) =>
-        value.toLowerCase().includes(normalized),
-      ),
-    )
-    this.#pickerIndex = Math.min(this.#pickerIndex, Math.max(0, this.#pickerReferences.length - 1))
-    this.#publishPicker()
-  }
-
-  #updateSubjectPicker(query: string, body: HTMLElement | undefined): void {
-    this.#pickerMode = "subject"
-    this.#pickerReferences = []
-    this.#pickerAliases = []
-    const normalized = query.trim().toLocaleLowerCase()
-    this.#pickerSubjects = this.#documentV6.subjects.filter((subject, index) =>
-      [subject.tag, `subject${index + 1}`, `<Subject ${index + 1}>`].some((value) =>
-        value.toLocaleLowerCase().includes(normalized),
-      ),
-    )
-    this.#pickerShots = this.#documentV6.shots.filter((shot) =>
-      shot.tag.toLocaleLowerCase().includes(normalized),
-    )
-    const label = normalizeSubjectLabel(query)
-    const creationAllowed =
-      this.#preset.subjectMode === "anywhere" ||
-      (this.#preset.subjectMode === "definitions" &&
-        (body?.dataset.promptSectionBody === "subject_definitions" ||
-          body?.hasAttribute("data-prompt-definition-body")))
-    this.#pickerCreateSubject =
-      creationAllowed &&
-      label &&
-      ![...this.#documentV6.subjects, ...this.#documentV6.shots].some(
-        (definition) => definition.tag.toLowerCase() === label.toLowerCase(),
-      )
-        ? label
-        : undefined
-    this.#pickerIndex = Math.min(this.#pickerIndex, Math.max(0, this.#pickerOptionCount() - 1))
-    this.#publishPicker()
-  }
-
-  #updateAliasPicker(query = ""): void {
-    this.#pickerMode = "alias"
-    this.#pickerReferences = []
-    this.#pickerSubjects = []
-    this.#pickerShots = []
-    this.#pickerCreateSubject = undefined
-    const normalized = query.trim().toLocaleLowerCase()
-    this.#pickerAliases = this.#preset.aliases.filter((option) =>
-      [
-        option.command,
-        option.title,
-        localize(option.label, this.#locale),
-        localize(option.description, this.#locale),
-      ].some((value) => value.toLocaleLowerCase().includes(normalized)),
-    )
-    this.#pickerIndex = Math.min(this.#pickerIndex, Math.max(0, this.#pickerAliases.length - 1))
-    this.#publishPicker()
-  }
-
-  #placePicker(): void {
-    const anchor = this.#pickerAnchor
-    const definition = anchor?.closest<HTMLElement>("[data-prompt-definition]")
-    const section = anchor?.closest<HTMLElement>("[data-prompt-section]")
-    const entry = anchor?.matches("[data-prompt-section-entry]") ? anchor : undefined
-    const editor = anchor?.matches("[data-prompt-editor]") ? anchor : undefined
-    this.#pickerTarget =
-      this.#pickerMode === "alias"
-        ? entry?.previousElementSibling instanceof HTMLElement
-          ? entry.previousElementSibling
-          : undefined
-        : (definition?.querySelector<HTMLElement>(":scope > [data-prompt-react-picker-slot]") ??
-          section?.querySelector<HTMLElement>(":scope > [data-prompt-react-picker-slot]") ??
-          (editor?.previousElementSibling instanceof HTMLElement
-            ? editor.previousElementSibling
-            : undefined))
-  }
-
-  #insertMention(reference: PromptReference | undefined): void {
-    if (!reference) return
-    this.#insertV6Part({
-      type: "mention",
-      referenceId: reference.referenceId,
-      mediaKind: reference.mediaKind,
-      label: reference.label,
-    })
-  }
-
-  #insertSubject(subject: PromptSubjectV6 | undefined): void {
-    if (!subject) return
-    this.#insertV6Part({ type: "definition-ref", definitionId: subject.id })
-  }
-
-  #insertShot(shot: PromptPickerShot | undefined): void {
-    if (!shot) return
-    this.#insertV6Part({ type: "definition-ref", definitionId: shot.id })
-  }
-
-  #createAndInsertSubject(label: string | undefined): void {
-    if (!label) return
+  #createPickerSubject(label: string): string | undefined {
     const result = this.#mutations.createSubject(label)
-    if (!result.accepted || !result.id) return
+    if (!result.accepted || !result.id) return undefined
     this.#invalidateV6Snapshots()
     this.#renderEditor()
-    this.#insertV6Part({ type: "definition-ref", definitionId: result.id })
+    return result.id
   }
 
-  #insertAlias(alias: PromptAlias | undefined): void {
-    if (alias) this.#addOrFocusSection(alias.title)
-  }
-
-  #pickerOptionCount(): number {
-    if (this.#pickerMode === "alias") return this.#pickerAliases.length
-    if (this.#pickerMode === "subject")
-      return (
-        this.#pickerSubjects.length + this.#pickerShots.length + (this.#pickerCreateSubject ? 1 : 0)
-      )
-    return this.#pickerReferences.length
-  }
-
-  #activatePickerOption(): void {
-    if (this.#pickerMode === "alias") this.#insertAlias(this.#pickerAliases[this.#pickerIndex])
-    else if (this.#pickerMode === "subject") {
-      if (this.#pickerIndex < this.#pickerSubjects.length)
-        this.#insertSubject(this.#pickerSubjects[this.#pickerIndex])
-      else if (this.#pickerIndex < this.#pickerSubjects.length + this.#pickerShots.length)
-        this.#insertShot(this.#pickerShots[this.#pickerIndex - this.#pickerSubjects.length])
-      else this.#createAndInsertSubject(this.#pickerCreateSubject)
-    } else this.#insertMention(this.#pickerReferences[this.#pickerIndex])
-  }
-
-  #insertV6Part(part: PromptPartV6): void {
-    if (!this.#v6PickerTarget) return
-    const handle = this.#editorEngine.getBodyEditor(this.#v6PickerTarget)
-    if (!handle) return
-    handle.insertParts([part], this.#v6PickerReplaceLength)
-    this.#closePicker()
+  #insertPromptPart(
+    target: PromptEditorTargetV6,
+    part: PromptPartV6,
+    replaceTextLength: number,
+  ): boolean {
+    const handle = this.#editorEngine.getBodyEditor(target)
+    if (!handle) return false
+    handle.insertParts([part], replaceTextLength)
     this.#node.setDirtyCanvas(true, true)
-  }
-
-  #closePicker(): void {
-    this.#pickerAnchor = undefined
-    this.#pickerMode = undefined
-    this.#pickerReferences = []
-    this.#pickerSubjects = []
-    this.#pickerCreateSubject = undefined
-    this.#pickerAliases = []
-    this.#pickerIndex = 0
-    this.#pickerTarget = undefined
-    this.#v6PickerTarget = undefined
-    this.#v6PickerReplaceLength = 0
-    this.#publishPicker()
+    return true
   }
 }

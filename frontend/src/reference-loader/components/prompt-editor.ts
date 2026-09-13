@@ -842,7 +842,6 @@ export class ReferencePromptController {
       return
     }
     this.#v6ShotDraft = undefined
-    this.#documentV6 = parsed.document
     this.#bodyEpoch += 1
     this.#bodyRevisions.clear()
     this.#v6RawDraft = undefined

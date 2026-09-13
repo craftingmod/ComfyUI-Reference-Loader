@@ -439,7 +439,11 @@ function EditorBridge({
     const epochChanged = value.epoch !== lastEpochRef.current
     lastEpochRef.current = value.epoch
     const needsExternalSync = desiredKey !== currentKey
-    if (epochChanged || needsExternalSync) editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined)
+    if (epochChanged || needsExternalSync) {
+      // Controller restore/graph rebuild starts a new editing session. Clear
+      // Lexical's local history before applying the external document.
+      editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined)
+    }
     if (desiredKey === currentKey) {
       lastAppliedKeyRef.current = desiredKey
       lastAcceptedKeyRef.current = partsKey(currentParts)

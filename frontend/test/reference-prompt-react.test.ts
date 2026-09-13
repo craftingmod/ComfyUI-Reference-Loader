@@ -549,6 +549,64 @@ describe("Reference Prompt React shell", () => {
     controller.destroy()
   })
 
+  test("clears local editor history when an external restore starts a new session", async () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const value = {
+      ...createEmptyPromptDocument(),
+      sections: [
+        {
+          id: "restore-history-section",
+          title: "scene",
+          parts: [{ type: "text", text: "before" }],
+        },
+      ],
+    }
+    const controller = new ReferencePromptController(node, () => [], serializePromptDocument(value))
+    const mount = createPromptReact({ container: root, controller })
+    const editor = root.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')!
+    placeCaretAtEnd(editor)
+    const paste = new Event("paste", { bubbles: true, cancelable: true })
+    Object.defineProperty(paste, "clipboardData", {
+      value: {
+        getData: () => " changed",
+        setData: () => undefined,
+      },
+    })
+    flushSync(() => editor.dispatchEvent(paste))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(editor.textContent).toBe("before changed")
+
+    controller.restore(
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        sections: [
+          {
+            id: "restore-history-section",
+            title: "scene",
+            parts: [{ type: "text", text: "restored" }],
+          },
+        ],
+      }),
+    )
+    flushSync(() => undefined)
+    expect(editor.textContent).toBe("restored")
+
+    const undo = new KeyboardEvent("keydown", {
+      key: "z",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    flushSync(() => editor.dispatchEvent(undo))
+    expect(undo.defaultPrevented).toBe(true)
+    expect(editor.textContent).toBe("restored")
+    expect(controller.document.sections[0]?.parts).toEqual([{ type: "text", text: "restored" }])
+
+    mount.destroy()
+    controller.destroy()
+  })
+
   test("renders inserted definition references with their tag instead of the UUID", () => {
     const root = document.createElement("div")
     document.body.append(root)

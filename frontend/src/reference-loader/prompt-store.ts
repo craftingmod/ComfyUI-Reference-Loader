@@ -24,6 +24,10 @@ export interface PromptStoreSnapshot {
   readonly compiledText: string
 }
 
+export interface PromptStoreRestoreResult extends PromptV6ValidationResult {
+  readonly changed: boolean
+}
+
 function deepFreeze<T>(value: T): T {
   if (typeof value !== "object" || value === null || Object.isFrozen(value)) return value
   Object.freeze(value)
@@ -93,10 +97,12 @@ export class PromptStore {
     return true
   }
 
-  restore(serialized: unknown): PromptV6ValidationResult {
+  restore(serialized: unknown): PromptStoreRestoreResult {
     const parsed = deserializePromptDocumentV6(serialized)
-    if (parsed.document) this.replace(parsed.document)
-    return parsed
+    return {
+      ...parsed,
+      changed: parsed.document ? this.replace(parsed.document) : false,
+    }
   }
 
   refresh(): void {

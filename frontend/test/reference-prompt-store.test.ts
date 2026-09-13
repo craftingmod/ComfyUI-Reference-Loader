@@ -63,7 +63,22 @@ describe("PromptStore", () => {
     const beforeInvalidRestore = store.serialize()
     const result = store.restore('{"version":5}')
     expect(result.document).toBeUndefined()
+    expect(result.changed).toBe(false)
     expect(store.serialize()).toBe(beforeInvalidRestore)
+
+    const restored = store.restore(
+      serializePromptDocumentV6({
+        ...createEmptyPromptDocumentV6(),
+        sections: [{ id: "restored-section", title: "scene", parts: [] }],
+      }),
+    )
+    expect(restored.document).toBeDefined()
+    expect(restored.changed).toBe(true)
+    expect(store.document.sections[0]?.id).toBe("restored-section")
+
+    const same = store.restore(store.serialize())
+    expect(same.document).toBeDefined()
+    expect(same.changed).toBe(false)
   })
 
   test("refreshes reference-dependent projections without changing the document", () => {

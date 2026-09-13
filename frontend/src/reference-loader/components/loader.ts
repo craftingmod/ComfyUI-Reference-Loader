@@ -44,6 +44,8 @@ import {
 export interface LoaderChangeEvents {
   beforeChange?(): void
   afterChange?(): void
+  recordGraphChange?(change: () => void): void
+  markDirty?(): void
   saveSnapshot?(): void
   loadSnapshot?(file: File): Promise<"loaded" | "cancelled">
 }
@@ -496,7 +498,7 @@ export class ReferenceLoaderController {
     )
     if (!changed) return
     this.#syncCaptionFields(id)
-    this.#node.setDirtyCanvas(true, true)
+    this.#markDirty()
   }
 
   flushDeferredPreviews(): void {
@@ -662,7 +664,7 @@ export class ReferenceLoaderController {
       const showCaptions = Boolean(values.showCaptions)
       if (showCaptions !== showCaptionsProperty(this.#node)) {
         this.#recordGraphChange(() => setShowCaptionsProperty(this.#node, showCaptions))
-        this.#node.setDirtyCanvas(true, true)
+        this.#markDirty()
         this.render()
       }
     }
@@ -670,7 +672,7 @@ export class ReferenceLoaderController {
       const horizontalCards = Boolean(values.horizontalCards)
       if (horizontalCards !== horizontalCardsProperty(this.#node)) {
         this.#recordGraphChange(() => setHorizontalCardsProperty(this.#node, horizontalCards))
-        this.#node.setDirtyCanvas(true, true)
+        this.#markDirty()
         this.render()
       }
     }
@@ -1317,7 +1319,7 @@ export class ReferenceLoaderController {
         }
         this.#mediaRuntime.setRuntime(id, { ...runtime, loading: true, applyingEdit: true })
         this.render(true)
-        this.#node.setDirtyCanvas(true, true)
+        this.#markDirty()
         let edit = editorResult.edit
         if (editorResult.maskFile) {
           const uploadedMask = await this.#api.upload(editorResult.maskFile, modalController.signal)
@@ -1374,7 +1376,7 @@ export class ReferenceLoaderController {
         // The proxy URL arrives after the graph-backed edit state has already
         // dirtied the canvas. Notify ComfyUI again after replacing the card DOM
         // so its DOM-widget draw pass observes the new thumbnail immediately.
-        this.#node.setDirtyCanvas(true, true)
+        this.#markDirty()
         if (!configuredPreviewIsCurrent) {
           const updated = this.state.items[id]
           if (updated) await this.#mediaRuntime.load(updated)
@@ -1503,6 +1505,10 @@ export class ReferenceLoaderController {
   }
 
   #recordGraphChange(change: () => void): void {
+    if (this.#changeEvents.recordGraphChange) {
+      this.#changeEvents.recordGraphChange(change)
+      return
+    }
     const graph = this.#node.graph
     this.#changeEvents.beforeChange?.()
     graph?.beforeChange?.()
@@ -1512,6 +1518,14 @@ export class ReferenceLoaderController {
       graph?.afterChange?.()
       this.#changeEvents.afterChange?.()
     }
+  }
+
+  #markDirty(): void {
+    if (this.#changeEvents.markDirty) {
+      this.#changeEvents.markDirty()
+      return
+    }
+    this.#node.setDirtyCanvas(true, true)
   }
 
   #changed(reloadRuntime = false): void {
@@ -1532,7 +1546,7 @@ export class ReferenceLoaderController {
         this.#mediaRuntime.remove(id)
       }
     }
-    this.#node.setDirtyCanvas(true, true)
+    this.#markDirty()
     this.#syncPromptReferences()
     this.#viewBridge.publish()
   }

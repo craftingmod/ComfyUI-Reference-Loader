@@ -7,14 +7,15 @@ import type {
   ComfyWidget,
 } from "../comfyui.ts"
 import { ReferenceLoaderApi } from "./api.ts"
-import type { H3WorkspaceReactMount } from "./components/h3-workspace-react.tsx"
-import { ReferenceLoaderController } from "./components/loader.ts"
 import {
-  createPromptDefinitionsReact,
-  type PromptDefinitionsReactMount,
-} from "./components/prompt-definitions-react.tsx"
+  ComfyUILifecycleBridge,
+  type NativeDisplayProxy,
+  type PromptPresetBinding,
+} from "./comfyui-lifecycle-bridge.ts"
+import { ReferenceLoaderController } from "./components/loader.ts"
+import { createPromptDefinitionsReact } from "./components/prompt-definitions-react.tsx"
 import { ReferencePromptController } from "./components/prompt-editor.ts"
-import { createPromptReact, type PromptReactMount } from "./components/prompt-react.tsx"
+import { createPromptReact } from "./components/prompt-react.tsx"
 import {
   applyReferenceLoaderSnapshotSettings,
   captureReferenceLoaderSnapshotSettings,
@@ -29,35 +30,18 @@ export const REFERENCE_IMAGE_LOADER_WIDGET_TYPE = "REFERENCE_IMAGE_LOADER"
 export const REFERENCE_H3_TIMELINE_WIDGET_TYPE = "REFERENCE_H3_TIMELINE"
 export const REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE = "REFERENCE_PROMPT_DEFINITIONS"
 export const REFERENCE_PROMPT_WIDGET_TYPE = "REFERENCE_PROMPT"
-const controllers = new WeakMap<ComfyNode, ReferenceLoaderController>()
-const promptControllers = new WeakMap<ComfyNode, ReferencePromptController>()
-const promptReactMounts = new WeakMap<ComfyNode, PromptReactMount>()
-const h3TimelineReactMounts = new WeakMap<ComfyNode, H3WorkspaceReactMount>()
-const h3TimelineRoots = new WeakMap<ComfyNode, HTMLElement>()
-const promptDefinitionsReactMounts = new WeakMap<ComfyNode, PromptDefinitionsReactMount>()
-const promptDefinitionRoots = new WeakMap<ComfyNode, HTMLElement>()
-const promptSubscriptions = new WeakMap<ComfyNode, () => void>()
-const promptPresetBindings = new WeakMap<ComfyNode, PromptPresetBinding>()
-const removalHooks = new WeakSet<ComfyNode>()
-const displayProxies = new WeakMap<ComfyNode, NativeDisplayProxy>()
-const nodeFileDropBindings = new WeakMap<ComfyNode, () => void>()
 const VUE_WIDGET_GRID_CLASS = "rl-reference-loader-widgets"
+let registeredLifecycleBridge: ComfyUILifecycleBridge | undefined
 
-interface NativeDisplayProxy {
-  syncFromState(): void
-  dispose(): void
-}
-
-interface PromptPresetBinding {
-  dispose(): void
-}
-
-function mountH3Timeline(node: ComfyNode, root: HTMLElement): void {
-  h3TimelineReactMounts.get(node)?.destroy()
-  h3TimelineReactMounts.delete(node)
-  h3TimelineRoots.set(node, root)
-  const controller = controllers.get(node)
-  if (controller) h3TimelineReactMounts.set(node, controller.mountH3Workspace(root))
+function mountH3Timeline(
+  lifecycle: ComfyUILifecycleBridge,
+  node: ComfyNode,
+  root: HTMLElement,
+): void {
+  lifecycle.disposeH3Timeline(node)
+  lifecycle.setH3TimelineRoot(node, root)
+  const controller = lifecycle.getController(node)
+  if (controller) lifecycle.setH3TimelineReactMount(node, controller.mountH3Workspace(root))
 }
 
 export function registerReferenceLoader(app: ComfyApp, api: ComfyApi): void
@@ -67,6 +51,8 @@ export function registerReferenceLoader(
   api: ComfyApi | ComfyApiLike,
 ): void {
   const referenceApp = app as ComfyAppLike
+  const lifecycle = new ComfyUILifecycleBridge(referenceApp)
+  registeredLifecycleBridge = lifecycle
   referenceApp.registerExtension({
     name: "reference-loader.extension",
     getCustomWidgets() {
@@ -76,11 +62,7 @@ export function registerReferenceLoader(
         inputData: unknown,
         singleImage: boolean,
       ) => {
-        controllers.get(node)?.destroy()
-        nodeFileDropBindings.get(node)?.()
-        nodeFileDropBindings.delete(node)
-        displayProxies.get(node)?.dispose()
-        displayProxies.delete(node)
+        lifecycle.disposeLoader(node)
         const root = document.createElement("div")
         root.className = singleImage
           ? "reference-loader reference-image-loader"
@@ -97,15 +79,13 @@ export function registerReferenceLoader(
           new ReferenceLoaderApi(api),
           initial,
           {
-            beforeChange: () => referenceApp.canvas?.emitBeforeChange?.(),
-            afterChange: () => referenceApp.canvas?.emitAfterChange?.(),
-            saveSnapshot: () => saveSnapshot(node, controller),
-            loadSnapshot: (file) => loadSnapshot(referenceApp, node, controller, file),
+            recordGraphChange: (change) => lifecycle.recordGraphChange(node, change),
+            markDirty: () => lifecycle.markDirty(node),
+            saveSnapshot: () => saveSnapshot(lifecycle, node, controller),
+            loadSnapshot: (file) => loadSnapshot(lifecycle, node, controller, file),
           },
           { mode: singleImage ? "single-image" : "references" },
         )
-        const releaseNodeFileDrop = bindNodeFileDrop(node, controller)
-        nodeFileDropBindings.set(node, releaseNodeFileDrop)
         let displayProxy: NativeDisplayProxy | undefined
         let removed = false
         const contentHeight = () => {
@@ -144,37 +124,37 @@ export function registerReferenceLoader(
         const releaseVueWidgetGrid = singleImage ? () => undefined : bindVueWidgetGrid(root)
         widget.serialize = true
         widget.serializeValue = () => controller.serialize()
-        widget.beforeQueued = () => displayProxy?.syncFromState()
+        const releaseQueueBinding = lifecycle.bindWidgetBeforeQueued(widget, () =>
+          displayProxy?.syncFromState(),
+        )
         const bindingTimer = globalThis.setTimeout(() => {
           if (removed) return
           displayProxy = singleImage
             ? bindPreviewDisplayProxy(node, controller)
             : bindNativeDisplayProxies(node, controller)
-          if (displayProxy) displayProxies.set(node, displayProxy)
+          if (displayProxy) lifecycle.setDisplayProxy(node, displayProxy)
         }, 0)
+        let releaseLoaderLifecycle = (): void => undefined
         const originalWidgetRemove = widget.onRemove
         widget.onRemove = () => {
           if (removed) return
           removed = true
           globalThis.clearTimeout(bindingTimer)
-          releaseRenderedRoot()
-          releaseVueWidgetGrid()
-          promptSubscriptions.get(node)?.()
-          promptSubscriptions.delete(node)
-          releaseNodeFileDrop()
-          if (nodeFileDropBindings.get(node) === releaseNodeFileDrop)
-            nodeFileDropBindings.delete(node)
-          displayProxy?.dispose()
-          if (displayProxies.get(node) === displayProxy) displayProxies.delete(node)
-          if (controllers.get(node) === controller) controllers.delete(node)
-          controller.destroy()
+          releaseLoaderLifecycle()
           originalWidgetRemove?.call(widget)
         }
-        controllers.set(node, controller)
-        const h3TimelineRoot = h3TimelineRoots.get(node)
-        if (!singleImage && h3TimelineRoot) mountH3Timeline(node, h3TimelineRoot)
-        if (!singleImage) bindPromptReferences(node)
-        installNodeRemovalHook(node)
+        releaseLoaderLifecycle = lifecycle.attachLoader(node, controller, () => {
+          globalThis.clearTimeout(bindingTimer)
+          releaseRenderedRoot()
+          releaseVueWidgetGrid()
+          lifecycle.clearPromptSubscription(node)
+          releaseQueueBinding()
+        })
+        lifecycle.bindFileDrop(node, controller)
+        const h3TimelineRoot = lifecycle.getH3TimelineRoot(node)
+        if (!singleImage && h3TimelineRoot) mountH3Timeline(lifecycle, node, h3TimelineRoot)
+        if (!singleImage) bindPromptReferences(lifecycle, node)
+        lifecycle.installNodeRemovalHook(node)
         if (!singleImage) {
           const [width = 560, height = 500] = node.size ?? []
           if (width < 520 || height < 460) {
@@ -189,8 +169,7 @@ export function registerReferenceLoader(
         [REFERENCE_IMAGE_LOADER_WIDGET_TYPE]: (node, inputName, inputData) =>
           createLoaderWidget(node, inputName, inputData, true),
         [REFERENCE_H3_TIMELINE_WIDGET_TYPE]: (node, inputName) => {
-          h3TimelineReactMounts.get(node)?.destroy()
-          h3TimelineReactMounts.delete(node)
+          lifecycle.disposeH3Timeline(node)
           const root = document.createElement("div")
           root.className = "reference-h3-timeline"
           root.dataset.input = inputName
@@ -204,24 +183,24 @@ export function registerReferenceLoader(
           })
           const releaseRenderedRoot = bindRenderedWidgetRoot(node, root, ".reference-h3-timeline")
           widget.serialize = true
-          mountH3Timeline(node, root)
+          mountH3Timeline(lifecycle, node, root)
+          const releaseLifecycle = lifecycle.registerCleanup(node, () => {
+            releaseRenderedRoot()
+            lifecycle.disposeH3Timeline(node, root)
+          })
           let removed = false
           const originalWidgetRemove = widget.onRemove
           widget.onRemove = () => {
             if (removed) return
             removed = true
-            releaseRenderedRoot()
-            h3TimelineReactMounts.get(node)?.destroy()
-            h3TimelineReactMounts.delete(node)
-            if (h3TimelineRoots.get(node) === root) h3TimelineRoots.delete(node)
+            releaseLifecycle()
             originalWidgetRemove?.call(widget)
           }
-          installNodeRemovalHook(node)
+          lifecycle.installNodeRemovalHook(node)
           return { widget }
         },
         [REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE]: (node, inputName) => {
-          promptDefinitionsReactMounts.get(node)?.destroy()
-          promptDefinitionsReactMounts.delete(node)
+          lifecycle.disposePromptDefinitions(node)
           const root = document.createElement("div")
           root.className = "reference-prompt-definitions"
           root.dataset.input = inputName
@@ -247,50 +226,40 @@ export function registerReferenceLoader(
           // canonical prompt widget, and an omitted indexed widget shifts every
           // following value when older workflow deserializers compact the array.
           widget.serialize = true
-          promptDefinitionRoots.set(node, root)
-          const controller = promptControllers.get(node)
+          lifecycle.setPromptDefinitionRoot(node, root)
+          const controller = lifecycle.getPromptController(node)
           controller?.mountDefinitions(root)
           const reactMount = controller
             ? createPromptDefinitionsReact({
                 container: root,
                 controller,
-                onEditShotGuides: (tag) => controllers.get(node)?.editH3GuidesForShot(tag),
+                onEditShotGuides: (tag) => lifecycle.getController(node)?.editH3GuidesForShot(tag),
               })
             : undefined
-          if (reactMount) promptDefinitionsReactMounts.set(node, reactMount)
+          if (reactMount) lifecycle.setPromptDefinitionsReactMount(node, reactMount)
+          const releaseLifecycle = lifecycle.registerCleanup(node, () => {
+            releaseRenderedRoot()
+            lifecycle.disposePromptDefinitions(node, root)
+          })
           let removed = false
           const originalWidgetRemove = widget.onRemove
           widget.onRemove = () => {
             if (removed) return
             removed = true
-            releaseRenderedRoot()
-            if (promptDefinitionRoots.get(node) === root) {
-              promptDefinitionsReactMounts.get(node)?.destroy()
-              promptDefinitionsReactMounts.delete(node)
-              promptDefinitionRoots.delete(node)
-              promptControllers.get(node)?.mountDefinitions(undefined)
-            }
+            releaseLifecycle()
             originalWidgetRemove?.call(widget)
           }
-          installNodeRemovalHook(node)
+          lifecycle.installNodeRemovalHook(node)
           return { widget }
         },
         [REFERENCE_PROMPT_WIDGET_TYPE]: (node, inputName, inputData) => {
-          promptSubscriptions.get(node)?.()
-          promptSubscriptions.delete(node)
-          promptPresetBindings.get(node)?.dispose()
-          promptPresetBindings.delete(node)
-          promptReactMounts.get(node)?.destroy()
-          promptReactMounts.delete(node)
-          promptDefinitionsReactMounts.get(node)?.destroy()
-          promptDefinitionsReactMounts.delete(node)
-          promptControllers.get(node)?.destroy()
+          lifecycle.disposePrompt(node)
           const root = document.createElement("div")
           root.className = "reference-prompt"
           root.dataset.input = inputName
           const controller = new ReferencePromptController(
             node,
-            () => controllers.get(node)?.promptReferences ?? [],
+            () => lifecycle.getController(node)?.promptReferences ?? [],
             initialValue(inputData),
             {
               presetId: node.widgets?.find((candidate) => candidate.name === "prompt_schema_preset")
@@ -298,16 +267,7 @@ export function registerReferenceLoader(
               presetCatalog: promptPresetCatalog(inputData),
             },
           )
-          const definitionsRoot = promptDefinitionRoots.get(node)
-          if (definitionsRoot) {
-            controller.mountDefinitions(definitionsRoot)
-            const definitionsReactMount = createPromptDefinitionsReact({
-              container: definitionsRoot,
-              controller,
-              onEditShotGuides: (tag) => controllers.get(node)?.editH3GuidesForShot(tag),
-            })
-            promptDefinitionsReactMounts.set(node, definitionsReactMount)
-          }
+          const definitionsRoot = lifecycle.getPromptDefinitionRoot(node)
           const reactMount = createPromptReact({ container: root, controller })
           let removed = false
           const widget = node.addDOMWidget(inputName, REFERENCE_PROMPT_WIDGET_TYPE, root, {
@@ -321,37 +281,39 @@ export function registerReferenceLoader(
           const releaseRenderedRoot = bindRenderedWidgetRoot(node, root, ".reference-prompt")
           widget.serialize = true
           widget.serializeValue = () => controller.serialize()
-          widget.beforeQueued = () => controller.serialize()
+          const releaseQueueBinding = lifecycle.bindWidgetBeforeQueued(widget, () =>
+            controller.serialize(),
+          )
           const presetBindingTimer = globalThis.setTimeout(() => {
-            if (removed) return
+            if (removed || lifecycle.getPromptController(node) !== controller) return
             const binding = bindPromptPresetWidget(node, controller)
-            if (binding) promptPresetBindings.set(node, binding)
+            if (binding) lifecycle.setPromptPresetBinding(node, binding)
           }, 0)
+          let releasePromptLifecycle = (): void => undefined
           const originalWidgetRemove = widget.onRemove
           widget.onRemove = () => {
             if (removed) return
             removed = true
             globalThis.clearTimeout(presetBindingTimer)
-            releaseRenderedRoot()
-            promptSubscriptions.get(node)?.()
-            promptSubscriptions.delete(node)
-            promptPresetBindings.get(node)?.dispose()
-            promptPresetBindings.delete(node)
-            const isCurrentPrompt = promptControllers.get(node) === controller
-            if (isCurrentPrompt) {
-              promptControllers.delete(node)
-              promptDefinitionsReactMounts.get(node)?.destroy()
-              promptDefinitionsReactMounts.delete(node)
-            }
-            if (promptReactMounts.get(node) === reactMount) promptReactMounts.delete(node)
-            reactMount.destroy()
-            controller.destroy()
+            releasePromptLifecycle()
             originalWidgetRemove?.call(widget)
           }
-          promptControllers.set(node, controller)
-          promptReactMounts.set(node, reactMount)
-          bindPromptReferences(node)
-          installNodeRemovalHook(node)
+          releasePromptLifecycle = lifecycle.attachPrompt(node, controller, () => {
+            globalThis.clearTimeout(presetBindingTimer)
+            releaseRenderedRoot()
+            releaseQueueBinding()
+          })
+          lifecycle.setPromptReactMount(node, reactMount)
+          if (definitionsRoot) {
+            const definitionsReactMount = createPromptDefinitionsReact({
+              container: definitionsRoot,
+              controller,
+              onEditShotGuides: (tag) => lifecycle.getController(node)?.editH3GuidesForShot(tag),
+            })
+            lifecycle.setPromptDefinitionsReactMount(node, definitionsReactMount)
+          }
+          bindPromptReferences(lifecycle, node)
+          lifecycle.installNodeRemovalHook(node)
           const [width = 560, height = 680] = node.size ?? []
           if (width < 520 || height < 620)
             node.setSize?.([Math.max(width, 560), Math.max(height, 680)])
@@ -362,8 +324,12 @@ export function registerReferenceLoader(
   })
 }
 
-function saveSnapshot(node: ComfyNode, loader: ReferenceLoaderController): void {
-  const prompt = promptControllers.get(node)
+function saveSnapshot(
+  lifecycle: ComfyUILifecycleBridge,
+  node: ComfyNode,
+  loader: ReferenceLoaderController,
+): void {
+  const prompt = lifecycle.getPromptController(node)
   if (!prompt) throw new Error("Prompt editor is not ready.")
   const display = loader.displayState
   const snapshot = serializeReferenceLoaderSnapshot({
@@ -392,12 +358,12 @@ function saveSnapshot(node: ComfyNode, loader: ReferenceLoaderController): void 
 }
 
 async function loadSnapshot(
-  app: ComfyAppLike,
+  lifecycle: ComfyUILifecycleBridge,
   node: ComfyNode,
   loader: ReferenceLoaderController,
   file: File,
 ): Promise<"loaded" | "cancelled"> {
-  const prompt = promptControllers.get(node)
+  const prompt = lifecycle.getPromptController(node)
   if (!prompt) throw new Error("Prompt editor is not ready.")
   if (file.size > MAX_REFERENCE_LOADER_SNAPSHOT_BYTES)
     throw new Error("Snapshot exceeds the 6,000,000-byte file limit.")
@@ -405,8 +371,7 @@ async function loadSnapshot(
   if (!globalThis.confirm("Replace the current Reference Loader and Prompt settings?"))
     return "cancelled"
 
-  app.canvas?.emitBeforeChange?.()
-  try {
+  lifecycle.recordCanvasChange(() => {
     loader.restoreSnapshot(snapshot.loaderState, {
       showCaptions: snapshot.settings.showCaptions,
       horizontalCards: snapshot.settings.horizontalCards,
@@ -414,19 +379,16 @@ async function loadSnapshot(
     prompt.restore(snapshot.promptState)
     prompt.setPreset(snapshot.settings.promptSchemaPreset)
     applyReferenceLoaderSnapshotSettings(node, snapshot.settings)
-    displayProxies.get(node)?.syncFromState()
-    node.setDirtyCanvas(true, true)
-  } finally {
-    app.canvas?.emitAfterChange?.()
-  }
+    lifecycle.getDisplayProxy(node)?.syncFromState()
+    lifecycle.markDirty(node)
+  })
   return "loaded"
 }
 
-function bindPromptReferences(node: ComfyNode): void {
-  promptSubscriptions.get(node)?.()
-  promptSubscriptions.delete(node)
-  const loader = controllers.get(node)
-  const prompt = promptControllers.get(node)
+function bindPromptReferences(lifecycle: ComfyUILifecycleBridge, node: ComfyNode): void {
+  lifecycle.clearPromptSubscription(node)
+  const loader = lifecycle.getController(node)
+  const prompt = lifecycle.getPromptController(node)
   if (!loader || !prompt) return
   const releaseReferences = loader.subscribePromptReferences(() => prompt.refreshReferences())
   const releaseShots = prompt.subscribeShots(() => {
@@ -440,7 +402,7 @@ function bindPromptReferences(node: ComfyNode): void {
       prompt.hasShotDraft,
     )
   })
-  promptSubscriptions.set(node, () => {
+  lifecycle.setPromptSubscription(node, () => {
     releaseReferences()
     releaseShots()
   })
@@ -510,63 +472,6 @@ function bindVueWidgetGrid(root: HTMLElement): () => void {
     globalThis.clearTimeout(bindingTimer)
     if (retryFrame !== undefined) globalThis.cancelAnimationFrame(retryFrame)
     widgetGrid?.classList.remove(VUE_WIDGET_GRID_CLASS)
-  }
-}
-
-function installNodeRemovalHook(node: ComfyNode): void {
-  if (removalHooks.has(node)) return
-  removalHooks.add(node)
-  const originalRemoved = node.onRemoved
-  node.onRemoved = function (...args: unknown[]): unknown {
-    promptSubscriptions.get(this)?.()
-    promptSubscriptions.delete(this)
-    promptPresetBindings.get(this)?.dispose()
-    promptPresetBindings.delete(this)
-    promptReactMounts.get(this)?.destroy()
-    promptReactMounts.delete(this)
-    h3TimelineReactMounts.get(this)?.destroy()
-    h3TimelineReactMounts.delete(this)
-    h3TimelineRoots.delete(this)
-    promptDefinitionsReactMounts.get(this)?.destroy()
-    promptDefinitionsReactMounts.delete(this)
-    promptControllers.get(this)?.destroy()
-    promptControllers.delete(this)
-    promptDefinitionRoots.delete(this)
-    nodeFileDropBindings.get(this)?.()
-    nodeFileDropBindings.delete(this)
-    controllers.get(this)?.destroy()
-    controllers.delete(this)
-    displayProxies.get(this)?.dispose()
-    displayProxies.delete(this)
-    return originalRemoved?.apply(this, args)
-  }
-}
-
-function bindNodeFileDrop(node: ComfyNode, controller: ReferenceLoaderController): () => void {
-  const originalDragOver = node.onDragOver
-  const originalDragDrop = node.onDragDrop
-  const onDragOver = function (this: ComfyNode, event: DragEvent): boolean {
-    if (controller.acceptsFileDrop(event.dataTransfer)) return true
-    return originalDragOver?.call(this, event) === true
-  }
-  const onDragDrop = async function (this: ComfyNode, event: DragEvent): Promise<boolean> {
-    if (await controller.addDroppedFiles(event.dataTransfer?.files ?? [])) return true
-    return (await originalDragDrop?.call(this, event)) === true
-  }
-  node.onDragOver = onDragOver
-  node.onDragDrop = onDragDrop
-  let released = false
-  return () => {
-    if (released) return
-    released = true
-    if (node.onDragOver === onDragOver) {
-      if (originalDragOver) node.onDragOver = originalDragOver
-      else delete node.onDragOver
-    }
-    if (node.onDragDrop === onDragDrop) {
-      if (originalDragDrop) node.onDragDrop = originalDragDrop
-      else delete node.onDragDrop
-    }
   }
 }
 
@@ -807,13 +712,13 @@ function promptPresetCatalog(inputData: unknown): unknown {
 export function getReferenceLoaderController(
   node: ComfyNode,
 ): ReferenceLoaderController | undefined {
-  return controllers.get(node)
+  return registeredLifecycleBridge?.getController(node)
 }
 
 export function getReferencePromptController(
   node: ComfyNode,
 ): ReferencePromptController | undefined {
-  return promptControllers.get(node)
+  return registeredLifecycleBridge?.getPromptController(node)
 }
 
 export type ReferenceLoaderWidget = ComfyWidget

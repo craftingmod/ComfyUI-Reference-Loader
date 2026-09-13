@@ -9,6 +9,8 @@ import type {
   DomWidgetOptions,
 } from "../src/comfyui.ts"
 import {
+  getReferenceLoaderController,
+  getReferencePromptController,
   registerReferenceLoader,
   REFERENCE_LOADER_WIDGET_TYPE,
   REFERENCE_H3_TIMELINE_WIDGET_TYPE,
@@ -29,6 +31,76 @@ import {
 import { createMediaItem, createEmptyLoaderState } from "../src/reference-loader/types.ts"
 
 describe("Reference Loader custom widget", () => {
+  test("isolates node lifecycle teardown across Loader instances", async () => {
+    let extension: ComfyExtension | undefined
+    const app: ComfyAppLike = {
+      registerExtension(candidate) {
+        extension = candidate
+      },
+    }
+    registerReferenceLoader(app, { fetchApi: async () => new Response("{}") })
+    const factories = extension?.getCustomWidgets?.()
+    const createNode = (id: string) => {
+      const host = document.createElement("div")
+      host.dataset.nodeId = id
+      document.body.append(host)
+      const widgets: ComfyWidget[] = []
+      const node: ComfyNode = {
+        id: id as NonNullable<ComfyNode["id"]>,
+        widgets,
+        addDOMWidget(name, _type, element, options) {
+          const widget = { name, value: "", options } as ComfyWidget
+          widgets.push(widget)
+          host.append(element)
+          return widget
+        },
+        setDirtyCanvas: () => undefined,
+      }
+      factories?.[REFERENCE_LOADER_WIDGET_TYPE]?.(
+        node,
+        "loader_state",
+        ["STRING", { default: serializeLoaderState(createEmptyLoaderState()) }],
+        app,
+      )
+      factories?.[REFERENCE_H3_TIMELINE_WIDGET_TYPE]?.(node, "h3_timeline", ["STRING", {}], app)
+      factories?.[REFERENCE_PROMPT_WIDGET_TYPE]?.(
+        node,
+        "prompt",
+        ["STRING", { default: serializePromptDocumentV6(createEmptyPromptDocumentV6()) }],
+        app,
+      )
+      return { host, node }
+    }
+
+    const first = createNode("lifecycle-first")
+    const second = createNode("lifecycle-second")
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const firstController = getReferenceLoaderController(first.node)
+      const secondController = getReferenceLoaderController(second.node)
+      expect(firstController).toBeDefined()
+      expect(secondController).toBeDefined()
+      expect(firstController).not.toBe(secondController)
+      expect(getReferencePromptController(first.node)).toBeDefined()
+      expect(getReferencePromptController(second.node)).toBeDefined()
+
+      first.node.onRemoved?.()
+      first.node.onRemoved?.()
+
+      expect(getReferenceLoaderController(first.node)).toBeUndefined()
+      expect(getReferencePromptController(first.node)).toBeUndefined()
+      expect(first.host.querySelector(".reference-loader")?.childElementCount).toBe(0)
+      expect(first.host.querySelector(".reference-h3-timeline")?.childElementCount).toBe(0)
+      expect(first.host.querySelector(".reference-prompt")?.childElementCount).toBe(0)
+      expect(getReferenceLoaderController(second.node)).toBe(secondController)
+      expect(second.host.querySelector(".rl-channels")).toBeTruthy()
+    } finally {
+      first.host.remove()
+      second.node.onRemoved?.()
+      second.host.remove()
+    }
+  })
+
   test("places H3 Timeline between Media and Subjects & Shots widgets", () => {
     let extension: ComfyExtension | undefined
     const app: ComfyAppLike = {

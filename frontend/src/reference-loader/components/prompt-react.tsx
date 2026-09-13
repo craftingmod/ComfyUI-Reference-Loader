@@ -711,62 +711,77 @@ export function ReferencePromptReactRoot({
   )
 }
 
-export function createPromptReact(options: PromptReactOptions): PromptReactMount {
-  const { controller } = options
-  const actions: PromptReactActions = {
-    clear: () => controller.clear(),
-    toggleView: () => controller.toggleView(),
-    copySource: () => controller.copySource(),
-    copyCompiled: () => controller.copyCompiled(),
-    setPreset: (value) => controller.setPreset(value),
-    handleReactEditorInput: (title, editor, input) =>
-      controller.handleReactEditorInput(title, editor, input),
-    handleReactEditorKeydown: (event) => controller.handleReactEditorKeydown(event),
-    handleReactEditorPaste: (event) => controller.handleReactEditorPaste(event),
-    handleReactEditorBlur: () => controller.handleReactEditorBlur(),
-    applyPromptBodyEdit: (edit) => controller.applyPromptBodyEdit(edit),
-    sessionScope: controller.promptSessionScope,
-    registerPromptBodyEditor: (target, handle) =>
-      controller.registerPromptBodyEditor(target, handle),
-    resolvePromptPartLabel: (part) => controller.resolvePromptPartLabel(part),
-    resolvePromptPartVisual: (part) => controller.resolvePromptPartVisual(part),
-    handlePromptBodyTrigger: (target, trigger) =>
-      controller.handlePromptBodyTrigger(target, trigger),
-    validatePromptBodyParts: (target, parts) => controller.validatePromptBodyParts(target, parts),
-    parsePromptBodyText: (value) => controller.parsePromptBodyText(value),
-    rawDraftText: () => controller.rawDraftText,
-    updateRawDraftText: (value) => controller.updateRawDraftText(value),
-    removeSection: (title) => controller.removeSection(title),
-    handleReactSectionEntryInput: (value, entry, input) =>
-      controller.handleReactSectionEntryInput(value, entry, input),
-    handleReactSectionEntryKeydown: (value, entry, event) =>
-      controller.handleReactSectionEntryKeydown(value, entry, event),
-    moveSection: (title, delta) => controller.moveSection(title, delta),
-    movePicker: (delta) => controller.movePicker(delta),
-    activatePickerOption: (index) => controller.activatePickerOption(index),
-    closePicker: () => controller.closePicker(),
-    startSectionDrag: (title, event) => controller.startSectionDrag(title, event),
-    sectionDragOver: (event) => controller.sectionDragOver(event),
-    dropSection: (event) => controller.dropSection(event),
-    endSectionDrag: () => controller.endSectionDrag(),
+export class PromptReactBridge implements PromptReactMount {
+  readonly #container: HTMLElement
+  readonly #controller: ReferencePromptController
+  readonly #actions: PromptReactActions
+  readonly #root: Root
+  #destroyed = false
+
+  constructor(options: PromptReactOptions) {
+    this.#container = options.container
+    this.#controller = options.controller
+    this.#actions = {
+      clear: () => this.#controller.clear(),
+      toggleView: () => this.#controller.toggleView(),
+      copySource: () => this.#controller.copySource(),
+      copyCompiled: () => this.#controller.copyCompiled(),
+      setPreset: (value) => this.#controller.setPreset(value),
+      handleReactEditorInput: (title, editor, input) =>
+        this.#controller.handleReactEditorInput(title, editor, input),
+      handleReactEditorKeydown: (event) => this.#controller.handleReactEditorKeydown(event),
+      handleReactEditorPaste: (event) => this.#controller.handleReactEditorPaste(event),
+      handleReactEditorBlur: () => this.#controller.handleReactEditorBlur(),
+      applyPromptBodyEdit: (edit) => this.#controller.applyPromptBodyEdit(edit),
+      sessionScope: this.#controller.promptSessionScope,
+      registerPromptBodyEditor: (target, handle) =>
+        this.#controller.registerPromptBodyEditor(target, handle),
+      resolvePromptPartLabel: (part) => this.#controller.resolvePromptPartLabel(part),
+      resolvePromptPartVisual: (part) => this.#controller.resolvePromptPartVisual(part),
+      handlePromptBodyTrigger: (target, trigger) =>
+        this.#controller.handlePromptBodyTrigger(target, trigger),
+      validatePromptBodyParts: (target, parts) =>
+        this.#controller.validatePromptBodyParts(target, parts),
+      parsePromptBodyText: (value) => this.#controller.parsePromptBodyText(value),
+      rawDraftText: () => this.#controller.rawDraftText,
+      updateRawDraftText: (value) => this.#controller.updateRawDraftText(value),
+      removeSection: (title) => this.#controller.removeSection(title),
+      handleReactSectionEntryInput: (value, entry, input) =>
+        this.#controller.handleReactSectionEntryInput(value, entry, input),
+      handleReactSectionEntryKeydown: (value, entry, event) =>
+        this.#controller.handleReactSectionEntryKeydown(value, entry, event),
+      moveSection: (title, delta) => this.#controller.moveSection(title, delta),
+      movePicker: (delta) => this.#controller.movePicker(delta),
+      activatePickerOption: (index) => this.#controller.activatePickerOption(index),
+      closePicker: () => this.#controller.closePicker(),
+      startSectionDrag: (title, event) => this.#controller.startSectionDrag(title, event),
+      sectionDragOver: (event) => this.#controller.sectionDragOver(event),
+      dropSection: (event) => this.#controller.dropSection(event),
+      endSectionDrag: () => this.#controller.endSectionDrag(),
+    }
+    this.#root = createRoot(this.#container)
+    this.update()
   }
-  const root: Root = createRoot(options.container)
-  let destroyed = false
-  const update = (): void => {
-    if (destroyed) return
+
+  update(): void {
+    if (this.#destroyed) return
     flushSync(() =>
-      root.render(<ReferencePromptReactRoot controller={controller} actions={actions} />),
+      this.#root.render(
+        <ReferencePromptReactRoot controller={this.#controller} actions={this.#actions} />,
+      ),
     )
   }
-  update()
-  return {
-    destroy() {
-      if (destroyed) return
-      destroyed = true
-      root.unmount()
-      options.container.replaceChildren()
-    },
+
+  destroy(): void {
+    if (this.#destroyed) return
+    this.#destroyed = true
+    this.#root.unmount()
+    this.#container.replaceChildren()
   }
+}
+
+export function createPromptReact(options: PromptReactOptions): PromptReactMount {
+  return new PromptReactBridge(options)
 }
 
 export { PromptToolbar }

@@ -300,50 +300,71 @@ export function PromptDefinitionsReactRoot({
   )
 }
 
+export class PromptDefinitionsReactBridge implements PromptDefinitionsReactMount {
+  readonly #container: HTMLElement
+  readonly #controller: ReferencePromptController
+  readonly #root: Root
+  readonly #actions: PromptDefinitionsReactActions
+  #destroyed = false
+
+  constructor(options: PromptDefinitionsReactOptions) {
+    this.#container = options.container
+    this.#controller = options.controller
+    this.#actions = {
+      sessionScope: this.#controller.promptSessionScope,
+      addDefinition: (kind) => this.#controller.addDefinition(kind),
+      renameDefinition: (kind, identity, value) =>
+        this.#controller.renameDefinition(kind, identity, value),
+      reorderDefinition: (kind, identity, delta) =>
+        this.#controller.reorderDefinition(kind, identity, delta),
+      startDefinitionDrag: (kind, identity, event) =>
+        this.#controller.startDefinitionDrag(kind, identity, event),
+      definitionDragOver: (event) => this.#controller.definitionDragOver(event),
+      dropDefinition: (event) => this.#controller.dropDefinition(event),
+      endDefinitionDrag: () => this.#controller.endDefinitionDrag(),
+      removeDefinition: (kind, identity) => this.#controller.removeDefinition(kind, identity),
+      setShotFrame: (identity, frameIndex) =>
+        this.#controller.setShotFrameByIdentity(identity, frameIndex),
+      editShotGuides: (tag) => options.onEditShotGuides?.(tag),
+      handleReactEditorInput: (target, editor, input) =>
+        this.#controller.handleReactEditorInput(target, editor, input),
+      handleReactEditorKeydown: (event) => this.#controller.handleReactEditorKeydown(event),
+      handleReactEditorPaste: (event) => this.#controller.handleReactEditorPaste(event),
+      handleReactEditorBlur: () => this.#controller.handleReactEditorBlur(),
+      applyPromptBodyEdit: (edit) => this.#controller.applyPromptBodyEdit(edit),
+      registerPromptBodyEditor: (target, handle) =>
+        this.#controller.registerPromptBodyEditor(target, handle),
+      resolvePromptPartLabel: (part) => this.#controller.resolvePromptPartLabel(part),
+      resolvePromptPartVisual: (part) => this.#controller.resolvePromptPartVisual(part),
+      handlePromptBodyTrigger: (target, trigger) =>
+        this.#controller.handlePromptBodyTrigger(target, trigger),
+      validatePromptBodyParts: (target, parts) =>
+        this.#controller.validatePromptBodyParts(target, parts),
+      parsePromptBodyText: (value) => this.#controller.parsePromptBodyText(value),
+    }
+    this.#root = createRoot(this.#container)
+    this.update()
+  }
+
+  update(): void {
+    if (this.#destroyed) return
+    flushSync(() =>
+      this.#root.render(
+        <PromptDefinitionsReactRoot controller={this.#controller} actions={this.#actions} />,
+      ),
+    )
+  }
+
+  destroy(): void {
+    if (this.#destroyed) return
+    this.#destroyed = true
+    this.#root.unmount()
+    this.#container.replaceChildren()
+  }
+}
+
 export function createPromptDefinitionsReact(
   options: PromptDefinitionsReactOptions,
 ): PromptDefinitionsReactMount {
-  const { controller } = options
-  const actions: PromptDefinitionsReactActions = {
-    sessionScope: controller.promptSessionScope,
-    addDefinition: (kind) => controller.addDefinition(kind),
-    renameDefinition: (kind, identity, value) => controller.renameDefinition(kind, identity, value),
-    reorderDefinition: (kind, identity, delta) =>
-      controller.reorderDefinition(kind, identity, delta),
-    startDefinitionDrag: (kind, identity, event) =>
-      controller.startDefinitionDrag(kind, identity, event),
-    definitionDragOver: (event) => controller.definitionDragOver(event),
-    dropDefinition: (event) => controller.dropDefinition(event),
-    endDefinitionDrag: () => controller.endDefinitionDrag(),
-    removeDefinition: (kind, identity) => controller.removeDefinition(kind, identity),
-    setShotFrame: (identity, frameIndex) => controller.setShotFrameByIdentity(identity, frameIndex),
-    editShotGuides: (tag) => options.onEditShotGuides?.(tag),
-    handleReactEditorInput: (target, editor, input) =>
-      controller.handleReactEditorInput(target, editor, input),
-    handleReactEditorKeydown: (event) => controller.handleReactEditorKeydown(event),
-    handleReactEditorPaste: (event) => controller.handleReactEditorPaste(event),
-    handleReactEditorBlur: () => controller.handleReactEditorBlur(),
-    applyPromptBodyEdit: (edit) => controller.applyPromptBodyEdit(edit),
-    registerPromptBodyEditor: (target, handle) =>
-      controller.registerPromptBodyEditor(target, handle),
-    resolvePromptPartLabel: (part) => controller.resolvePromptPartLabel(part),
-    resolvePromptPartVisual: (part) => controller.resolvePromptPartVisual(part),
-    handlePromptBodyTrigger: (target, trigger) =>
-      controller.handlePromptBodyTrigger(target, trigger),
-    validatePromptBodyParts: (target, parts) => controller.validatePromptBodyParts(target, parts),
-    parsePromptBodyText: (value) => controller.parsePromptBodyText(value),
-  }
-  const root: Root = createRoot(options.container)
-  let destroyed = false
-  flushSync(() =>
-    root.render(<PromptDefinitionsReactRoot controller={controller} actions={actions} />),
-  )
-  return {
-    destroy() {
-      if (destroyed) return
-      destroyed = true
-      root.unmount()
-      options.container.replaceChildren()
-    },
-  }
+  return new PromptDefinitionsReactBridge(options)
 }

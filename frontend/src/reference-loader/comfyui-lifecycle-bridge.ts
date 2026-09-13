@@ -16,6 +16,41 @@ export interface PromptPresetBinding {
 
 type Cleanup = () => void
 
+/** Rebinds a DOM widget root retained by ComfyUI after graph restore. */
+export function bindRenderedWidgetRoot(
+  node: ComfyNode,
+  root: HTMLElement,
+  selector: string,
+): Cleanup {
+  let retryFrame: number | undefined
+  let disposed = false
+  const bind = (): boolean => {
+    if (disposed || root.isConnected) return true
+    if (node.id === undefined || node.id === null || String(node.id) === "-1") return false
+    const nodeId = String(node.id)
+    for (const nodeElement of document.querySelectorAll<HTMLElement>("[data-node-id]")) {
+      if (nodeElement.dataset.nodeId !== nodeId) continue
+      const renderedRoot = [...nodeElement.querySelectorAll<HTMLElement>(selector)].find(
+        (candidate) => candidate.dataset.input === root.dataset.input,
+      )
+      if (!renderedRoot || renderedRoot === root) continue
+      if (renderedRoot.classList.contains("h-full")) root.classList.add("h-full")
+      if (renderedRoot.classList.contains("w-full")) root.classList.add("w-full")
+      renderedRoot.replaceWith(root)
+      return true
+    }
+    return false
+  }
+  const bindingTimer = globalThis.setTimeout(() => {
+    if (!bind()) retryFrame = globalThis.requestAnimationFrame(() => bind())
+  }, 0)
+  return () => {
+    disposed = true
+    globalThis.clearTimeout(bindingTimer)
+    if (retryFrame !== undefined) globalThis.cancelAnimationFrame(retryFrame)
+  }
+}
+
 interface NodeLifecycleState {
   disposed: boolean
   cleanups: Set<Cleanup>

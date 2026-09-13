@@ -328,6 +328,7 @@ describe("Reference Prompt React shell", () => {
     ).not.toBeNull()
 
     definitionsMount.destroy()
+    expect(() => definitionsMount.destroy()).not.toThrow()
     mount.destroy()
     controller.destroy()
   })

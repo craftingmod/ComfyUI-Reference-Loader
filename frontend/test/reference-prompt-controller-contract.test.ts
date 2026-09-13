@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import type { ComfyAppLike, ComfyExtension, ComfyNode, ComfyWidget } from "../src/comfyui.ts"
+import { ComfyPromptAdapter } from "../src/reference-loader/comfy-prompt-adapter.ts"
 import { ComfyUILifecycleBridge } from "../src/reference-loader/comfyui-lifecycle-bridge.ts"
 import { ReferencePromptController } from "../src/reference-loader/components/prompt-editor.ts"
 import {
@@ -103,5 +104,32 @@ describe("Prompt controller C0 contracts", () => {
     expect(controller?.serialize()).toBe(next)
 
     node.onRemoved?.()
+  })
+
+  test("keeps the Prompt adapter responsible for widget teardown", () => {
+    const app: ComfyAppLike = { registerExtension: () => undefined }
+    const lifecycle = new ComfyUILifecycleBridge(app)
+    const adapter = new ComfyPromptAdapter(lifecycle)
+    const widgets: ComfyWidget[] = []
+    const node: ComfyNode = {
+      widgets,
+      addDOMWidget(name, _type, _element, options) {
+        const widget = { name, value: "", options } as ComfyWidget
+        widgets.push(widget)
+        return widget
+      },
+      setDirtyCanvas: () => undefined,
+    }
+    const result = adapter.createPromptWidget(node, "prompt", ["STRING", { default: emptyPrompt }])
+    const controller = lifecycle.getPromptController(node)
+    const getValue = result.widget.options?.getValue as (() => unknown) | undefined
+
+    expect(controller).toBeDefined()
+    expect(getValue?.()).toBe(emptyPrompt)
+    expect(result.widget.serializeValue?.()).toBe(emptyPrompt)
+    expect(result.widget.beforeQueued).toBeDefined()
+
+    node.onRemoved?.()
+    expect(lifecycle.getPromptController(node)).toBeUndefined()
   })
 })

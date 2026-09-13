@@ -1,4 +1,5 @@
 import type { ComfyNode } from "../../comfyui.ts"
+import { PromptEditorEngine } from "../prompt-editor-engine.ts"
 import { PROMPT_MESSAGES, detectPromptLocale, localize } from "../prompt-i18n.ts"
 import {
   normalizePromptPresetCatalog,
@@ -203,8 +204,7 @@ export class ReferencePromptController {
     | undefined
   #bodyRevisions = new Map<string, number>()
   #bodyEpoch = 0
-  #bodyFlushers = new Set<() => void>()
-  #bodyHandles = new Map<string, PromptRichEditorHandle>()
+  #editorEngine = new PromptEditorEngine()
   #v6PickerTarget: PromptEditorTargetV6 | undefined
   #v6PickerReplaceLength = 0
   #v6RawDraft: string | undefined
@@ -320,15 +320,7 @@ export class ReferencePromptController {
     target: PromptEditorTargetV6,
     handle: PromptRichEditorHandle | undefined,
   ): () => void {
-    if (!handle) return () => undefined
-    const flush = (): void => handle.flushAcceptedModel()
-    this.#bodyFlushers.add(flush)
-    const key = this.#v6BodyKey(target)
-    this.#bodyHandles.set(key, handle)
-    return () => {
-      this.#bodyFlushers.delete(flush)
-      if (this.#bodyHandles.get(key) === handle) this.#bodyHandles.delete(key)
-    }
+    return this.#editorEngine.registerBodyEditor(target, handle)
   }
 
   handlePromptBodyTrigger(
@@ -544,14 +536,11 @@ export class ReferencePromptController {
   }
 
   handleReactEditorPaste(event: ClipboardEvent): void {
-    event.stopPropagation()
+    this.#editorEngine.handlePaste(event)
   }
 
   handleReactEditorBlur(): void {
-    globalThis.setTimeout(() => {
-      if (!this.#editorRoots.some((root) => root.contains(document.activeElement)))
-        this.#closePicker()
-    }, 0)
+    this.#editorEngine.handleBlur(this.#editorRoots, () => this.#closePicker())
   }
 
   startSectionDrag(title: string, event: DragEvent): void {
@@ -603,7 +592,7 @@ export class ReferencePromptController {
     editor: HTMLElement,
     input?: PromptEditorInput,
   ): void {
-    if (this.#destroyed || !this.#isReactTextEditor(editor)) return
+    if (this.#destroyed || !this.#editorEngine.isReactTextEditor(editor)) return
     const subjectPickerWasOpen = this.#pickerMode === "subject"
     if (input?.inputType?.startsWith("delete") && subjectPickerWasOpen) {
       this.#closePicker()
@@ -616,25 +605,7 @@ export class ReferencePromptController {
   }
 
   handleReactEditorKeydown(event: KeyboardEvent): void {
-    if (
-      this.#destroyed ||
-      !(event.target instanceof Node) ||
-      !this.#isReactTextEditor(event.target)
-    )
-      return
-    const modifier = event.ctrlKey || event.metaKey
-    const isUndo = modifier && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "z"
-    const isRedo =
-      modifier &&
-      !event.altKey &&
-      (event.key.toLowerCase() === "y" || (event.key.toLowerCase() === "z" && event.shiftKey))
-    if (isUndo || isRedo) {
-      // Let Lexical's local HistoryPlugin handle the command, but keep it
-      // away from ComfyUI's graph-level undo handler.
-      event.stopPropagation()
-      return
-    }
-    this.#handlePickerKeydown(event)
+    this.#editorEngine.handleKeydown(event, (next) => this.#handlePickerKeydown(next))
   }
 
   moveSection(title: string, delta: -1 | 1): void {
@@ -886,8 +857,7 @@ export class ReferencePromptController {
     this.#definitionsListeners.clear()
     this.#sectionsListeners.clear()
     this.#pickerListeners.clear()
-    this.#bodyFlushers.clear()
-    this.#bodyHandles.clear()
+    this.#editorEngine.destroy()
     this.#bodyRevisions.clear()
     this.#v6ShotDraft = undefined
     this.#closePicker()
@@ -1017,8 +987,7 @@ export class ReferencePromptController {
   }
 
   #flushBodyEditors(): void {
-    if (this.#bodyFlushers.size === 0) return
-    for (const flush of [...this.#bodyFlushers]) flush()
+    this.#editorEngine.flushAcceptedModels()
   }
 
   #v6ReferenceFingerprint(): string {
@@ -1065,10 +1034,6 @@ export class ReferencePromptController {
       this.#setHint(error instanceof Error ? error.message : "Raw Prompt is invalid.")
       return false
     }
-  }
-
-  #isReactTextEditor(target: EventTarget | null): boolean {
-    return target instanceof Element && Boolean(target.closest("[data-prompt-react-editor]"))
   }
 
   #definitionRecords(): {
@@ -2057,7 +2022,7 @@ export class ReferencePromptController {
 
   #insertV6Part(part: PromptPartV6): void {
     if (!this.#v6PickerTarget) return
-    const handle = this.#bodyHandles.get(this.#v6BodyKey(this.#v6PickerTarget))
+    const handle = this.#editorEngine.getBodyEditor(this.#v6PickerTarget)
     if (!handle) return
     handle.insertParts([part], this.#v6PickerReplaceLength)
     this.#closePicker()

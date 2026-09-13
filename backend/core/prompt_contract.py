@@ -364,14 +364,14 @@ def compile_prompt_sections(
     return _v6_compiled_parts(parts, references, tokens)
 
   subjects = "\n\n".join(
-    f"<Subject {index}>: {render_parts(subject.parts)}".rstrip()
+    f"<Subject {index}>: {render_parts(subject.parts) or 'N/A'}".rstrip()
     for index, subject in enumerate(document.subjects, 1)
   )
   ordered_shots = sorted(
     enumerate(document.shots), key=lambda pair: (pair[1].frame_index, pair[0])
   )
   shots = "\n\n".join(
-    f"[Shot {index}]\nAt {(int(shot.frame_index * 1000 / 24 + 0.5) / 1000):.3f} seconds: {render_parts(shot.parts)}".rstrip()
+    f"[Shot {index}]\n[{(int(shot.frame_index * 1000 / 24 + 0.5) / 1000):.3f}s]: {render_parts(shot.parts)}".rstrip()
     for index, (_, shot) in enumerate(ordered_shots, 1)
   )
   result: list[tuple[str, str]] = []

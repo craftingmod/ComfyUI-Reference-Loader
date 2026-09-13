@@ -117,6 +117,10 @@ describe("Reference Prompt v6 AST", () => {
   test("does not promote text while compiling and parses registered v6 tags", () => {
     const value = documentV6()
     expect(compilePromptDocumentV6(value, [])).toContain("Meet <Subject 1>")
+    expect(compilePromptDocumentV6(value, [])).toContain("[Shot 1]\n[1.000s]: <Subject 1>")
+    expect(
+      compilePromptDocumentV6({ ...value, subjects: [{ ...value.subjects[0]!, parts: [] }] }, []),
+    ).toContain("<Subject 1>: N/A")
     expect(
       compilePromptDocumentV6(
         {

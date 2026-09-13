@@ -459,7 +459,7 @@ export function compilePromptDocumentV6(
       .join("")
       .trim()
   const subjects = validated.subjects
-    .map((subject, index) => `<Subject ${index + 1}>: ${render(subject.parts)}`.trimEnd())
+    .map((subject, index) => `<Subject ${index + 1}>: ${render(subject.parts) || "N/A"}`.trimEnd())
     .join("\n\n")
   const orderedShots = [...validated.shots].sort(
     (left, right) =>
@@ -468,7 +468,7 @@ export function compilePromptDocumentV6(
   )
   const shots = orderedShots
     .map((shot, index) =>
-      `[Shot ${index + 1}]\nAt ${(Math.floor((shot.frameIndex * 1000) / 24 + 0.5) / 1000).toFixed(3)} seconds: ${render(shot.parts)}`.trimEnd(),
+      `[Shot ${index + 1}]\n[${(Math.floor((shot.frameIndex * 1000) / 24 + 0.5) / 1000).toFixed(3)}s]: ${render(shot.parts)}`.trimEnd(),
     )
     .join("\n\n")
   const compiled = validated.sections.map((section): [string, string] => {

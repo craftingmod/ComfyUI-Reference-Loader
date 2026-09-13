@@ -88,7 +88,16 @@ def test_v6_preserves_ids_and_compiles_definition_refs_directly():
   assert compile_prompt_state(document(), reference_state()) == (
     "subject_definitions:\n<Subject 1>: red coat\n\n"
     "scene:\nMeet <Subject 1> at <Picture 1>\n\n"
-    "timeline_direction:\n[Shot 1]\nAt 2.042 seconds: <Subject 1>"
+    "timeline_direction:\n[Shot 1]\n[2.042s]: <Subject 1>"
+  )
+
+
+def test_v6_compiles_empty_subject_as_na():
+  value = document()
+  value["subjects"] = [{**value["subjects"][0], "parts": []}]
+
+  assert compile_prompt_state(value, reference_state()).startswith(
+    "subject_definitions:\n<Subject 1>: N/A\n\n"
   )
 
 

@@ -265,7 +265,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     ],
   }
   assert bundle.compiled_prompt == (
-    "subject_definitions:\n<Subject 1>:\n\nscene:\nUse <Subject 1> from <Picture 1>"
+    "subject_definitions:\n<Subject 1>: N/A\n\nscene:\nUse <Subject 1> from <Picture 1>"
   )
   contract = importlib.import_module("backend.core.reference_contract")
   assert bundle.reference_fingerprint == contract.reference_loader_fingerprint(
@@ -351,7 +351,8 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     prompt_by_order=True,
   )
   assert (
-    order_bound_output[0].compiled_prompt == "subject_definitions:\n<Subject 1>:\n\n"
+    order_bound_output[0].compiled_prompt
+    == "subject_definitions:\n<Subject 1>: N/A\n\n"
     "scene:\nUse <Subject 1> from <Picture 1>"
   )
   assert (

@@ -1,11 +1,12 @@
 import type { ComfyNode } from "../../comfyui.ts"
-import { ReferenceLoaderApi } from "../api.ts"
+import { ReferenceLoaderApi, type UploadedReference } from "../api.ts"
 import { AudioPreviewPlayer } from "../audio-preview-player.ts"
 import { openImageEditor } from "../editors/image-editor.ts"
 import { openTrimEditor } from "../editors/trim-editor.ts"
 import { canUseAsH3Guide, type H3GuideChannel } from "../h3-media-guides.ts"
 import { H3TimelineSession, type H3TimelineFocus } from "../h3-timeline-session.ts"
 import { LoaderStore, type LoaderDispatchOptions } from "../loader-store.ts"
+import { MediaRuntimeCoordinator, type MediaRuntimeHost } from "../media-runtime-coordinator.ts"
 import type { PromptReference, PromptShot } from "../prompt-v6.ts"
 import { loaderReducer, type LoaderAction, type LoaderChannel } from "../reducer.ts"
 import { deserializeLoaderState, serializeLoaderState } from "../serialization.ts"
@@ -19,7 +20,6 @@ import {
   isAudioItem,
   type H3TimelineState,
   type LoaderState,
-  type ItemRuntime,
   type MediaItem,
 } from "../types.ts"
 import { VideoPreviewPlayer } from "../video-preview-player.ts"
@@ -43,17 +43,6 @@ import {
   type LoaderReactActions,
   type LoaderReactMount,
 } from "./loader-react.tsx"
-
-interface PendingUpload {
-  id: string
-  file: File
-  objectUrl: string
-}
-
-interface RuntimeLoadOptions {
-  renderStart?: boolean
-  completionRender?: "immediate" | "scheduled"
-}
 
 export interface LoaderChangeEvents {
   beforeChange?(): void
@@ -229,59 +218,6 @@ function drawWaveform(
   context.stroke()
 }
 
-type ReleaseRuntimeSlot = () => void
-
-interface RuntimeWaiter {
-  signal: AbortSignal
-  resolve: (release: ReleaseRuntimeSlot | undefined) => void
-  onAbort: () => void
-}
-
-class RuntimeLoadLimiter {
-  #active = 0
-  #queue: RuntimeWaiter[] = []
-
-  constructor(private readonly limit: number) {}
-
-  acquire(signal: AbortSignal): Promise<ReleaseRuntimeSlot | undefined> {
-    if (signal.aborted) return Promise.resolve(undefined)
-    return new Promise((resolve) => {
-      const waiter: RuntimeWaiter = {
-        signal,
-        resolve,
-        onAbort: () => {
-          const index = this.#queue.indexOf(waiter)
-          if (index >= 0) this.#queue.splice(index, 1)
-          resolve(undefined)
-        },
-      }
-      signal.addEventListener("abort", waiter.onAbort, { once: true })
-      this.#queue.push(waiter)
-      this.#pump()
-    })
-  }
-
-  #pump(): void {
-    while (this.#active < this.limit && this.#queue.length > 0) {
-      const waiter = this.#queue.shift()
-      if (!waiter) return
-      waiter.signal.removeEventListener("abort", waiter.onAbort)
-      if (waiter.signal.aborted) {
-        waiter.resolve(undefined)
-        continue
-      }
-      this.#active += 1
-      let released = false
-      waiter.resolve(() => {
-        if (released) return
-        released = true
-        this.#active -= 1
-        this.#pump()
-      })
-    }
-  }
-}
-
 export class ReferenceLoaderController {
   readonly root: HTMLElement
   #reactHost: HTMLElement
@@ -344,22 +280,16 @@ export class ReferenceLoaderController {
   #node: ComfyNode
   #api: ReferenceLoaderApi
   #store: LoaderStore
-  #runtime = new Map<string, ItemRuntime>()
-  #runtimeSequences = new Map<string, number>()
-  #runtimeSequence = 0
-  #runtimeEpoch = 0
-  #runtimeLimiter = new RuntimeLoadLimiter(4)
+  #mediaRuntime: MediaRuntimeCoordinator
   #audioPreview = new AudioPreviewPlayer()
   #videoPreview = new VideoPreviewPlayer()
   #waveformResizeObserver: ResizeObserver | undefined
   #unsubscribeAudioPreview: (() => void) | undefined
   #unsubscribeVideoPreview: (() => void) | undefined
-  #pending = new Map<string, PendingUpload>()
   #selectedId: string | undefined
   #status = "Drop image, audio, or video files to begin."
   #deferPreviews = false
   #destroyController = new AbortController()
-  #stateController = new AbortController()
   #modalController: AbortController | undefined
   #dragScope =
     globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -390,6 +320,26 @@ export class ReferenceLoaderController {
     this.#api = api
     this.#changeEvents = changeEvents
     this.#mode = options.mode ?? "references"
+    const runtimeHost: MediaRuntimeHost = {
+      getState: () => this.state,
+      getApi: () => this.#api,
+      getPreviewMaxPixels: () => this.state.ui.previewMaxPixels,
+      getWaveformPeaks: () => this.state.ui.waveformPeaks,
+      isDestroyed: () => this.#destroyed,
+      setStatus: (message) => {
+        this.#status = message
+      },
+      render: () => this.render(),
+      scheduleRender: () => this.#scheduleRender(),
+      publishRuntimeUpdate: () => this.#publishRuntimeUpdate(),
+      commitUploadedMedia: (uploaded, replaceId, filename) =>
+        this.#commitUploadedMedia(uploaded, replaceId, filename),
+      commitRuntimeCapabilityChange: (id) => this.#disableSilentVideoAudio(id),
+      onRuntimePreviewUpdated: () => {
+        if (this.#hasFocusedCaption()) this.#deferPreviews = true
+      },
+    }
+    this.#mediaRuntime = new MediaRuntimeCoordinator(runtimeHost)
     if (typeof ResizeObserver !== "undefined") {
       this.#waveformResizeObserver = new ResizeObserver(() => {
         if (!this.#destroyed) this.#drawWaveforms()
@@ -416,7 +366,7 @@ export class ReferenceLoaderController {
     })
     if (parsed.issues.length > 0) this.#status = parsed.issues.join(" ")
     else if (this.#mode === "single-image") this.#status = ""
-    this.#promptReferences = projectPromptReferences(this.state, this.#runtime)
+    this.#promptReferences = projectPromptReferences(this.state, this.#mediaRuntime.runtime)
     this.#promptReferenceSourceKey = promptReferenceSourceKey(this.state)
     this.#viewSnapshot = this.#buildViewSnapshot()
     this.#unsubscribeAudioPreview = this.#audioPreview.subscribe(() => this.#syncPlaybackUi())
@@ -538,7 +488,7 @@ export class ReferenceLoaderController {
     if (this.#destroyed || !this.state.items[id]) return
     if (this.#audioPreview.snapshot.owner === `grid:${id}`) this.#audioPreview.stop()
     if (this.#videoPreview.snapshot.owner === `grid:${id}`) this.#videoPreview.stop()
-    this.#runtime.delete(id)
+    this.#mediaRuntime.remove(id)
     this.#dispatch({ type: "remove", id })
   }
 
@@ -738,19 +688,12 @@ export class ReferenceLoaderController {
     this.#audioPreview.stop()
     this.#videoPreview.stop()
     this.#modalController?.abort()
-    this.#stateController.abort()
-    this.#stateController = new AbortController()
-    this.#runtimeEpoch += 1
-    for (const pending of this.#pending.values()) URL.revokeObjectURL(pending.objectUrl)
-    this.#pending.clear()
+    this.#mediaRuntime.resetForStateChange()
     const parsed = deserializeLoaderState(serialized)
     this.#store.restore(this.#stateForMode(parsed.state))
     this.#selectedId = undefined
     this.#deferPreviews = false
     this.#timelineSession.reset()
-    this.#runtime.clear()
-    this.#runtimeSequences.clear()
-    this.#runtimeSequence = 0
     this.#status =
       parsed.issues.length > 0
         ? parsed.issues.join(" ")
@@ -796,7 +739,6 @@ export class ReferenceLoaderController {
     this.#destroyed = true
     this.#cancelScheduledRender()
     this.#modalController?.abort()
-    this.#stateController.abort()
     this.#destroyController.abort()
     this.#unsubscribeAudioPreview?.()
     this.#unsubscribeVideoPreview?.()
@@ -804,10 +746,7 @@ export class ReferenceLoaderController {
     this.#waveformResizeObserver = undefined
     this.#audioPreview.destroy()
     this.#videoPreview.destroy()
-    for (const pending of this.#pending.values()) URL.revokeObjectURL(pending.objectUrl)
-    this.#pending.clear()
-    this.#runtime.clear()
-    this.#runtimeSequences.clear()
+    this.#mediaRuntime.destroy()
     this.#referenceListeners.clear()
     this.#viewListeners.clear()
     this.#timelineSession.destroy()
@@ -836,11 +775,11 @@ export class ReferenceLoaderController {
 
   #hydrateRestoredRuntime(force = false): void {
     const items = Object.values(this.state.items)
-    for (const item of items) this.#runtime.set(item.id, { loading: true })
+    this.#mediaRuntime.hydrate(items, {
+      renderStart: false,
+      completionRender: "scheduled",
+    })
     this.render(force)
-    for (const item of items) {
-      void this.#loadRuntime(item, { renderStart: false, completionRender: "scheduled" })
-    }
   }
 
   #scheduleRender(): void {
@@ -861,8 +800,8 @@ export class ReferenceLoaderController {
     return createLoaderViewSnapshot({
       state: this.state,
       display: this.#displayState(),
-      runtime: this.#runtime,
-      pending: [...this.#pending.values()].map((pending) => ({
+      runtime: this.#mediaRuntime.runtime,
+      pending: [...this.#mediaRuntime.pending.values()].map((pending) => ({
         id: pending.id,
         filename: pending.file.name,
       })),
@@ -886,7 +825,7 @@ export class ReferenceLoaderController {
   }
 
   #syncPromptReferences(notify = true): boolean {
-    const next = projectPromptReferences(this.state, this.#runtime)
+    const next = projectPromptReferences(this.state, this.#mediaRuntime.runtime)
     const nextSourceKey = promptReferenceSourceKey(this.state)
     if (
       samePromptReferences(this.#promptReferences, next) &&
@@ -1103,7 +1042,7 @@ export class ReferenceLoaderController {
       "canvas[data-waveform-id]",
     )) {
       const id = canvas.dataset.waveformId
-      if (id) drawWaveform(canvas, this.#runtime.get(id)?.waveform ?? [])
+      if (id) drawWaveform(canvas, this.#mediaRuntime.getRuntime(id)?.waveform ?? [])
     }
   }
 
@@ -1179,21 +1118,14 @@ export class ReferenceLoaderController {
       this.state.h3Timeline.startImageId !== null ||
       this.state.h3Timeline.endImageId !== null ||
       this.state.h3Timeline.guides.length > 0
-    if (!hadItems && !hadTimeline && this.#pending.size === 0) return
+    if (!hadItems && !hadTimeline && this.#mediaRuntime.pending.size === 0) return
     this.#audioPreview.stop()
     this.#videoPreview.stop()
     this.#modalController?.abort()
-    this.#stateController.abort()
-    this.#stateController = new AbortController()
-    this.#runtimeEpoch += 1
-    for (const pending of this.#pending.values()) URL.revokeObjectURL(pending.objectUrl)
-    this.#pending.clear()
+    this.#mediaRuntime.resetForStateChange()
     this.#selectedId = undefined
     this.#deferPreviews = false
     this.#timelineSession.reset()
-    this.#runtime.clear()
-    this.#runtimeSequences.clear()
-    this.#runtimeSequence = 0
     this.#status =
       hadItems || hadTimeline
         ? this.#mode === "single-image"
@@ -1208,7 +1140,7 @@ export class ReferenceLoaderController {
 
   async #toggleAudioPreview(id: string): Promise<void> {
     const item = this.state.items[id]
-    const runtime = this.#runtime.get(id)
+    const runtime = this.#mediaRuntime.getRuntime(id)
     if (
       !item ||
       !isAudioItem(item) ||
@@ -1243,7 +1175,7 @@ export class ReferenceLoaderController {
 
   async #toggleVideoPreview(id: string): Promise<void> {
     const item = this.state.items[id]
-    const runtime = this.#runtime.get(id)
+    const runtime = this.#mediaRuntime.getRuntime(id)
     if (!item || item.kind !== "video" || runtime?.loading) return
     const duration = runtime?.metadata?.duration ?? item.crop?.end
     if (duration === undefined) return
@@ -1307,27 +1239,27 @@ export class ReferenceLoaderController {
         this.render()
         return
       }
-      if (this.#pending.size > 0) {
+      if (this.#mediaRuntime.pending.size > 0) {
         this.#status = "Wait for the current image upload to finish."
         this.render()
         return
       }
       if (images.length > 1)
         this.#status = `${images.length - 1} additional image${images.length === 2 ? " was" : "s were"} skipped.`
-      await this.#uploadFile(images[0] as File, replaceId ?? this.state.imageOrder[0])
+      await this.#mediaRuntime.upload(images[0] as File, replaceId ?? this.state.imageOrder[0])
       return
     }
     if (replaceId && files.length === 1) {
       const target = this.state.items[replaceId]
       const kind = fileMediaKind(files[0] as File)
       if (target && kind === target.kind) {
-        await this.#uploadFile(files[0] as File, replaceId)
+        await this.#mediaRuntime.upload(files[0] as File, replaceId)
         return
       }
     }
     const counts = { image: 0, audio: 0, video: 0 }
     for (const item of Object.values(this.state.items)) counts[item.kind] += 1
-    for (const pending of this.#pending.values()) {
+    for (const pending of this.#mediaRuntime.pending.values()) {
       const kind = fileMediaKind(pending.file)
       if (kind) counts[kind] += 1
     }
@@ -1352,7 +1284,7 @@ export class ReferenceLoaderController {
       if (skipped > 0) this.render()
       return
     }
-    await Promise.allSettled(accepted.map((file) => this.#uploadFile(file)))
+    await Promise.allSettled(accepted.map((file) => this.#mediaRuntime.upload(file)))
   }
 
   #reloadChannelRuntime(channel: LoaderChannel): void {
@@ -1364,7 +1296,7 @@ export class ReferenceLoaderController {
           : this.state.audioOrder
     for (const id of new Set(ids)) {
       const item = this.state.items[id]
-      if (item) void this.#loadRuntime(item)
+      if (item) void this.#mediaRuntime.load(item)
     }
   }
 
@@ -1378,164 +1310,61 @@ export class ReferenceLoaderController {
     this.render()
   }
 
-  async #uploadFile(file: File, replaceId?: string): Promise<void> {
-    const epoch = this.#runtimeEpoch
-    const stateController = this.#stateController
-    const id = `pending-${globalThis.crypto?.randomUUID?.() ?? Math.random()}`
-    const objectUrl = URL.createObjectURL(file)
-    this.#pending.set(id, { id, file, objectUrl })
-    this.#status = `Uploading ${file.name}…`
-    this.render()
-    try {
-      const uploaded = await this.#api.upload(file, stateController.signal)
-      if (!this.#isStateRequestCurrent(epoch, stateController)) return
-      if (this.#mode === "single-image" && uploaded.kind !== "image") {
-        this.#status = `${file.name}: the server did not recognize this as an image.`
-        return
-      }
-      const canonicalCount = Object.values(this.state.items).filter(
-        (candidate) => candidate.kind === uploaded.kind,
-      ).length
-      const currentTarget = replaceId ? this.state.items[replaceId] : undefined
-      if (replaceId && currentTarget?.kind !== uploaded.kind) {
-        this.#status = `${file.name}: the server identified a different media type, so the reference was not replaced.`
-        return
-      }
-      if (
-        this.#mode !== "single-image" &&
-        !replaceId &&
-        canonicalCount >= MEDIA_LIMITS[uploaded.kind]
-      ) {
-        this.#status = `${file.name}: the server identified this as ${uploaded.kind}, but that media limit is already full.`
-        return
-      }
-      let item = createMediaItem(uploaded.kind, uploaded.source, replaceId)
-      this.#runtime.set(item.id, { loading: true, metadata: uploaded.metadata })
-      if (replaceId) {
-        if (this.#audioPreview.snapshot.owner === `grid:${replaceId}`) this.#audioPreview.stop()
-        if (this.#videoPreview.snapshot.owner === `grid:${replaceId}`) this.#videoPreview.stop()
-        this.#dispatch({ type: "replace-media", id: replaceId, item })
-      } else if (this.#mode === "single-image") {
-        const empty = loaderReducer(this.state, { type: "clear" })
-        const replacement = loaderReducer(empty, { type: "add", item })
-        this.#dispatch({ type: "replace", state: this.#stateForMode(replacement) })
-      } else {
-        this.#dispatch({ type: "add", item })
-      }
-      this.#selectedId = item.id
-      this.#status = replaceId
-        ? `${file.name} replaced the existing reference.`
-        : this.#mode === "single-image"
-          ? ""
-          : `${file.name} added.`
-      await this.#loadRuntime(item)
-    } catch (error) {
-      if (!this.#isStateRequestCurrent(epoch, stateController)) return
-      if (!(error instanceof DOMException && error.name === "AbortError")) {
-        this.#status = `${file.name}: ${error instanceof Error ? error.message : "Upload failed."}`
-      }
-    } finally {
-      if (this.#pending.get(id)?.objectUrl === objectUrl) this.#pending.delete(id)
-      URL.revokeObjectURL(objectUrl)
-      if (this.#isStateRequestCurrent(epoch, stateController)) this.render()
+  #commitUploadedMedia(
+    uploaded: UploadedReference,
+    replaceId?: string,
+    uploadFilename = uploaded.source.path.split("/").pop() ?? "Media",
+  ): MediaItem | undefined {
+    if (this.#mode === "single-image" && uploaded.kind !== "image") {
+      this.#status = `${uploadFilename}: the server did not recognize this as an image.`
+      return undefined
     }
-  }
-
-  async #loadRuntime(item: MediaItem, options: RuntimeLoadOptions = {}): Promise<void> {
-    if (this.#destroyed) return
-    const epoch = this.#runtimeEpoch
-    const stateController = this.#stateController
-    const sequence = ++this.#runtimeSequence
-    this.#runtimeSequences.set(item.id, sequence)
-    const current = this.#runtime.get(item.id) ?? { loading: true }
-    const { error: _previousError, ...withoutError } = current
-    this.#runtime.set(item.id, { ...withoutError, loading: true })
-    if (options.renderStart !== false) this.render()
-    const release = await this.#runtimeLimiter.acquire(stateController.signal)
-    if (!release) return
-    try {
-      if (
-        !this.#isStateRequestCurrent(epoch, stateController) ||
-        this.#runtimeSequences.get(item.id) !== sequence ||
-        !this.state.items[item.id]
-      )
-        return
-      const metadataPromise = this.#api.metadata(item.source, stateController.signal)
-      const proxyPromise =
-        item.kind === "image" || item.kind === "video"
-          ? this.#api.imageProxy(
-              item.source,
-              this.state.ui.previewMaxPixels,
-              stateController.signal,
-            )
-          : undefined
-      const [metadata, proxy] = await Promise.all([metadataPromise, proxyPromise])
-      if (
-        !this.#isStateRequestCurrent(epoch, stateController) ||
-        this.#runtimeSequences.get(item.id) !== sequence ||
-        !this.state.items[item.id]
-      )
-        return
-      if (item.kind === "video" && metadata.hasAudio === false)
-        this.#disableSilentVideoAudio(item.id)
-      const waveform =
-        item.kind === "audio" || (item.kind === "video" && metadata.hasAudio !== false)
-          ? await this.#api.waveform(
-              item.source,
-              this.state.ui.waveformPeaks,
-              item.crop,
-              stateController.signal,
-            )
-          : undefined
-      if (
-        !this.#isStateRequestCurrent(epoch, stateController) ||
-        this.#runtimeSequences.get(item.id) !== sequence ||
-        !this.state.items[item.id]
-      )
-        return
-      const runtimeMetadata =
-        metadata.duration === undefined && waveform?.duration !== undefined
-          ? { ...metadata, duration: waveform.duration }
-          : metadata
-      this.#runtime.set(item.id, {
-        loading: false,
-        metadata: runtimeMetadata,
-        ...(proxy ? { previewUrl: proxy.url } : {}),
-        ...(waveform ? { waveform: waveform.pairs } : {}),
-      })
-      if (this.#hasFocusedCaption()) this.#deferPreviews = true
-      this.#publishRuntimeUpdate()
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return
-      if (
-        !this.#isStateRequestCurrent(epoch, stateController) ||
-        this.#runtimeSequences.get(item.id) !== sequence ||
-        !this.state.items[item.id]
-      )
-        return
-      this.#runtime.set(item.id, {
-        ...current,
-        loading: false,
-        error: error instanceof Error ? error.message : "Preview failed.",
-      })
-      if (this.#hasFocusedCaption()) this.#deferPreviews = true
-      this.#publishRuntimeUpdate()
-    } finally {
-      release()
+    const canonicalCount = Object.values(this.state.items).filter(
+      (candidate) => candidate.kind === uploaded.kind,
+    ).length
+    const currentTarget = replaceId ? this.state.items[replaceId] : undefined
+    if (replaceId && currentTarget?.kind !== uploaded.kind) {
+      this.#status = `${uploadFilename}: the server identified a different media type, so the reference was not replaced.`
+      return undefined
     }
-    if (options.completionRender === "scheduled") this.#scheduleRender()
-    else this.render()
+    if (
+      this.#mode !== "single-image" &&
+      !replaceId &&
+      canonicalCount >= MEDIA_LIMITS[uploaded.kind]
+    ) {
+      this.#status = `${uploadFilename}: the server identified this as ${uploaded.kind}, but that media limit is already full.`
+      return undefined
+    }
+    const item = createMediaItem(uploaded.kind, uploaded.source, replaceId)
+    if (replaceId) {
+      if (this.#audioPreview.snapshot.owner === `grid:${replaceId}`) this.#audioPreview.stop()
+      if (this.#videoPreview.snapshot.owner === `grid:${replaceId}`) this.#videoPreview.stop()
+      this.#dispatch({ type: "replace-media", id: replaceId, item })
+    } else if (this.#mode === "single-image") {
+      const empty = loaderReducer(this.state, { type: "clear" })
+      const replacement = loaderReducer(empty, { type: "add", item })
+      this.#dispatch({ type: "replace", state: this.#stateForMode(replacement) })
+    } else {
+      this.#dispatch({ type: "add", item })
+    }
+    this.#selectedId = item.id
+    this.#status = replaceId
+      ? `${uploadFilename} replaced the existing reference.`
+      : this.#mode === "single-image"
+        ? ""
+        : `${uploadFilename} added.`
+    return item
   }
 
   async #editItem(id: string, channel?: LoaderChannel): Promise<void> {
     const item = this.state.items[id]
-    if (!item || this.#runtime.get(id)?.applyingEdit) return
+    if (!item || this.#mediaRuntime.getRuntime(id)?.applyingEdit) return
     this.#audioPreview.stop()
     this.#videoPreview.stop()
     this.#modalController?.abort()
     const modalController = new AbortController()
     this.#modalController = modalController
-    const runtime = this.#runtime.get(id)
+    const runtime = this.#mediaRuntime.getRuntime(id)
     try {
       if (item.kind === "image") {
         const imageMetadata = runtime?.metadata
@@ -1555,8 +1384,8 @@ export class ReferenceLoaderController {
         if (!editorResult) return
         if (!this.#isEditCurrent(id, item, modalController)) return
         if (editorResult.action === "restore-original") {
-          this.#invalidateRuntime(id)
-          this.#runtime.set(id, { loading: true })
+          this.#mediaRuntime.invalidate(id)
+          this.#mediaRuntime.setRuntime(id, { loading: true })
           this.#dispatch({
             type: "restore-image-original",
             id,
@@ -1564,10 +1393,10 @@ export class ReferenceLoaderController {
           })
           this.render(true)
           const restored = this.state.items[id]
-          if (restored) await this.#loadRuntime(restored)
+          if (restored) await this.#mediaRuntime.load(restored)
           return
         }
-        this.#runtime.set(id, { ...runtime, loading: true, applyingEdit: true })
+        this.#mediaRuntime.setRuntime(id, { ...runtime, loading: true, applyingEdit: true })
         this.render(true)
         this.#node.setDirtyCanvas(true, true)
         let edit = editorResult.edit
@@ -1594,7 +1423,7 @@ export class ReferenceLoaderController {
         if (!this.#isEditCurrent(id, item, modalController)) return
         const configuredPreviewIsCurrent =
           configuredPreviewPixels === this.state.ui.previewMaxPixels
-        this.#invalidateRuntime(id)
+        this.#mediaRuntime.invalidate(id)
         const canonicalEdit =
           edit.mask && !result.edit.mask
             ? { ...result.edit, mask: edit.mask, maskMode: "keep" as const }
@@ -1606,7 +1435,7 @@ export class ReferenceLoaderController {
           source: result.source,
           caption: editorResult.caption,
         })
-        this.#runtime.set(id, {
+        this.#mediaRuntime.setRuntime(id, {
           loading: false,
           ...(configuredPreviewIsCurrent && configuredPreview?.url
             ? { previewUrl: configuredPreview.url }
@@ -1629,7 +1458,7 @@ export class ReferenceLoaderController {
         this.#node.setDirtyCanvas(true, true)
         if (!configuredPreviewIsCurrent) {
           const updated = this.state.items[id]
-          if (updated) await this.#loadRuntime(updated)
+          if (updated) await this.#mediaRuntime.load(updated)
         }
       } else {
         let metadata = runtime?.metadata
@@ -1689,12 +1518,12 @@ export class ReferenceLoaderController {
         })
         this.render(true)
         const updated = this.state.items[id]
-        if (updated) await this.#loadRuntime(updated)
+        if (updated) await this.#mediaRuntime.load(updated)
       }
     } catch (error) {
       if (!this.#isEditCurrent(id, item, modalController)) return
       if (!(error instanceof DOMException && error.name === "AbortError")) {
-        this.#runtime.set(id, {
+        this.#mediaRuntime.setRuntime(id, {
           ...runtime,
           loading: false,
           error: error instanceof Error ? error.message : "Edit failed.",
@@ -1720,19 +1549,6 @@ export class ReferenceLoaderController {
     )
   }
 
-  #isStateRequestCurrent(epoch: number, controller: AbortController): boolean {
-    return (
-      !this.#destroyed &&
-      !controller.signal.aborted &&
-      this.#stateController === controller &&
-      this.#runtimeEpoch === epoch
-    )
-  }
-
-  #invalidateRuntime(id: string): void {
-    this.#runtimeSequences.set(id, ++this.#runtimeSequence)
-  }
-
   #dispatch(
     action: LoaderAction,
     options: LoaderDispatchOptions & { render?: boolean } = {},
@@ -1756,7 +1572,11 @@ export class ReferenceLoaderController {
 
   #toggleVideoAudio(id: string): void {
     const item = this.state.items[id]
-    if (!item || item.kind !== "video" || this.#runtime.get(id)?.metadata?.hasAudio === false)
+    if (
+      !item ||
+      item.kind !== "video" ||
+      this.#mediaRuntime.getRuntime(id)?.metadata?.hasAudio === false
+    )
       return
     this.#dispatch({ type: "toggle-video-audio", id })
     const next = this.state.items[id]
@@ -1780,7 +1600,7 @@ export class ReferenceLoaderController {
     this.#finishStateChange()
     this.render()
     if (reloadRuntime) {
-      for (const item of Object.values(this.state.items)) void this.#loadRuntime(item)
+      for (const item of Object.values(this.state.items)) void this.#mediaRuntime.load(item)
     }
   }
 
@@ -1788,11 +1608,9 @@ export class ReferenceLoaderController {
     if (this.#destroyed) return
     if (this.#selectedId && !this.state.items[this.#selectedId]) this.#selectedId = undefined
     this.#timelineSession.reconcile()
-    for (const id of this.#runtime.keys()) {
+    for (const id of this.#mediaRuntime.runtime.keys()) {
       if (!this.state.items[id]) {
-        this.#runtime.delete(id)
-        this.#invalidateRuntime(id)
-        this.#runtimeSequences.delete(id)
+        this.#mediaRuntime.remove(id)
       }
     }
     this.#node.setDirtyCanvas(true, true)

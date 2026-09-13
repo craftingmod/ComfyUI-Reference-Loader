@@ -197,6 +197,18 @@ class ReferenceLoaderNode(io.ComfyNode):
           tooltip=("Internal Reference Loader state for the custom editor."),
         ),
         io.String.Input(
+          "h3_timeline",
+          display_name="Timeline",
+          default="",
+          multiline=False,
+          dynamic_prompts=False,
+          socketless=True,
+          extra_dict={"widgetType": "REFERENCE_H3_TIMELINE"},
+          tooltip=(
+            "UI-only H3 Timeline editor. The canonical timeline state remains in loader_state."
+          ),
+        ),
+        io.String.Input(
           "prompt_definitions",
           display_name="prompt definitions",
           default="",

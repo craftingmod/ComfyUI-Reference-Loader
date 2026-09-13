@@ -276,6 +276,22 @@ describe("Reference Loader custom widget", () => {
       app,
     )
 
+    const promptController = getReferencePromptController(node)
+    expect(promptController?.getViewSnapshot().nativeHosts.definitions).toBe(true)
+    const subject = roots
+      .get("prompt_definitions")
+      ?.querySelector<HTMLElement>('[data-prompt-definition="subject"]')
+    const subjectIdentity = subject?.dataset.promptDefinitionIdentity
+    const pickerSlot =
+      subject?.querySelector<HTMLElement>(":scope > [data-prompt-react-picker-slot]") ?? undefined
+    expect(subjectIdentity).toBeTruthy()
+    expect(pickerSlot).toBeDefined()
+    promptController?.handlePromptBodyTrigger(
+      { type: "definition", id: subjectIdentity ?? "" },
+      { trigger: "#", query: "", replaceTextLength: 1 },
+    )
+    expect(promptController?.getPickerSnapshot().target).toBe(pickerSlot)
+
     expect(roots.get("prompt_definitions")?.querySelector(".rl-prompt-definitions")).toBeTruthy()
     expect(roots.get("prompt")?.querySelector(".rl-prompt-definitions")).toBeNull()
     expect(widgets.get("prompt_definitions")?.serialize).toBe(true)

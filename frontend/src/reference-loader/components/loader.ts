@@ -1,12 +1,12 @@
 import type { ComfyNode } from "../../comfyui.ts"
 import { ReferenceLoaderApi, type UploadedReference } from "../api.ts"
-import { AudioPreviewPlayer } from "../audio-preview-player.ts"
 import { openImageEditor } from "../editors/image-editor.ts"
 import { openTrimEditor } from "../editors/trim-editor.ts"
 import { canUseAsH3Guide, type H3GuideChannel } from "../h3-media-guides.ts"
 import { H3TimelineSession, type H3TimelineFocus } from "../h3-timeline-session.ts"
 import { LoaderStore, type LoaderDispatchOptions } from "../loader-store.ts"
 import { MediaRuntimeCoordinator, type MediaRuntimeHost } from "../media-runtime-coordinator.ts"
+import { PreviewSurfaceBridge, type PreviewSurfaceHost } from "../preview-surface-bridge.ts"
 import type { PromptReference, PromptShot } from "../prompt-v6.ts"
 import { loaderReducer, type LoaderAction, type LoaderChannel } from "../reducer.ts"
 import { deserializeLoaderState, serializeLoaderState } from "../serialization.ts"
@@ -17,12 +17,10 @@ import {
   H3_OUTPUT_MAX_TOTAL_FRAMES,
   H3_OUTPUT_MIN_FPS,
   H3_OUTPUT_MIN_TOTAL_FRAMES,
-  isAudioItem,
   type H3TimelineState,
   type LoaderState,
   type MediaItem,
 } from "../types.ts"
-import { VideoPreviewPlayer } from "../video-preview-player.ts"
 import { LoaderViewBridge } from "../view-bridge.ts"
 import {
   projectPromptReferences,
@@ -31,7 +29,6 @@ import {
   type LoaderDisplayState,
   type LoaderViewSnapshot,
 } from "../view-model.ts"
-import { isSilentWaveform } from "../waveform.ts"
 import type { H3WorkspaceReactMount } from "./h3-workspace-react.tsx"
 import {
   clearFileDropFeedback,
@@ -186,37 +183,6 @@ function setHorizontalCardsProperty(node: ComfyNode, horizontalCards: boolean): 
   }
 }
 
-function drawWaveform(
-  canvas: HTMLCanvasElement,
-  pairs: ReadonlyArray<readonly [number, number]>,
-): void {
-  const width = Math.max(160, Math.floor(canvas.clientWidth * (globalThis.devicePixelRatio || 1)))
-  const height = Math.max(80, Math.floor(canvas.clientHeight * (globalThis.devicePixelRatio || 1)))
-  canvas.width = width
-  canvas.height = height
-  const context = canvas.getContext("2d")
-  if (!context) return
-  context.clearRect(0, 0, width, height)
-  if (isSilentWaveform(pairs)) {
-    context.strokeStyle = "#596273"
-    context.lineWidth = Math.max(1, globalThis.devicePixelRatio || 1)
-    context.beginPath()
-    context.moveTo(0, height / 2)
-    context.lineTo(width, height / 2)
-    context.stroke()
-    return
-  }
-  context.strokeStyle = "#8eb9ff"
-  context.lineWidth = Math.max(1, globalThis.devicePixelRatio || 1)
-  context.beginPath()
-  pairs.forEach(([minimum, maximum], index) => {
-    const x = (index / Math.max(1, pairs.length - 1)) * width
-    context.moveTo(x, height / 2 - maximum * height * 0.42)
-    context.lineTo(x, height / 2 - minimum * height * 0.42)
-  })
-  context.stroke()
-}
-
 export class ReferenceLoaderController {
   readonly root: HTMLElement
   #viewBridge!: LoaderViewBridge
@@ -277,11 +243,7 @@ export class ReferenceLoaderController {
   #api: ReferenceLoaderApi
   #store: LoaderStore
   #mediaRuntime: MediaRuntimeCoordinator
-  #audioPreview = new AudioPreviewPlayer()
-  #videoPreview = new VideoPreviewPlayer()
-  #waveformResizeObserver: ResizeObserver | undefined
-  #unsubscribeAudioPreview: (() => void) | undefined
-  #unsubscribeVideoPreview: (() => void) | undefined
+  #previewSurface!: PreviewSurfaceBridge
   #selectedId: string | undefined
   #status = "Drop image, audio, or video files to begin."
   #deferPreviews = false
@@ -330,12 +292,6 @@ export class ReferenceLoaderController {
       },
     }
     this.#mediaRuntime = new MediaRuntimeCoordinator(runtimeHost)
-    if (typeof ResizeObserver !== "undefined") {
-      this.#waveformResizeObserver = new ResizeObserver(() => {
-        if (!this.#destroyed) this.#drawWaveforms()
-      })
-      this.#waveformResizeObserver.observe(this.root)
-    }
     this.#installRootDropEvents()
     const parsed = deserializeLoaderState(serialized)
     this.#store = new LoaderStore(this.#stateForMode(parsed.state))
@@ -374,18 +330,26 @@ export class ReferenceLoaderController {
         h3: this.#timelineSession.view,
       }),
       actions: this.#reactActions,
-      onReactCommit: () => {
-        this.#drawWaveforms()
-        this.#syncPlaybackUi()
-      },
+      onReactCommit: () => this.#previewSurface.syncAfterRender(),
       requestRender: () => this.render(),
     })
+    const previewHost: PreviewSurfaceHost = {
+      getRoot: () => this.root,
+      getItem: (id) => this.state.items[id],
+      getRuntime: (id) => this.#mediaRuntime.getRuntime(id),
+      getAudioPreviewUrl: (item) => this.#api.audioPreviewUrl(item.source),
+      getVideoPreviewUrl: (item) => this.#api.videoPreviewUrl(item.source),
+      isDestroyed: () => this.#destroyed,
+      setStatus: (message) => {
+        this.#status = message
+      },
+      requestRender: () => this.render(),
+    }
+    this.#previewSurface = new PreviewSurfaceBridge(previewHost)
     if (parsed.issues.length > 0) this.#status = parsed.issues.join(" ")
     else if (this.#mode === "single-image") this.#status = ""
     this.#promptReferences = projectPromptReferences(this.state, this.#mediaRuntime.runtime)
     this.#promptReferenceSourceKey = promptReferenceSourceKey(this.state)
-    this.#unsubscribeAudioPreview = this.#audioPreview.subscribe(() => this.#syncPlaybackUi())
-    this.#unsubscribeVideoPreview = this.#videoPreview.subscribe(() => this.#syncPlaybackUi())
     this.#hydrateRestoredRuntime()
   }
 
@@ -481,8 +445,7 @@ export class ReferenceLoaderController {
 
   removeItem(id: string): void {
     if (this.#destroyed || !this.state.items[id]) return
-    if (this.#audioPreview.snapshot.owner === `grid:${id}`) this.#audioPreview.stop()
-    if (this.#videoPreview.snapshot.owner === `grid:${id}`) this.#videoPreview.stop()
+    this.#previewSurface.stopForItem(id)
     this.#mediaRuntime.remove(id)
     this.#dispatch({ type: "remove", id })
   }
@@ -519,12 +482,12 @@ export class ReferenceLoaderController {
 
   previewAudio(id: string): void {
     if (this.#destroyed) return
-    void this.#toggleAudioPreview(id)
+    this.#previewSurface.previewAudio(id)
   }
 
   previewVideo(id: string): void {
     if (this.#destroyed) return
-    void this.#toggleVideoPreview(id)
+    this.#previewSurface.previewVideo(id)
   }
 
   moveItem(id: string, channel: LoaderChannel, delta: -1 | 1): void {
@@ -680,8 +643,7 @@ export class ReferenceLoaderController {
 
   restore(serialized: unknown): void {
     if (this.#destroyed) return
-    this.#audioPreview.stop()
-    this.#videoPreview.stop()
+    this.#previewSurface.stopAll()
     this.#modalController?.abort()
     this.#mediaRuntime.resetForStateChange()
     const parsed = deserializeLoaderState(serialized)
@@ -735,12 +697,7 @@ export class ReferenceLoaderController {
     this.#viewBridge.cancelScheduledRender()
     this.#modalController?.abort()
     this.#destroyController.abort()
-    this.#unsubscribeAudioPreview?.()
-    this.#unsubscribeVideoPreview?.()
-    this.#waveformResizeObserver?.disconnect()
-    this.#waveformResizeObserver = undefined
-    this.#audioPreview.destroy()
-    this.#videoPreview.destroy()
+    this.#previewSurface.destroy()
     this.#mediaRuntime.destroy()
     this.#referenceListeners.clear()
     this.#timelineSession.destroy()
@@ -958,73 +915,6 @@ export class ReferenceLoaderController {
       }
     }
   }
-  #drawWaveforms(): void {
-    for (const canvas of this.root.querySelectorAll<HTMLCanvasElement>(
-      "canvas[data-waveform-id]",
-    )) {
-      const id = canvas.dataset.waveformId
-      if (id) drawWaveform(canvas, this.#mediaRuntime.getRuntime(id)?.waveform ?? [])
-    }
-  }
-
-  #syncPlaybackUi(): void {
-    if (this.#destroyed) return
-    const audioSnapshot = this.#audioPreview.snapshot
-    for (const button of this.root.querySelectorAll<HTMLButtonElement>(
-      'button[data-action="preview-audio"]',
-    )) {
-      if (button.disabled) continue
-      const active =
-        button.dataset.playbackOwner === audioSnapshot.owner &&
-        (audioSnapshot.status === "playing" || audioSnapshot.status === "loading")
-      button.textContent = active ? "■" : "▶"
-      button.classList.toggle("is-playing", active)
-      button.setAttribute("aria-label", `${active ? "Stop" : "Play"} audio preview`)
-      button.title = active ? "Stop audio preview" : "Play trimmed audio preview"
-    }
-    const videoSnapshot = this.#videoPreview.snapshot
-    let activeMedia: HTMLElement | undefined
-    for (const button of this.root.querySelectorAll<HTMLButtonElement>(
-      'button[data-action="preview-video"]',
-    )) {
-      if (button.disabled) continue
-      const active =
-        button.dataset.playbackOwner === videoSnapshot.owner &&
-        (videoSnapshot.status === "playing" || videoSnapshot.status === "loading")
-      button.textContent = active ? "■" : "▶"
-      button.classList.toggle("is-playing", active)
-      const card = button.closest<HTMLElement>('.rl-card[data-channel="video"]')
-      const id = card?.dataset.id
-      const item = id ? this.state.items[id] : undefined
-      const withAudio = item?.kind === "video" && item.videoAudioEnabled
-      button.setAttribute(
-        "aria-label",
-        `${active ? "Stop" : "Play"} video preview ${withAudio ? "with audio" : "muted"}`,
-      )
-      button.title = active
-        ? "Stop video preview"
-        : withAudio
-          ? "Play trimmed video preview with audio"
-          : "Play trimmed muted video preview"
-      if (active)
-        activeMedia =
-          button.closest<HTMLElement>(".rl-card")?.querySelector<HTMLElement>(".rl-card__media") ??
-          undefined
-    }
-    if (activeMedia) {
-      activeMedia.querySelector("img")?.classList.add("is-video-poster-hidden")
-      const host =
-        activeMedia.querySelector<HTMLElement>("[data-video-preview-host]") ?? activeMedia
-      if (this.#videoPreview.element.parentElement !== host)
-        host.prepend(this.#videoPreview.element)
-    } else {
-      this.#videoPreview.element.remove()
-      for (const poster of this.root.querySelectorAll("img.is-video-poster-hidden")) {
-        poster.classList.remove("is-video-poster-hidden")
-      }
-    }
-  }
-
   #selectItem(id: string): void {
     this.#timelineSession.clearMediaSelection()
     this.#selectedId = id
@@ -1040,8 +930,7 @@ export class ReferenceLoaderController {
       this.state.h3Timeline.endImageId !== null ||
       this.state.h3Timeline.guides.length > 0
     if (!hadItems && !hadTimeline && this.#mediaRuntime.pending.size === 0) return
-    this.#audioPreview.stop()
-    this.#videoPreview.stop()
+    this.#previewSurface.stopAll()
     this.#modalController?.abort()
     this.#mediaRuntime.resetForStateChange()
     this.#selectedId = undefined
@@ -1057,72 +946,6 @@ export class ReferenceLoaderController {
         : "Pending uploads cleared."
     if (hadItems || hadTimeline) this.#dispatch({ type: "clear" })
     else this.render()
-  }
-
-  async #toggleAudioPreview(id: string): Promise<void> {
-    const item = this.state.items[id]
-    const runtime = this.#mediaRuntime.getRuntime(id)
-    if (
-      !item ||
-      !isAudioItem(item) ||
-      runtime?.loading ||
-      (item.kind === "video" && runtime?.metadata?.hasAudio === false)
-    )
-      return
-    const duration = runtime?.metadata?.duration ?? item.crop?.end
-    if (duration === undefined) return
-    const owner = `grid:${id}`
-    const snapshot = this.#audioPreview.snapshot
-    if (
-      snapshot.owner === owner &&
-      (snapshot.status === "playing" || snapshot.status === "loading")
-    ) {
-      this.#audioPreview.stop(owner)
-      return
-    }
-    try {
-      this.#videoPreview.stop()
-      const url =
-        item.kind === "video"
-          ? this.#api.videoPreviewUrl(item.source)
-          : this.#api.audioPreviewUrl(item.source)
-      await this.#audioPreview.play(owner, url, item.crop ?? { start: 0, end: duration })
-    } catch (error) {
-      if (this.#destroyed) return
-      this.#status = `${itemFilename(item)}: ${error instanceof Error ? error.message : "Audio preview failed."}`
-      this.render()
-    }
-  }
-
-  async #toggleVideoPreview(id: string): Promise<void> {
-    const item = this.state.items[id]
-    const runtime = this.#mediaRuntime.getRuntime(id)
-    if (!item || item.kind !== "video" || runtime?.loading) return
-    const duration = runtime?.metadata?.duration ?? item.crop?.end
-    if (duration === undefined) return
-    const owner = `grid:${id}`
-    const snapshot = this.#videoPreview.snapshot
-    if (
-      snapshot.owner === owner &&
-      (snapshot.status === "playing" || snapshot.status === "loading")
-    ) {
-      this.#videoPreview.stop(owner)
-      return
-    }
-    try {
-      this.#audioPreview.stop()
-      await this.#videoPreview.play(
-        owner,
-        this.#api.videoPreviewUrl(item.source),
-        item.crop ?? { start: 0, end: duration },
-        undefined,
-        { muted: !item.videoAudioEnabled },
-      )
-    } catch (error) {
-      if (this.#destroyed) return
-      this.#status = `${itemFilename(item)}: ${error instanceof Error ? error.message : "Video preview failed."}`
-      this.render()
-    }
   }
 
   #syncCaptionFields(id: string, source?: HTMLTextAreaElement): void {
@@ -1258,8 +1081,7 @@ export class ReferenceLoaderController {
     }
     const item = createMediaItem(uploaded.kind, uploaded.source, replaceId)
     if (replaceId) {
-      if (this.#audioPreview.snapshot.owner === `grid:${replaceId}`) this.#audioPreview.stop()
-      if (this.#videoPreview.snapshot.owner === `grid:${replaceId}`) this.#videoPreview.stop()
+      this.#previewSurface.stopForItem(replaceId)
       this.#dispatch({ type: "replace-media", id: replaceId, item })
     } else if (this.#mode === "single-image") {
       const empty = loaderReducer(this.state, { type: "clear" })
@@ -1280,8 +1102,7 @@ export class ReferenceLoaderController {
   async #editItem(id: string, channel?: LoaderChannel): Promise<void> {
     const item = this.state.items[id]
     if (!item || this.#mediaRuntime.getRuntime(id)?.applyingEdit) return
-    this.#audioPreview.stop()
-    this.#videoPreview.stop()
+    this.#previewSurface.stopAll()
     this.#modalController?.abort()
     const modalController = new AbortController()
     this.#modalController = modalController
@@ -1419,7 +1240,7 @@ export class ReferenceLoaderController {
               }
             : {
                 playback: {
-                  player: this.#audioPreview,
+                  player: this.#previewSurface.getAudioEditorPlayback(),
                   owner: `editor:${id}`,
                   url: this.#api.audioPreviewUrl(item.source),
                   enabled: true,
@@ -1501,7 +1322,7 @@ export class ReferenceLoaderController {
       return
     this.#dispatch({ type: "toggle-video-audio", id })
     const next = this.state.items[id]
-    if (next?.kind === "video") this.#videoPreview.setMuted(`grid:${id}`, !next.videoAudioEnabled)
+    if (next?.kind === "video") this.#previewSurface.setVideoMuted(id, !next.videoAudioEnabled)
   }
 
   #recordGraphChange(change: () => void): void {

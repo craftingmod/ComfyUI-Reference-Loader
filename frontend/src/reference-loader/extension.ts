@@ -268,6 +268,7 @@ export function registerReferenceLoader(
             },
           )
           const definitionsRoot = lifecycle.getPromptDefinitionRoot(node)
+          if (definitionsRoot) controller.mountDefinitions(definitionsRoot)
           const reactMount = createPromptReact({ container: root, controller })
           let removed = false
           const widget = node.addDOMWidget(inputName, REFERENCE_PROMPT_WIDGET_TYPE, root, {

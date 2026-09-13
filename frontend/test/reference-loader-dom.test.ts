@@ -1613,6 +1613,7 @@ describe("Reference Loader DOM lifecycle", () => {
     )
     try {
       await new Promise((resolve) => setTimeout(resolve, 0))
+      const serializedBeforePreview = controller.serialize()
       const button = root.querySelector<HTMLButtonElement>(
         '.rl-card[data-channel="audio"] [data-action="preview-audio"]',
       )
@@ -1627,6 +1628,7 @@ describe("Reference Loader DOM lifecycle", () => {
       expect(button?.textContent).toBe("■")
       button?.click()
       expect(button?.textContent).toBe("▶")
+      expect(controller.serialize()).toBe(serializedBeforePreview)
       button?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))
       expect(document.querySelector(".rl-trim-editor")).toBeNull()
       root

@@ -80,6 +80,7 @@ Minimax h3 styles preset are delivered from:
 - Copyright: Copyright (c) 2026 Bokuwako
 
 The upstream MIT license follows:
+
 ```
 MIT License
 

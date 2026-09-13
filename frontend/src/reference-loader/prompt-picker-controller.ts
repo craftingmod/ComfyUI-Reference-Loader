@@ -3,8 +3,9 @@ import type {
   PromptBodyTrigger,
   PromptEditorTargetV6,
 } from "./components/prompt-editor-contract.ts"
-import { PROMPT_MESSAGES, localize } from "./prompt-i18n.ts"
+import { localize } from "./prompt-i18n.ts"
 import type { PromptAlias, PromptLocale, PromptPreset } from "./prompt-presets.ts"
+import { projectPromptPicker } from "./prompt-projections.ts"
 import type {
   PromptDocumentV6,
   PromptPartV6,
@@ -376,62 +377,18 @@ export class PromptPickerController {
   }
 
   #buildSnapshot(): PromptPickerSnapshot {
-    const locale = this.#locale()
-    const createSubjectLabel = this.#createSubjectLabel
-      ? localize(PROMPT_MESSAGES.createSubject, locale).replace("{label}", this.#createSubjectLabel)
-      : ""
-    const document = this.#document()
-    const options: PromptPickerOption[] =
-      this.#mode === "reference"
-        ? this.#referencesOptions.map((reference) => ({ kind: "reference", reference }))
-        : this.#mode === "subject"
-          ? [
-              ...this.#subjects.map((subject) => ({
-                kind: "subject" as const,
-                subject,
-                ordinal:
-                  document.subjects.findIndex((candidate) => candidate.id === subject.id) + 1,
-              })),
-              ...this.#shots.map((shot) => ({
-                kind: "shot" as const,
-                shot,
-                ordinal: document.shots.findIndex((candidate) => candidate.id === shot.id) + 1,
-              })),
-              ...(this.#createSubjectLabel
-                ? [
-                    {
-                      kind: "create-subject" as const,
-                      label: this.#createSubjectLabel,
-                      createLabel: createSubjectLabel,
-                      createDetail: localize(PROMPT_MESSAGES.createSubjectDetail, locale),
-                    },
-                  ]
-                : []),
-            ]
-          : this.#mode === "alias"
-            ? this.#aliases.map((alias) => ({
-                kind: "alias" as const,
-                alias,
-                label: localize(alias.label, locale),
-                description: localize(alias.description, locale),
-              }))
-            : []
-    const emptyMessage =
-      this.#mode === "alias"
-        ? localize(PROMPT_MESSAGES.noAliases, locale)
-        : this.#mode === "subject"
-          ? localize(PROMPT_MESSAGES.noSubjects, locale)
-          : localize(PROMPT_MESSAGES.noReferences, locale)
-    return {
-      visible: this.#mode !== undefined,
+    return projectPromptPicker({
       mode: this.#mode,
       activeIndex: this.#index,
-      options,
-      emptyMessage,
-      createSubjectLabel,
-      createSubjectDetail: localize(PROMPT_MESSAGES.createSubjectDetail, locale),
+      references: this.#referencesOptions,
+      subjects: this.#subjects,
+      shots: this.#shots,
+      createSubject: this.#createSubjectLabel,
+      aliases: this.#aliases,
+      document: this.#document(),
+      locale: this.#locale(),
       target: this.#target,
-    }
+    })
   }
 
   #publish(): void {

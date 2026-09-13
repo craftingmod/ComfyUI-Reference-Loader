@@ -13,6 +13,12 @@ import {
   type PromptPreset,
   type PromptPresetCatalog,
 } from "../prompt-presets.ts"
+import {
+  projectPromptDefinitions,
+  projectPromptSections,
+  promptPartLabel,
+  promptPartVisual,
+} from "../prompt-projections.ts"
 import { PromptStore } from "../prompt-store.ts"
 import {
   normalizePromptSectionTitle,
@@ -21,13 +27,7 @@ import {
   type PromptPartV6,
   type PromptReference,
 } from "../prompt-v6.ts"
-import {
-  normalizeDefinitionTagValue,
-  placeCaretAtEnd,
-  SHOT_COLOR,
-  sectionColor,
-  subjectColor,
-} from "./prompt-dom.ts"
+import { normalizeDefinitionTagValue, placeCaretAtEnd } from "./prompt-dom.ts"
 
 export type { PromptPickerOption, PromptPickerSnapshot } from "../prompt-picker-controller.ts"
 import type {
@@ -258,48 +258,19 @@ export class ReferencePromptController {
   }
 
   resolvePromptPartLabel(part: PromptPartV6): string | undefined {
-    if (part.type === "text") return undefined
-    if (part.type === "mention")
-      return (
-        this.#references().find(
-          (reference) =>
-            reference.referenceId === part.referenceId && reference.mediaKind === part.mediaKind,
-        )?.label ?? part.label
-      )
-    const definition = this.#v6Definition(part.definitionId)
-    return definition?.tag
+    return promptPartLabel(
+      part,
+      this.#references(),
+      this.#mutations.draftDocument ?? this.#documentV6,
+    )
   }
 
   resolvePromptPartVisual(part: PromptPartV6): PromptReferenceVisual | undefined {
-    if (part.type === "text") return undefined
-    if (part.type === "mention") {
-      const reference = this.#references().find(
-        (candidate) =>
-          candidate.referenceId === part.referenceId && candidate.mediaKind === part.mediaKind,
-      )
-      return reference
-        ? {
-            previewUrl: reference.previewUrl,
-            ordinal: reference.ordinal,
-          }
-        : undefined
-    }
-    const document = this.#mutations.draftDocument ?? this.#documentV6
-    const subjectIndex = document.subjects.findIndex((subject) => subject.id === part.definitionId)
-    if (subjectIndex >= 0)
-      return {
-        definitionKind: "subject",
-        ordinal: subjectIndex + 1,
-        color: subjectColor(document.subjects[subjectIndex]?.id),
-      }
-    const shotIndex = document.shots.findIndex((shot) => shot.id === part.definitionId)
-    return shotIndex >= 0
-      ? {
-          definitionKind: "shot",
-          ordinal: shotIndex + 1,
-          color: SHOT_COLOR,
-        }
-      : undefined
+    return promptPartVisual(
+      part,
+      this.#references(),
+      this.#mutations.draftDocument ?? this.#documentV6,
+    )
   }
 
   validatePromptBodyParts(target: PromptEditorTargetV6, parts: readonly PromptPartV6[]): boolean {
@@ -770,105 +741,26 @@ export class ReferencePromptController {
     )
   }
 
-  #definitionRecords(): {
-    kind: PromptDefinitionKind
-    tag: string
-    identity: string
-    ordinal: number
-    frameIndex?: number
-    parts: readonly PromptPartV6[]
-    bodySnapshot: PromptBodySnapshot
-    placeholder: string
-  }[] {
-    const document = this.#mutations.draftDocument ?? this.#documentV6
-    const placeholder = localize(
-      this.#preset.subjectMode === "disabled"
-        ? PROMPT_MESSAGES.bodyPlaceholder
-        : PROMPT_MESSAGES.bodyPlaceholderWithSubjects,
-      this.#locale,
-    )
-    const subjects = document.subjects.map((subject, index) => ({
-      kind: "subject" as const,
-      tag: subject.tag,
-      identity: subject.id,
-      definitionId: subject.id,
-      ordinal: index + 1,
-      parts: subject.parts,
-      bodySnapshot: this.getPromptBodySnapshot({ type: "definition", id: subject.id })!,
-      placeholder,
-    }))
-    const shots = document.shots.map((shot, index) => ({
-      kind: "shot" as const,
-      tag: shot.tag,
-      identity: shot.id,
-      definitionId: shot.id,
-      ordinal: index + 1,
-      frameIndex: shot.frameIndex,
-      parts: shot.parts,
-      bodySnapshot: this.getPromptBodySnapshot({ type: "definition", id: shot.id })!,
-      placeholder,
-    }))
-    return [...subjects, ...shots]
-  }
-
   #buildDefinitionsSnapshot(): PromptDefinitionsSnapshot {
-    const records = this.#definitionRecords()
-    return {
-      subjects: records.filter((record) => record.kind === "subject"),
-      shots: records.filter((record) => record.kind === "shot"),
+    return projectPromptDefinitions({
+      document: this.#mutations.draftDocument ?? this.#documentV6,
       draft: this.#mutations.hasShotDraft,
       mounted: this.#definitionsRoot !== undefined,
-    }
+      preset: this.#preset,
+      locale: this.#locale,
+      bodySnapshot: (target) => this.getPromptBodySnapshot(target),
+    })
   }
 
   #buildSectionsSnapshot(): PromptSectionsSnapshot {
-    const document = this.#documentV6
-    const placeholder = localize(
-      this.#preset.subjectMode === "disabled"
-        ? PROMPT_MESSAGES.bodyPlaceholder
-        : PROMPT_MESSAGES.bodyPlaceholderWithSubjects,
-      this.#locale,
-    )
-    return {
-      view: document.view,
-      sections: document.sections.map((section) => {
-        const accent = sectionColor(section.title)
-        return {
-          title: section.title,
-          id: section.id,
-          color: accent.color,
-          colorIndex: accent.index,
-          isVirtual: false,
-          editor: "lexical" as const,
-          text: section.parts
-            .map((part) =>
-              part.type === "text"
-                ? part.text
-                : part.type === "mention"
-                  ? `@${this.resolvePromptPartLabel(part) ?? part.label}`
-                  : `#${this.resolvePromptPartLabel(part) ?? part.definitionId}`,
-            )
-            .join(""),
-          parts: section.parts,
-          bodySnapshot: this.getPromptBodySnapshot({ type: "section", id: section.id })!,
-          placeholder,
-          dragTitle:
-            this.#locale === "ko"
-              ? `${section.title} 섹션 순서 이동`
-              : `Reorder ${section.title} section`,
-          dragAria:
-            this.#locale === "ko"
-              ? `${section.title} 섹션 순서 이동. Alt와 위아래 화살표도 사용할 수 있습니다.`
-              : `Reorder ${section.title} section. You can also use Alt plus Up or Down.`,
-          removeTitle: this.#locale === "ko" ? `${section.title} 제거` : `Remove ${section.title}`,
-          removeAria:
-            this.#locale === "ko"
-              ? `${section.title} 섹션 제거`
-              : `Remove ${section.title} section`,
-        }
-      }),
+    return projectPromptSections({
+      document: this.#documentV6,
+      references: this.#references(),
+      preset: this.#preset,
+      locale: this.#locale,
       mounted: this.#workspaceRoot !== undefined,
-    }
+      bodySnapshot: (target) => this.getPromptBodySnapshot(target),
+    })
   }
 
   #publishSections(): void {

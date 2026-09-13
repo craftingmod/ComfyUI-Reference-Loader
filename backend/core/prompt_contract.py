@@ -396,56 +396,6 @@ def compile_prompt(document: PromptDocument, references: ReferenceState) -> str:
   )
 
 
-def rebind_prompt_mentions_by_order(
-  document: PromptDocument, references: ReferenceState
-) -> PromptDocument:
-  if document.version != PROMPT_DOCUMENT_VERSION:
-    raise _error("prompt.version", f"must equal {PROMPT_DOCUMENT_VERSION}")
-  plan = build_reference_output_plan(references)
-  ids_by_kind = {
-    "image": plan.image_ids,
-    "video": plan.video_ids,
-    "audio": plan.audio_ids,
-  }
-
-  def rebind(part: PromptPart) -> PromptPart:
-    if part.type != "mention" or part.media_kind is None:
-      return part
-    match = re.fullmatch(rf"{part.media_kind}([1-9]\d*)", part.label)
-    if match is None:
-      return part
-    ordinal = int(match.group(1))
-    ids = ids_by_kind[part.media_kind]
-    if ordinal > len(ids):
-      return part
-    return PromptPart(
-      type="mention",
-      reference_id=ids[ordinal - 1],
-      media_kind=part.media_kind,
-      label=f"{part.media_kind}{ordinal}",
-    )
-
-  def parts(values: tuple[PromptPart, ...]) -> tuple[PromptPart, ...]:
-    return tuple(rebind(part) for part in values)
-
-  return PromptDocument(
-    PROMPT_DOCUMENT_VERSION,
-    tuple(
-      PromptSubject(subject.tag, parts(subject.parts), subject.id)
-      for subject in document.subjects
-    ),
-    tuple(
-      PromptShot(shot.tag, shot.frame_index, parts(shot.parts), shot.id)
-      for shot in document.shots
-    ),
-    tuple(
-      PromptSection(section.title, parts(section.parts), section.id)
-      for section in document.sections
-    ),
-    document.view,
-  )
-
-
 def serialize_prompt_document(document: PromptDocument) -> str:
   if document.version != PROMPT_DOCUMENT_VERSION:
     raise _error("prompt.version", f"must equal {PROMPT_DOCUMENT_VERSION}")
@@ -516,6 +466,5 @@ __all__ = [
   "compile_prompt_state",
   "empty_prompt_state",
   "parse_prompt_state",
-  "rebind_prompt_mentions_by_order",
   "serialize_prompt_document",
 ]

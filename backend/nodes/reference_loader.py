@@ -11,7 +11,6 @@ from ..core.prompt_contract import (
   EMPTY_PROMPT_STATE_JSON,
   compile_prompt,
   parse_prompt_state,
-  rebind_prompt_mentions_by_order,
   serialize_prompt_document,
 )
 from ..core.reference_contract import (
@@ -298,30 +297,14 @@ class ReferenceLoaderNode(io.ComfyNode):
           tooltip="Show caption fields on Loader cards; captions remain available in Edit when hidden.",
         ),
         io.Boolean.Input(
-          "two_image_mode",
-          display_name="two_image_mode",
+          "horizontal_cards",
+          display_name="horizontal_cards",
           default=False,
-          label_on="Up to 2",
-          label_off="Unlimited",
+          label_on="Horizontal",
+          label_off="Vertical",
           advanced=True,
           socketless=True,
-          tooltip=(
-            "Frontend-only guard that permits at most two enabled IMAGE outputs "
-            "for I2V and FLF2V workflows."
-          ),
-        ),
-        io.Boolean.Input(
-          "prompt_by_order",
-          display_name="prompt_by_order",
-          default=False,
-          label_on="By order",
-          label_off="By media",
-          advanced=True,
-          socketless=True,
-          tooltip=(
-            "Keep imageN, videoN, and audioN prompt mentions attached to their "
-            "current output positions when references are replaced or reordered."
-          ),
+          tooltip="Use horizontal media cards; disabled uses the original vertical card layout.",
         ),
         io.Combo.Input(
           "card_aspect",
@@ -376,8 +359,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     grid_columns: int = 3,
     preview_pixels: float = 1.0,
     show_captions: bool = True,
-    two_image_mode: bool = False,
-    prompt_by_order: bool = False,
+    horizontal_cards: bool = False,
     card_aspect: str = "4 / 3",
     preview_fit: str = "contain",
     waveform_pairs: int = 300,
@@ -391,7 +373,7 @@ class ReferenceLoaderNode(io.ComfyNode):
       grid_columns,
       preview_pixels,
       show_captions,
-      two_image_mode,
+      horizontal_cards,
       card_aspect,
       preview_fit,
       waveform_pairs,
@@ -409,8 +391,6 @@ class ReferenceLoaderNode(io.ComfyNode):
       alpha_background,
     )
     prompt_document = parse_prompt_state(prompt)
-    if prompt_by_order:
-      prompt_document = rebind_prompt_mentions_by_order(prompt_document, state)
     prompt_state_json = serialize_prompt_document(prompt_document)
     compiled_prompt = compile_prompt(prompt_document, state)
     manifest_json = json.dumps(
@@ -437,8 +417,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     grid_columns: int = 3,
     preview_pixels: float = 1.0,
     show_captions: bool = True,
-    two_image_mode: bool = False,
-    prompt_by_order: bool = False,
+    horizontal_cards: bool = False,
     card_aspect: str = "4 / 3",
     preview_fit: str = "contain",
     waveform_pairs: int = 300,
@@ -452,7 +431,7 @@ class ReferenceLoaderNode(io.ComfyNode):
       grid_columns,
       preview_pixels,
       show_captions,
-      two_image_mode,
+      horizontal_cards,
       card_aspect,
       preview_fit,
       waveform_pairs,
@@ -470,8 +449,6 @@ class ReferenceLoaderNode(io.ComfyNode):
     )
     plan = build_reference_output_plan(state)
     prompt_document = parse_prompt_state(prompt)
-    if prompt_by_order:
-      prompt_document = rebind_prompt_mentions_by_order(prompt_document, state)
     compiled_prompt = compile_prompt(prompt_document, state)
     loaded = load_reference_media(state, image_output=output_settings)
     if len(loaded.images) != len(plan.image_ids):

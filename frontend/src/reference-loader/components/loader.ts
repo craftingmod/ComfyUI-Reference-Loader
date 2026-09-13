@@ -3,7 +3,8 @@ import { ReferenceLoaderApi, type UploadedReference } from "../api.ts"
 import { openImageEditor } from "../editors/image-editor.ts"
 import { openTrimEditor } from "../editors/trim-editor.ts"
 import { canUseAsH3Guide, type H3GuideChannel } from "../h3-media-guides.ts"
-import { H3TimelineSession, type H3TimelineFocus } from "../h3-timeline-session.ts"
+import { H3TimelineSession } from "../h3-timeline-session.ts"
+import { H3WorkspaceBridge } from "../h3-workspace-bridge.ts"
 import { LoaderStore, type LoaderDispatchOptions } from "../loader-store.ts"
 import { MediaRuntimeCoordinator, type MediaRuntimeHost } from "../media-runtime-coordinator.ts"
 import { PreviewSurfaceBridge, type PreviewSurfaceHost } from "../preview-surface-bridge.ts"
@@ -258,6 +259,7 @@ export class ReferenceLoaderController {
   #promptReferences: PromptReference[] = []
   #promptReferenceSourceKey = ""
   #timelineSession: H3TimelineSession
+  #h3Workspace!: H3WorkspaceBridge
 
   constructor(
     root: HTMLElement,
@@ -302,7 +304,7 @@ export class ReferenceLoaderController {
         setStatus: (message) => {
           this.#status = message
         },
-        requestRender: (force, focus) => this.#requestH3Render(force, focus),
+        requestRender: (force, focus) => this.#h3Workspace.requestRender(force, focus),
         publishView: () => this.#viewBridge.publish(),
         selectMedia: (id) => {
           this.#selectedId = id
@@ -332,6 +334,12 @@ export class ReferenceLoaderController {
       actions: this.#reactActions,
       onReactCommit: () => this.#previewSurface.syncAfterRender(),
       requestRender: () => this.render(),
+    })
+    this.#h3Workspace = new H3WorkspaceBridge({
+      getRoot: () => this.root,
+      getInteractionRoot: () => this.#viewBridge.interactionRoot,
+      isDestroyed: () => this.#destroyed,
+      render: (force) => this.render(force),
     })
     const previewHost: PreviewSurfaceHost = {
       getRoot: () => this.root,
@@ -701,6 +709,7 @@ export class ReferenceLoaderController {
     this.#mediaRuntime.destroy()
     this.#referenceListeners.clear()
     this.#timelineSession.destroy()
+    this.#h3Workspace.destroy()
     this.#viewBridge.destroy()
   }
 
@@ -808,113 +817,6 @@ export class ReferenceLoaderController {
     return { id: source.id, item }
   }
 
-  #requestH3Render(force = false, focus?: H3TimelineFocus): void {
-    if (focus?.kind === "preserve-editor-focus") {
-      this.#renderH3PreservingFocus(focus.guideId)
-      return
-    }
-    this.render(force)
-    if (!focus) return
-    const surface = this.#viewBridge.interactionRoot ?? this.root
-    if (focus.kind === "editor-guide") {
-      this.#focusH3EditorGuide(focus.guideId)
-      return
-    }
-    if (focus.kind === "workspace") {
-      this.#focusH3Workspace()
-      return
-    }
-    if (focus.kind === "timeline-guide") {
-      const marker = [...surface.querySelectorAll<HTMLButtonElement>("[data-timeline-guide]")].find(
-        (button) => button.dataset.timelineGuide === focus.guideId,
-      )
-      if (marker) {
-        marker.focus({ preventScroll: true })
-        return
-      }
-      surface
-        .querySelector<HTMLButtonElement>(
-          '[data-h3-action="select-placement"][data-h3-guide-id="' + focus.guideId + '"]',
-        )
-        ?.focus()
-      return
-    }
-    if (focus.kind === "timeline-shot") {
-      const mark = [...surface.querySelectorAll<HTMLButtonElement>("[data-timeline-shot]")].find(
-        (button) => button.dataset.timelineShot === focus.tag,
-      )
-      if (focus.scroll) mark?.scrollIntoView?.({ block: "nearest", inline: "nearest" })
-      mark?.focus({ preventScroll: true })
-      return
-    }
-    const parentId = focus.mediaId.endsWith(":audio") ? focus.mediaId.slice(0, -6) : focus.mediaId
-    const action = focus.control === "toggle" ? "toggle-h3-guide" : "edit-h3-guide"
-    for (const button of this.root.querySelectorAll<HTMLButtonElement>("button[data-action]")) {
-      if (
-        button.dataset.action === action &&
-        button.dataset.id === parentId &&
-        button.dataset.h3Channel === focus.channel
-      ) {
-        button.focus()
-        return
-      }
-    }
-  }
-
-  #focusH3EditorGuide(guideId: string): void {
-    for (const row of (this.#viewBridge.interactionRoot ?? this.root).querySelectorAll<HTMLElement>(
-      "[data-h3-editor] [data-h3-guide-id]",
-    )) {
-      if (row.dataset.h3GuideId !== guideId) continue
-      row.scrollIntoView?.({ block: "nearest" })
-      row.querySelector<HTMLInputElement>('[data-h3-draft-field="frame"]')?.focus()
-      return
-    }
-  }
-
-  #focusH3Workspace(): void {
-    const workspace = (this.#viewBridge.interactionRoot ?? this.root).querySelector<HTMLElement>(
-      "[data-h3-workspace]",
-    )
-    if (!workspace) return
-    workspace.scrollIntoView?.({ block: "nearest" })
-    workspace.querySelector<HTMLButtonElement>('[data-h3-action="collapse"]')?.focus({
-      preventScroll: true,
-    })
-  }
-
-  #renderH3PreservingFocus(focusGuideId?: string): void {
-    const active = document.activeElement
-    const field =
-      active instanceof HTMLInputElement || active instanceof HTMLSelectElement
-        ? active.dataset.h3DraftField
-        : undefined
-    const guideId =
-      active instanceof HTMLInputElement || active instanceof HTMLSelectElement
-        ? active.dataset.h3GuideId
-        : undefined
-    this.render(true)
-    if (field) {
-      for (const element of (this.#viewBridge.interactionRoot ?? this.root).querySelectorAll<
-        HTMLInputElement | HTMLSelectElement
-      >("[data-h3-draft-field]")) {
-        if (element.dataset.h3DraftField === field && element.dataset.h3GuideId === guideId) {
-          element.focus()
-          return
-        }
-      }
-    }
-    if (focusGuideId) {
-      for (const input of (
-        this.#viewBridge.interactionRoot ?? this.root
-      ).querySelectorAll<HTMLInputElement>('[data-h3-draft-field="frame"]')) {
-        if (input.dataset.h3GuideId === focusGuideId) {
-          input.focus()
-          break
-        }
-      }
-    }
-  }
   #selectItem(id: string): void {
     this.#timelineSession.clearMediaSelection()
     this.#selectedId = id

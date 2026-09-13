@@ -208,6 +208,12 @@ describe("Reference Loader Media Timeline integration", () => {
     expect(guideToggle?.classList.contains("rl-button--guide")).toBe(true)
     expect(guideToggle?.classList.contains("rl-button--output")).toBe(false)
     expect(guideToggle?.classList.contains("rl-button--card-action")).toBe(true)
+    expect(guideToggle?.closest(".rl-output-actions")).not.toBeNull()
+    expect(
+      root
+        .querySelector('.rl-card[data-id="scene"] [data-action="edit-h3-guide"]')
+        ?.closest(".rl-media-actions"),
+    ).not.toBeNull()
     h3Mount.destroy()
     controller.destroy()
     root.remove()
@@ -462,27 +468,6 @@ describe("Reference Loader Media Timeline integration", () => {
         startImageId: null,
       }),
     ).toEqual([])
-  })
-
-  test("does not enable a third Image through an atomic Guide edit in two-image mode", () => {
-    let state = createEmptyLoaderState()
-    for (const id of ["one", "two", "three"]) {
-      state = loaderReducer(state, {
-        type: "add",
-        item: createMediaItem("image", source(`${id}.png`, "image/png"), id),
-      })
-    }
-    state = loaderReducer(state, { type: "toggle", id: "three", channel: "image" })
-    const next = loaderReducer(state, {
-      type: "apply-h3-media-edit",
-      mediaId: "three",
-      channel: "visual",
-      referenceEnabled: true,
-      timeline: state.h3Timeline,
-      twoImageMode: true,
-    })
-
-    expect(next).toBe(state)
   })
 
   test("adds a Guide to an existing reference without losing either role", () => {

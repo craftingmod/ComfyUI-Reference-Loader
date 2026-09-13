@@ -4,7 +4,6 @@ from backend.core.prompt_contract import (
   PromptContractError,
   compile_prompt,
   parse_prompt_state,
-  rebind_prompt_mentions_by_order,
 )
 from backend.core.reference_contract import parse_reference_state
 
@@ -73,14 +72,6 @@ def test_compiles_v6_mentions_without_promoting_text():
   assert compile_prompt(parse_prompt_state(document()), reference_state()) == (
     "scene:\nMeet @image1"
   )
-
-
-def test_rebinds_standard_v6_mention_labels_to_current_output_positions():
-  rebound = rebind_prompt_mentions_by_order(
-    parse_prompt_state(document()), reference_state()
-  )
-  assert rebound.sections[0].parts[1].reference_id == "image-b"
-  assert compile_prompt(rebound, reference_state()) == "scene:\nMeet <Picture 1>"
 
 
 @pytest.mark.parametrize(

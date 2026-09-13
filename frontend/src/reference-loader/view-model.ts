@@ -23,8 +23,7 @@ export interface LoaderDisplayState {
   h3TotalFrames: number
   previewPixels: number
   showCaptions: boolean
-  twoImageMode: boolean
-  promptByOrder: boolean
+  horizontalCards: boolean
   cardAspect: string
   previewFit: "contain" | "cover"
   waveformPairs: number
@@ -416,8 +415,7 @@ export function sameLoaderViewSnapshot(
     previousDisplay.h3TotalFrames !== nextDisplay.h3TotalFrames ||
     previousDisplay.previewPixels !== nextDisplay.previewPixels ||
     previousDisplay.showCaptions !== nextDisplay.showCaptions ||
-    previousDisplay.twoImageMode !== nextDisplay.twoImageMode ||
-    previousDisplay.promptByOrder !== nextDisplay.promptByOrder ||
+    previousDisplay.horizontalCards !== nextDisplay.horizontalCards ||
     previousDisplay.cardAspect !== nextDisplay.cardAspect ||
     previousDisplay.previewFit !== nextDisplay.previewFit ||
     previousDisplay.waveformPairs !== nextDisplay.waveformPairs

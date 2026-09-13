@@ -206,16 +206,11 @@ function showCaptionsProperty(node: ComfyNode): boolean {
   return typeof showCaptions === "boolean" ? showCaptions : true
 }
 
-function twoImageModeProperty(node: ComfyNode): boolean {
+function horizontalCardsProperty(node: ComfyNode): boolean {
   const value = node.properties?.[NODE_PROPERTY_KEY]
   if (typeof value !== "object" || value === null) return false
-  return (value as Record<string, unknown>).twoImageMode === true
-}
-
-export function promptByOrderProperty(node: ComfyNode): boolean {
-  const value = node.properties?.[NODE_PROPERTY_KEY]
-  if (typeof value !== "object" || value === null) return false
-  return (value as Record<string, unknown>).promptByOrder === true
+  const horizontalCards = (value as Record<string, unknown>).horizontalCards
+  return typeof horizontalCards === "boolean" ? horizontalCards : false
 }
 
 function setShowCaptionsProperty(node: ComfyNode, showCaptions: boolean): void {
@@ -228,23 +223,13 @@ function setShowCaptionsProperty(node: ComfyNode, showCaptions: boolean): void {
   }
 }
 
-function setTwoImageModeProperty(node: ComfyNode, twoImageMode: boolean): void {
+function setHorizontalCardsProperty(node: ComfyNode, horizontalCards: boolean): void {
   const current = node.properties?.[NODE_PROPERTY_KEY]
   const namespace =
     typeof current === "object" && current !== null ? (current as Record<string, unknown>) : {}
   node.properties = {
     ...node.properties,
-    [NODE_PROPERTY_KEY]: { ...namespace, twoImageMode },
-  }
-}
-
-function setPromptByOrderProperty(node: ComfyNode, promptByOrder: boolean): void {
-  const current = node.properties?.[NODE_PROPERTY_KEY]
-  const namespace =
-    typeof current === "object" && current !== null ? (current as Record<string, unknown>) : {}
-  node.properties = {
-    ...node.properties,
-    [NODE_PROPERTY_KEY]: { ...namespace, promptByOrder },
+    [NODE_PROPERTY_KEY]: { ...namespace, horizontalCards },
   }
 }
 
@@ -405,6 +390,7 @@ export class ReferenceLoaderController {
   #runtimeLimiter = new RuntimeLoadLimiter(4)
   #audioPreview = new AudioPreviewPlayer()
   #videoPreview = new VideoPreviewPlayer()
+  #waveformResizeObserver: ResizeObserver | undefined
   #unsubscribeAudioPreview: (() => void) | undefined
   #unsubscribeVideoPreview: (() => void) | undefined
   #pending = new Map<string, PendingUpload>()
@@ -454,6 +440,12 @@ export class ReferenceLoaderController {
     this.#api = api
     this.#changeEvents = changeEvents
     this.#mode = options.mode ?? "references"
+    if (typeof ResizeObserver !== "undefined") {
+      this.#waveformResizeObserver = new ResizeObserver(() => {
+        if (!this.#destroyed) this.#drawWaveforms()
+      })
+      this.#waveformResizeObserver.observe(this.root)
+    }
     this.#installRootDropEvents()
     const parsed = deserializeLoaderState(serialized)
     this.#store = new LoaderStore(this.#stateForMode(parsed.state))
@@ -518,8 +510,7 @@ export class ReferenceLoaderController {
       h3TotalFrames: this.state.h3Output.totalFrames,
       previewPixels: this.state.ui.previewMaxPixels / 1_000_000,
       showCaptions: showCaptionsProperty(this.#node),
-      twoImageMode: twoImageModeProperty(this.#node),
-      promptByOrder: promptByOrderProperty(this.#node),
+      horizontalCards: horizontalCardsProperty(this.#node),
       cardAspect: this.state.ui.cardAspectRatio,
       previewFit: this.state.ui.previewFit,
       waveformPairs: this.state.ui.waveformPeaks,
@@ -795,28 +786,11 @@ export class ReferenceLoaderController {
         this.render()
       }
     }
-    if (values.twoImageMode !== undefined) {
-      const twoImageMode = Boolean(values.twoImageMode)
-      if (twoImageMode && this.#activeImageCount() > 2) {
-        this.#status = "Two-image mode requires at most two enabled Images."
-        this.render()
-      } else if (twoImageMode !== twoImageModeProperty(this.#node)) {
-        this.#recordGraphChange(() => setTwoImageModeProperty(this.#node, twoImageMode))
+    if (values.horizontalCards !== undefined) {
+      const horizontalCards = Boolean(values.horizontalCards)
+      if (horizontalCards !== horizontalCardsProperty(this.#node)) {
+        this.#recordGraphChange(() => setHorizontalCardsProperty(this.#node, horizontalCards))
         this.#node.setDirtyCanvas(true, true)
-        this.#status = twoImageMode
-          ? "Two-image mode enabled. Additional Images will be added disabled."
-          : "Two-image mode disabled."
-        this.render()
-      }
-    }
-    if (values.promptByOrder !== undefined) {
-      const promptByOrder = Boolean(values.promptByOrder)
-      if (promptByOrder !== promptByOrderProperty(this.#node)) {
-        this.#recordGraphChange(() => setPromptByOrderProperty(this.#node, promptByOrder))
-        this.#node.setDirtyCanvas(true, true)
-        this.#status = promptByOrder
-          ? "Prompt mentions are now locked to their image/video/audio order."
-          : "Prompt mentions are now locked to their original media."
         this.render()
       }
     }
@@ -856,12 +830,11 @@ export class ReferenceLoaderController {
 
   restoreSnapshot(
     serialized: unknown,
-    display: Pick<LoaderDisplayState, "showCaptions" | "twoImageMode" | "promptByOrder">,
+    display: Pick<LoaderDisplayState, "showCaptions" | "horizontalCards">,
   ): void {
     this.restore(serialized)
     setShowCaptionsProperty(this.#node, display.showCaptions)
-    setTwoImageModeProperty(this.#node, display.twoImageMode)
-    setPromptByOrderProperty(this.#node, display.promptByOrder)
+    setHorizontalCardsProperty(this.#node, display.horizontalCards)
     this.render(true)
   }
 
@@ -893,6 +866,8 @@ export class ReferenceLoaderController {
     this.#destroyController.abort()
     this.#unsubscribeAudioPreview?.()
     this.#unsubscribeVideoPreview?.()
+    this.#waveformResizeObserver?.disconnect()
+    this.#waveformResizeObserver = undefined
     this.#audioPreview.destroy()
     this.#videoPreview.destroy()
     for (const pending of this.#pending.values()) URL.revokeObjectURL(pending.objectUrl)
@@ -1314,14 +1289,6 @@ export class ReferenceLoaderController {
     const item = this.state.items[parentId]
     if (!item) return "The selected Media source is no longer available."
     if (!canUseAsH3Guide(item, editor.channel)) return "Video cannot be used as an H3 Guide source."
-    if (
-      twoImageModeProperty(this.#node) &&
-      editor.channel === "visual" &&
-      item.kind === "image" &&
-      !item.imageEnabled &&
-      this.#activeImageCount() >= 2
-    )
-      return "Two-image mode permits at most two enabled Images."
     const candidate = this.#h3EditorTimeline(editor)
     const hasGuide = mediaHasGuide(candidate, editor.mediaId, editor.channel)
     if (editor.requireGuide && !hasGuide) return "Add a frame placement or select Start/End."
@@ -1750,7 +1717,6 @@ export class ReferenceLoaderController {
       channel,
       referenceEnabled: referenceEnabled(item, channel),
       timeline,
-      twoImageMode: twoImageModeProperty(this.#node),
     })
   }
 
@@ -2098,7 +2064,6 @@ export class ReferenceLoaderController {
       channel: editor.channel,
       referenceEnabled: referenceEnabled(item, editor.channel),
       timeline,
-      twoImageMode: twoImageModeProperty(this.#node),
     })
     this.#status = `${itemFilename(item)} Guide settings applied.`
     this.render(true)
@@ -2351,12 +2316,6 @@ export class ReferenceLoaderController {
         return
       }
       let item = createMediaItem(uploaded.kind, uploaded.source, replaceId)
-      const addedDisabled =
-        !replaceId &&
-        item.kind === "image" &&
-        twoImageModeProperty(this.#node) &&
-        this.#activeImageCount() >= 2
-      if (addedDisabled && item.kind === "image") item = { ...item, imageEnabled: false }
       this.#runtime.set(item.id, { loading: true, metadata: uploaded.metadata })
       if (replaceId) {
         if (this.#audioPreview.snapshot.owner === `grid:${replaceId}`) this.#audioPreview.stop()
@@ -2374,9 +2333,7 @@ export class ReferenceLoaderController {
         ? `${file.name} replaced the existing reference.`
         : this.#mode === "single-image"
           ? ""
-          : addedDisabled
-            ? `${file.name} added with its IMAGE output disabled by two-image mode.`
-            : `${file.name} added.`
+          : `${file.name} added.`
       await this.#loadRuntime(item)
     } catch (error) {
       if (!this.#isStateRequestCurrent(epoch, stateController)) return
@@ -2699,26 +2656,7 @@ export class ReferenceLoaderController {
     return changed
   }
 
-  #activeImageCount(): number {
-    return this.state.imageOrder.reduce((count, id) => {
-      const item = this.state.items[id]
-      return count + (item?.kind === "image" && item.imageEnabled ? 1 : 0)
-    }, 0)
-  }
-
   #toggleOutput(id: string, channel: LoaderChannel): void {
-    const item = this.state.items[id]
-    if (
-      channel === "image" &&
-      item?.kind === "image" &&
-      !item.imageEnabled &&
-      twoImageModeProperty(this.#node) &&
-      this.#activeImageCount() >= 2
-    ) {
-      this.#status = "Two-image mode permits at most two enabled Images."
-      this.render()
-      return
-    }
     this.#dispatch({ type: "toggle", id, channel })
   }
 

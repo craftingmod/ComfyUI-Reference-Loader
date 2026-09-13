@@ -488,36 +488,6 @@ export function compilePromptDocumentV6(
     .join("\n\n")
 }
 
-export function rebindPromptMentionsByOrderV6(
-  document: PromptDocumentV6,
-  references: readonly PromptReference[],
-): PromptDocumentV6 {
-  const mapParts = (parts: readonly PromptPartV6[]): PromptPartV6[] =>
-    parts.map((part) => {
-      if (part.type !== "mention") return { ...part }
-      const match = new RegExp(`^${part.mediaKind}([1-9]\\d*)$`, "u").exec(part.label)
-      if (!match) return { ...part }
-      const reference = references.find(
-        (candidate) =>
-          candidate.mediaKind === part.mediaKind && candidate.ordinal === Number(match[1]),
-      )
-      return reference
-        ? {
-            type: "mention" as const,
-            referenceId: reference.referenceId,
-            mediaKind: reference.mediaKind,
-            label: reference.label,
-          }
-        : { ...part }
-    })
-  return assertPromptDocumentV6({
-    ...document,
-    subjects: document.subjects.map((subject) => ({ ...subject, parts: mapParts(subject.parts) })),
-    shots: document.shots.map((shot) => ({ ...shot, parts: mapParts(shot.parts) })),
-    sections: document.sections.map((section) => ({ ...section, parts: mapParts(section.parts) })),
-  })
-}
-
 export function renamePromptDefinitionV6(
   document: PromptDocumentV6,
   definitionId: string,

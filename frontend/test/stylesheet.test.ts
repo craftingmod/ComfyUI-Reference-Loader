@@ -87,6 +87,21 @@ describe("Reference Loader stylesheet", () => {
     expect(controls).not.toContain("!important")
     expect(cards).toContain(".rl-remove")
     expect(cards).toContain(".rl-edit-button svg")
+    expect(cards).toContain(".rl-output-actions")
+    expect(cards).toContain(".rl-action-divider")
+    expect(cards).toContain(".rl-order-actions")
+    expect(cards).toContain(".rl-actions-spacer")
+    expect(cards).toContain(".rl-media-actions")
+    expect(cards).toContain('grid-template-areas: "outputs divider order spacer media";')
+    expect(cards).toContain("@container (max-width: 300px)")
+    const horizontalAudioRule = cards.match(
+      /\.rl-card--horizontal\[data-channel="audio"\] \.rl-card__media\s*\{([^}]*)\}/,
+    )?.[1]
+    expect(horizontalAudioRule).toContain("align-self: center;")
+    expect(horizontalAudioRule).toContain("aspect-ratio: 16 / 9;")
+    expect(horizontalAudioRule).toContain("height: auto;")
+    expect(cards).toContain(".rl-card__media canvas {")
+    expect(cards).toContain("display: block;")
     expect(cards).not.toContain("!important")
   })
 

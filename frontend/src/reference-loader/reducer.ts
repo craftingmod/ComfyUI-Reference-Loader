@@ -65,7 +65,6 @@ export type LoaderAction =
       channel: H3GuideChannel
       referenceEnabled: boolean
       timeline: H3TimelineState
-      twoImageMode?: boolean
     }
 
 function replaceItem(state: LoaderState, item: MediaItem): LoaderState {
@@ -139,19 +138,6 @@ function applyH3MediaEdit(
   if (action.channel === "visual" && item.kind !== "image") return state
   if (action.channel === "audio" && item.kind !== "audio") return state
   if (validateH3Timeline(state, action.timeline, { allowIncomplete: true }).length > 0) return state
-
-  if (
-    action.twoImageMode &&
-    action.channel === "visual" &&
-    item.kind === "image" &&
-    action.referenceEnabled &&
-    !item.imageEnabled &&
-    state.imageOrder.reduce((count, id) => {
-      const image = state.items[id]
-      return count + (image?.kind === "image" && image.imageEnabled ? 1 : 0)
-    }, 0) >= 2
-  )
-    return state
 
   let nextItem = item
   if (action.channel === "visual" && item.kind === "image")

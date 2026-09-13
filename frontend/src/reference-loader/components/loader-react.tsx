@@ -459,12 +459,14 @@ function LoadingState({ card }: { card: LoaderCardView }): ReactNode {
 function MediaCard({
   card,
   showCaptions,
+  horizontalCards,
   deferPreview,
   actions,
   dragHandlers,
 }: {
   card: LoaderCardView
   showCaptions: boolean
+  horizontalCards: boolean
   deferPreview: boolean
   actions: LoaderReactActions
   dragHandlers: DragHandlers
@@ -475,6 +477,7 @@ function MediaCard({
   const videoPlaybackDisabled = card.loading || card.playbackDuration === undefined
   const cardClass = [
     "rl-card",
+    horizontalCards ? "rl-card--horizontal" : "",
     showCaptions ? "rl-card--has-caption" : "",
     card.selected ? "is-selected" : "",
     dragHandlers.dropTarget?.id === card.id && dragHandlers.dropTarget.channel === card.channel
@@ -640,194 +643,202 @@ function MediaCard({
           />
         ) : null}
         <div className="rl-card__actions">
-          {card.channel === "image" && card.kind === "image" ? (
-            <Button
-              type="button"
-              data-action="toggle-image"
-              className={`rl-button--output rl-button--card-action rl-output-button${card.imageEnabled ? " is-on" : ""}`}
-              aria-label="Toggle image output"
-              aria-pressed={card.imageEnabled}
-              onClick={toggle("image")}
-            >
-              I
-            </Button>
-          ) : null}
-          {card.channel === "video" && card.kind === "video" ? (
-            <>
+          <span className="rl-output-actions" role="group" aria-label="Output controls">
+            {card.channel === "image" && card.kind === "image" ? (
               <Button
                 type="button"
-                data-action="toggle-video"
-                className={`rl-button--output rl-button--card-action rl-output-button${card.videoEnabled ? " is-on" : ""}`}
-                aria-label="Toggle video output"
-                aria-pressed={card.videoEnabled}
-                onClick={toggle("video")}
+                data-action="toggle-image"
+                className={`rl-button--output rl-button--card-action rl-output-button${card.imageEnabled ? " is-on" : ""}`}
+                aria-label="Toggle image output"
+                aria-pressed={card.imageEnabled}
+                onClick={toggle("image")}
               >
-                V
+                I
               </Button>
+            ) : null}
+            {card.channel === "video" && card.kind === "video" ? (
+              <>
+                <Button
+                  type="button"
+                  data-action="toggle-video"
+                  className={`rl-button--output rl-button--card-action rl-output-button${card.videoEnabled ? " is-on" : ""}`}
+                  aria-label="Toggle video output"
+                  aria-pressed={card.videoEnabled}
+                  onClick={toggle("video")}
+                >
+                  V
+                </Button>
+                <Button
+                  type="button"
+                  data-action="toggle-video-audio"
+                  className={`rl-button--output rl-button--card-action rl-output-button${card.videoAudioEnabled ? " is-on" : ""}`}
+                  aria-label="Include embedded audio in video output"
+                  aria-pressed={card.videoAudioEnabled}
+                  title={
+                    card.silentVideo
+                      ? "No embedded audio track"
+                      : card.videoAudioEnabled
+                        ? "VIDEO output includes embedded audio"
+                        : "VIDEO output is muted"
+                  }
+                  disabled={card.silentVideo}
+                  onClick={(event) => {
+                    stop(event)
+                    actions.toggleVideoAudio(card.id)
+                  }}
+                >
+                  VA
+                </Button>
+              </>
+            ) : null}
+            {card.channel === "audio" && (card.kind === "audio" || card.kind === "video") ? (
               <Button
                 type="button"
-                data-action="toggle-video-audio"
-                className={`rl-button--output rl-button--card-action rl-output-button${card.videoAudioEnabled ? " is-on" : ""}`}
-                aria-label="Include embedded audio in video output"
-                aria-pressed={card.videoAudioEnabled}
-                title={
-                  card.silentVideo
-                    ? "No embedded audio track"
-                    : card.videoAudioEnabled
-                      ? "VIDEO output includes embedded audio"
-                      : "VIDEO output is muted"
-                }
+                data-action="toggle-audio"
+                className={`rl-button--output rl-button--card-action rl-output-button${card.audioEnabled ? " is-on" : ""}`}
+                aria-label="Toggle audio output"
+                aria-pressed={card.audioEnabled}
                 disabled={card.silentVideo}
-                onClick={(event) => {
-                  stop(event)
-                  actions.toggleVideoAudio(card.id)
-                }}
+                title={card.silentVideo ? "No embedded audio track" : undefined}
+                onClick={toggle("audio")}
               >
-                VA
+                A
               </Button>
-            </>
-          ) : null}
-          {card.channel === "audio" && (card.kind === "audio" || card.kind === "video") ? (
-            <Button
-              type="button"
-              data-action="toggle-audio"
-              className={`rl-button--output rl-button--card-action rl-output-button${card.audioEnabled ? " is-on" : ""}`}
-              aria-label="Toggle audio output"
-              aria-pressed={card.audioEnabled}
-              disabled={card.silentVideo}
-              title={card.silentVideo ? "No embedded audio track" : undefined}
-              onClick={toggle("audio")}
-            >
-              A
-            </Button>
-          ) : null}
-          {card.guideAvailable && card.guideChannel ? (
-            <Button
-              type="button"
-              data-action="toggle-h3-guide"
-              data-id={card.id}
-              data-h3-channel={card.guideChannel}
-              className={`rl-button--guide rl-button--card-action rl-output-button rl-guide-button${card.guideEnabled ? " is-on" : ""}`}
-              aria-label="Toggle Guide usage"
-              aria-pressed={card.guideEnabled}
-              title={
-                card.guideEnabled
-                  ? "Disable Guide usage for this media"
-                  : card.guideConfigured
-                    ? "Enable saved Guide placements for this media"
-                    : "Enable Guide usage and choose a frame"
-              }
-              onClick={(event) => {
-                stop(event)
-                actions.h3ToggleGuide(card.id, card.guideChannel!)
-              }}
-            >
-              G
-            </Button>
-          ) : null}
-          {card.channel === "video" && card.kind === "video" ? (
-            <Button
-              type="button"
-              data-action="preview-video"
-              data-playback-owner={`grid:${card.id}`}
-              className="rl-button--preview rl-button--card-action rl-preview-media"
-              aria-label={`Play video preview ${card.videoAudioEnabled ? "with audio" : "muted"}`}
-              title={
-                card.loading || card.playbackDuration === undefined
-                  ? "Loading video preview"
-                  : card.videoAudioEnabled
-                    ? "Play trimmed video preview with audio"
-                    : "Play trimmed muted video preview"
-              }
-              disabled={videoPlaybackDisabled}
-              onClick={preview("video")}
-            >
-              ▶
-            </Button>
-          ) : null}
-          {card.channel === "audio" && (card.kind === "audio" || card.kind === "video") ? (
-            <Button
-              type="button"
-              data-action="preview-audio"
-              data-playback-owner={`grid:${card.id}`}
-              className="rl-button--preview rl-button--card-action rl-preview-media"
-              aria-label="Play audio preview"
-              title={
-                card.silentVideo || card.loading || card.playbackDuration === undefined
-                  ? card.silentVideo
-                    ? "No embedded audio track"
-                    : "Loading audio preview"
-                  : "Play trimmed audio preview"
-              }
-              disabled={audioPlaybackDisabled}
-              onClick={preview("audio")}
-            >
-              ▶
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            className="rl-button--card-action"
-            data-action="move-back"
-            aria-label="Move earlier"
-            title="Move earlier (Alt+ArrowLeft)"
-            onClick={(event) => {
-              stop(event)
-              actions.move(card.id, card.channel, -1)
-            }}
-          >
-            ←
-          </Button>
-          <Button
-            type="button"
-            className="rl-button--card-action"
-            data-action="move-forward"
-            aria-label="Move later"
-            title="Move later (Alt+ArrowRight)"
-            onClick={(event) => {
-              stop(event)
-              actions.move(card.id, card.channel, 1)
-            }}
-          >
-            →
-          </Button>
-          <span className="rl-edit-actions">
+            ) : null}
             {card.guideAvailable && card.guideChannel ? (
               <Button
                 type="button"
-                className="rl-button--guide-edit rl-button--card-action rl-edit-button rl-edit-button--guide"
-                data-action="edit-h3-guide"
+                data-action="toggle-h3-guide"
                 data-id={card.id}
                 data-h3-channel={card.guideChannel}
-                aria-label="Edit Guide placements"
-                title="Edit Guide placements"
+                className={`rl-button--guide rl-button--card-action rl-output-button rl-guide-button${card.guideEnabled ? " is-on" : ""}`}
+                aria-label="Toggle Guide usage"
+                aria-pressed={card.guideEnabled}
+                title={
+                  card.guideEnabled
+                    ? "Disable Guide usage for this media"
+                    : card.guideConfigured
+                      ? "Enable saved Guide placements for this media"
+                      : "Enable Guide usage and choose a frame"
+                }
                 onClick={(event) => {
                   stop(event)
-                  actions.h3OpenMedia(card.guideMediaId ?? card.id, card.guideChannel!)
+                  actions.h3ToggleGuide(card.id, card.guideChannel!)
                 }}
               >
-                <span aria-hidden="true">G</span>
+                G
+              </Button>
+            ) : null}
+          </span>
+          <span className="rl-action-divider" aria-hidden="true" />
+          <span className="rl-order-actions" role="group" aria-label="Reorder controls">
+            <Button
+              type="button"
+              className="rl-button--card-action"
+              data-action="move-back"
+              aria-label="Move earlier"
+              title="Move earlier (Alt+ArrowLeft)"
+              onClick={(event) => {
+                stop(event)
+                actions.move(card.id, card.channel, -1)
+              }}
+            >
+              ←
+            </Button>
+            <Button
+              type="button"
+              className="rl-button--card-action"
+              data-action="move-forward"
+              aria-label="Move later"
+              title="Move later (Alt+ArrowRight)"
+              onClick={(event) => {
+                stop(event)
+                actions.move(card.id, card.channel, 1)
+              }}
+            >
+              →
+            </Button>
+          </span>
+          <span className="rl-actions-spacer" aria-hidden="true" />
+          <span className="rl-media-actions" role="group" aria-label="Media actions">
+            {card.channel === "video" && card.kind === "video" ? (
+              <Button
+                type="button"
+                data-action="preview-video"
+                data-playback-owner={`grid:${card.id}`}
+                className="rl-button--preview rl-button--card-action rl-preview-media"
+                aria-label={`Play video preview ${card.videoAudioEnabled ? "with audio" : "muted"}`}
+                title={
+                  card.loading || card.playbackDuration === undefined
+                    ? "Loading video preview"
+                    : card.videoAudioEnabled
+                      ? "Play trimmed video preview with audio"
+                      : "Play trimmed muted video preview"
+                }
+                disabled={videoPlaybackDisabled}
+                onClick={preview("video")}
+              >
+                ▶
+              </Button>
+            ) : null}
+            {card.channel === "audio" && (card.kind === "audio" || card.kind === "video") ? (
+              <Button
+                type="button"
+                data-action="preview-audio"
+                data-playback-owner={`grid:${card.id}`}
+                className="rl-button--preview rl-button--card-action rl-preview-media"
+                aria-label="Play audio preview"
+                title={
+                  card.silentVideo || card.loading || card.playbackDuration === undefined
+                    ? card.silentVideo
+                      ? "No embedded audio track"
+                      : "Loading audio preview"
+                    : "Play trimmed audio preview"
+                }
+                disabled={audioPlaybackDisabled}
+                onClick={preview("audio")}
+              >
+                ▶
+              </Button>
+            ) : null}
+            <span className="rl-edit-actions">
+              {card.guideAvailable && card.guideChannel ? (
+                <Button
+                  type="button"
+                  className="rl-button--guide-edit rl-button--card-action rl-edit-button rl-edit-button--guide"
+                  data-action="edit-h3-guide"
+                  data-id={card.id}
+                  data-h3-channel={card.guideChannel}
+                  aria-label="Edit Guide placements"
+                  title="Edit Guide placements"
+                  onClick={(event) => {
+                    stop(event)
+                    actions.h3OpenMedia(card.guideMediaId ?? card.id, card.guideChannel!)
+                  }}
+                >
+                  <span aria-hidden="true">G</span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M4 20h4L19 9l-4-4L4 16v4Z" />
+                    <path d="m13.5 6.5 4 4" />
+                  </svg>
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                className="rl-button--edit rl-button--card-action rl-edit-button"
+                data-action="edit"
+                aria-label="Edit reference"
+                title="Edit reference"
+                disabled={card.applyingEdit}
+                onClick={edit}
+              >
+                <span aria-hidden="true">R</span>
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <path d="M4 20h4L19 9l-4-4L4 16v4Z" />
                   <path d="m13.5 6.5 4 4" />
                 </svg>
               </Button>
-            ) : null}
-            <Button
-              type="button"
-              className="rl-button--edit rl-button--card-action rl-edit-button"
-              data-action="edit"
-              aria-label="Edit reference"
-              title="Edit reference"
-              disabled={card.applyingEdit}
-              onClick={edit}
-            >
-              <span aria-hidden="true">R</span>
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M4 20h4L19 9l-4-4L4 16v4Z" />
-                <path d="m13.5 6.5 4 4" />
-              </svg>
-            </Button>
+            </span>
           </span>
         </div>
         {card.error ? (
@@ -845,12 +856,14 @@ function MediaChannel({
   actions,
   dragHandlers,
   showCaptions,
+  horizontalCards,
   deferPreview,
 }: {
   channel: LoaderChannelView
   actions: LoaderReactActions
   dragHandlers: DragHandlers
   showCaptions: boolean
+  horizontalCards: boolean
   deferPreview: boolean
 }): ReactNode {
   const accepts = `${channel.channel}/*`
@@ -868,7 +881,7 @@ function MediaChannel({
         <small>{channel.description}</small>
       </header>
       <div
-        className={`rl-card-grid${channel.cards.length === 0 ? " is-empty" : ""}`}
+        className={`rl-card-grid${horizontalCards ? " rl-card-grid--horizontal" : ""}${channel.cards.length === 0 ? " is-empty" : ""}`}
         data-drop-zone={channel.channel}
         onDragOver={(event) => dragHandlers.onChannelDragOver(channel.channel, event)}
         onDrop={(event) => dragHandlers.onChannelDrop(channel, event)}
@@ -878,6 +891,7 @@ function MediaChannel({
             key={`${card.channel}:${card.id}:${card.sourceRevision ?? "original"}`}
             card={card}
             showCaptions={showCaptions}
+            horizontalCards={horizontalCards}
             deferPreview={deferPreview}
             actions={actions}
             dragHandlers={dragHandlers}
@@ -1344,6 +1358,7 @@ function ReferenceLoaderReactRoot({
                 key={channel.channel}
                 channel={channel}
                 showCaptions={snapshot.display.showCaptions}
+                horizontalCards={snapshot.display.horizontalCards}
                 deferPreview={snapshot.deferPreviews}
                 actions={actions}
                 dragHandlers={dragHandlers}

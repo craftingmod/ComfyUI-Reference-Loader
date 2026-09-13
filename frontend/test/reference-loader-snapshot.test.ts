@@ -25,8 +25,7 @@ const settings: ReferenceLoaderSnapshotSettings = {
   alphaBackground: "#123456",
   promptSchemaPreset: "minimax_h3_t2v",
   showCaptions: false,
-  twoImageMode: true,
-  promptByOrder: true,
+  horizontalCards: false,
 }
 
 describe("Reference Loader snapshots", () => {
@@ -43,14 +42,14 @@ describe("Reference Loader snapshots", () => {
     expect(
       captureReferenceLoaderSnapshotSettings(
         node,
-        { showCaptions: true, twoImageMode: false, promptByOrder: false },
+        { showCaptions: true, horizontalCards: false },
         "generic",
       ).alphaBackground,
     ).toBe("#000000")
     expect(
       captureReferenceLoaderSnapshotSettings(
         node,
-        { showCaptions: true, twoImageMode: false, promptByOrder: false },
+        { showCaptions: true, horizontalCards: false },
         "generic",
       ).maxImagePixels,
     ).toBe(2)
@@ -123,34 +122,26 @@ describe("Reference Loader snapshots", () => {
     expect(JSON.parse(parsed.loaderState).items["video-1"].videoAudioEnabled).toBe(false)
   })
 
-  test("rejects malformed state and inconsistent two-image mode before applying it", () => {
-    const state = createEmptyLoaderState()
-    for (let index = 0; index < 3; index += 1) {
-      const item = createMediaItem(
-        "image",
-        {
-          path: `reference_loader/sources/${index}.png`,
-          mime: "image/png",
-          sha256: String(index).repeat(64),
-        },
-        `image-${index}`,
-      )
-      Object.assign(state, loaderReducer(state, { type: "add", item }))
-    }
-    expect(() =>
+  test("defaults a snapshot without card orientation to vertical", () => {
+    const snapshot = JSON.parse(
       serializeReferenceLoaderSnapshot({
-        loaderState: serializeLoaderState(state),
+        loaderState: serializeLoaderState(createEmptyLoaderState()),
         promptState: serializePromptDocumentV6(createEmptyPromptDocumentV6()),
         settings,
       }),
-    ).toThrow("more than two enabled Images")
+    ) as Record<string, unknown>
+    delete (snapshot.node_settings as Record<string, unknown>).horizontal_cards
 
+    expect(parseReferenceLoaderSnapshot(JSON.stringify(snapshot)).settings.horizontalCards).toBe(false)
+  })
+
+  test("rejects malformed state before applying it", () => {
     expect(() => parseReferenceLoaderSnapshot("not json")).toThrow("valid JSON")
     expect(() =>
       parseReferenceLoaderSnapshot(
         JSON.stringify({ format: REFERENCE_LOADER_SNAPSHOT_FORMAT, version: 99 }),
       ),
-    ).toThrow("version must be 1")
+    ).toThrow("version must be 2")
     expect(() =>
       serializeReferenceLoaderSnapshot({
         loaderState: serializeLoaderState(createEmptyLoaderState()),
@@ -164,7 +155,7 @@ describe("Reference Loader snapshots", () => {
     const serialized = serializeReferenceLoaderSnapshot({
       loaderState: serializeLoaderState(createEmptyLoaderState()),
       promptState: serializePromptDocumentV6(createEmptyPromptDocumentV6()),
-      settings: { ...settings, twoImageMode: false },
+      settings,
     })
     const snapshot = JSON.parse(serialized)
     snapshot.prompt_state = {

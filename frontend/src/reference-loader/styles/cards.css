@@ -22,6 +22,31 @@
   min-width: 0;
   min-height: 0;
 }
+.rl-card--horizontal {
+  display: grid;
+  grid-template-columns: clamp(150px, 36%, 220px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+}
+.rl-card--horizontal .rl-card__media {
+  min-height: 0;
+  width: 100%;
+}
+.rl-card--horizontal[data-channel="audio"] .rl-card__media {
+  align-self: center;
+  aspect-ratio: 16 / 9;
+  height: auto;
+}
+.rl-card--horizontal .rl-card__body {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rl-card--horizontal .rl-card__actions {
+  margin-top: auto;
+  justify-content: stretch;
+}
 .rl-card:active {
   cursor: grabbing;
 }
@@ -130,6 +155,7 @@
   background: #000;
 }
 .rl-card__media canvas {
+  display: block;
   width: 100%;
   height: 100%;
 }
@@ -162,6 +188,8 @@
   top: 5px;
   left: 5px;
   display: flex;
+  flex-wrap: wrap;
+  max-width: calc(100% - 38px);
   gap: 3px;
   align-items: center;
 }
@@ -234,6 +262,7 @@
   flex-grow: 1;
   gap: 5px;
   padding: 5px;
+  container-type: inline-size;
 }
 .rl-remove {
   position: absolute;
@@ -270,15 +299,66 @@
 }
 .rl-card__actions {
   display: flex;
+  flex-direction: rpw;
   flex-wrap: wrap;
+  /* grid-template-columns: max-content max-content max-content minmax(8px, 1fr) max-content;
+  grid-template-areas: "outputs divider order spacer media"; */
+  align-items: center;
   gap: 3px;
   margin-top: auto;
+  min-width: 0;
+}
+.rl-output-actions,
+.rl-order-actions,
+.rl-media-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.rl-output-actions {
+  grid-area: outputs;
+}
+.rl-action-divider {
+  grid-area: divider;
+  width: 1px;
+  height: 18px;
+  margin-inline: 1px;
+  background: var(--rl-border);
+}
+.rl-order-actions {
+  grid-area: order;
+}
+.rl-actions-spacer {
+  /* grid-area: spacer; */
+  flex-grow: 1;
+  min-width: 8px;
+}
+.rl-media-actions {
+  grid-area: media;
+  justify-content: flex-end;
+}
+.rl-card__actions > * {
+  min-width: 0;
 }
 .rl-edit-actions {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin-left: auto;
+  margin-left: 0;
+}
+
+@container (max-width: 300px) {
+  .rl-card__actions {
+    grid-template-columns: max-content max-content max-content minmax(8px, 1fr);
+    grid-template-areas:
+      "outputs divider order spacer"
+      "media media media media";
+    row-gap: 3px;
+  }
+  .rl-media-actions {
+    justify-self: end;
+  }
 }
 .rl-edit-button {
   display: inline-flex;

@@ -8,7 +8,7 @@ import type {
 } from "../comfyui.ts"
 import { ReferenceLoaderApi } from "./api.ts"
 import type { H3WorkspaceReactMount } from "./components/h3-workspace-react.tsx"
-import { promptByOrderProperty, ReferenceLoaderController } from "./components/loader.ts"
+import { ReferenceLoaderController } from "./components/loader.ts"
 import {
   createPromptDefinitionsReact,
   type PromptDefinitionsReactMount,
@@ -373,8 +373,7 @@ function saveSnapshot(node: ComfyNode, loader: ReferenceLoaderController): void 
       node,
       {
         showCaptions: display.showCaptions,
-        twoImageMode: display.twoImageMode,
-        promptByOrder: display.promptByOrder,
+        horizontalCards: display.horizontalCards,
       },
       prompt.presetId,
     ),
@@ -410,8 +409,7 @@ async function loadSnapshot(
   try {
     loader.restoreSnapshot(snapshot.loaderState, {
       showCaptions: snapshot.settings.showCaptions,
-      twoImageMode: snapshot.settings.twoImageMode,
-      promptByOrder: snapshot.settings.promptByOrder,
+      horizontalCards: snapshot.settings.horizontalCards,
     })
     prompt.restore(snapshot.promptState)
     prompt.setPreset(snapshot.settings.promptSchemaPreset)
@@ -430,9 +428,7 @@ function bindPromptReferences(node: ComfyNode): void {
   const loader = controllers.get(node)
   const prompt = promptControllers.get(node)
   if (!loader || !prompt) return
-  const releaseReferences = loader.subscribePromptReferences(() =>
-    prompt.refreshReferences(promptByOrderProperty(node)),
-  )
+  const releaseReferences = loader.subscribePromptReferences(() => prompt.refreshReferences())
   const releaseShots = prompt.subscribeShots(() => {
     loader.setPromptShots(
       prompt.shots,
@@ -638,8 +634,7 @@ function bindNativeDisplayProxies(
   const gridColumns = node.widgets?.find((widget) => widget.name === "grid_columns")
   const previewPixels = node.widgets?.find((widget) => widget.name === "preview_pixels")
   const showCaptions = node.widgets?.find((widget) => widget.name === "show_captions")
-  const twoImageMode = node.widgets?.find((widget) => widget.name === "two_image_mode")
-  const promptByOrder = node.widgets?.find((widget) => widget.name === "prompt_by_order")
+  const horizontalCards = node.widgets?.find((widget) => widget.name === "horizontal_cards")
   const cardAspect = node.widgets?.find((widget) => widget.name === "card_aspect")
   const previewFit = node.widgets?.find((widget) => widget.name === "preview_fit")
   const waveformPairs = node.widgets?.find((widget) => widget.name === "waveform_pairs")
@@ -649,8 +644,7 @@ function bindNativeDisplayProxies(
     !gridColumns ||
     !previewPixels ||
     !showCaptions ||
-    !twoImageMode ||
-    !promptByOrder ||
+    !horizontalCards ||
     !cardAspect ||
     !previewFit ||
     !waveformPairs
@@ -661,8 +655,7 @@ function bindNativeDisplayProxies(
   const originalGridCallback = gridColumns.callback
   const originalPreviewCallback = previewPixels.callback
   const originalShowCaptionsCallback = showCaptions.callback
-  const originalTwoImageModeCallback = twoImageMode.callback
-  const originalPromptByOrderCallback = promptByOrder.callback
+  const originalHorizontalCardsCallback = horizontalCards.callback
   const originalCardAspectCallback = cardAspect.callback
   const originalPreviewFitCallback = previewFit.callback
   const originalWaveformPairsCallback = waveformPairs.callback
@@ -673,8 +666,7 @@ function bindNativeDisplayProxies(
     gridColumns.value = values.gridColumns
     previewPixels.value = values.previewPixels
     showCaptions.value = values.showCaptions
-    twoImageMode.value = values.twoImageMode
-    promptByOrder.value = values.promptByOrder
+    horizontalCards.value = values.horizontalCards
     cardAspect.value = values.cardAspect
     previewFit.value = values.previewFit
     waveformPairs.value = values.waveformPairs
@@ -703,15 +695,9 @@ function bindNativeDisplayProxies(
     syncFromState()
     return result
   }
-  const twoImageModeCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
-    const result = originalTwoImageModeCallback?.call(twoImageMode, value, ...args)
-    controller.writeDisplayProxy({ twoImageMode: Boolean(value) })
-    syncFromState()
-    return result
-  }
-  const promptByOrderCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
-    const result = originalPromptByOrderCallback?.call(promptByOrder, value, ...args)
-    controller.writeDisplayProxy({ promptByOrder: Boolean(value) })
+  const horizontalCardsCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalHorizontalCardsCallback?.call(horizontalCards, value, ...args)
+    controller.writeDisplayProxy({ horizontalCards: Boolean(value) })
     syncFromState()
     return result
   }
@@ -738,8 +724,7 @@ function bindNativeDisplayProxies(
   gridColumns.callback = gridCallback
   previewPixels.callback = previewCallback
   showCaptions.callback = showCaptionsCallback
-  twoImageMode.callback = twoImageModeCallback
-  promptByOrder.callback = promptByOrderCallback
+  horizontalCards.callback = horizontalCardsCallback
   cardAspect.callback = cardAspectCallback
   previewFit.callback = previewFitCallback
   waveformPairs.callback = waveformPairsCallback
@@ -775,13 +760,10 @@ function bindNativeDisplayProxies(
         if (originalShowCaptionsCallback) showCaptions.callback = originalShowCaptionsCallback
         else delete showCaptions.callback
       }
-      if (twoImageMode.callback === twoImageModeCallback) {
-        if (originalTwoImageModeCallback) twoImageMode.callback = originalTwoImageModeCallback
-        else delete twoImageMode.callback
-      }
-      if (promptByOrder.callback === promptByOrderCallback) {
-        if (originalPromptByOrderCallback) promptByOrder.callback = originalPromptByOrderCallback
-        else delete promptByOrder.callback
+      if (horizontalCards.callback === horizontalCardsCallback) {
+        if (originalHorizontalCardsCallback)
+          horizontalCards.callback = originalHorizontalCardsCallback
+        else delete horizontalCards.callback
       }
       if (cardAspect.callback === cardAspectCallback) {
         if (originalCardAspectCallback) cardAspect.callback = originalCardAspectCallback

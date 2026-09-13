@@ -515,8 +515,7 @@ describe("Reference Loader custom widget", () => {
     const gridColumns: ComfyWidget = { name: "grid_columns", value: 3 }
     const previewPixels: ComfyWidget = { name: "preview_pixels", value: 1 }
     const showCaptions: ComfyWidget = { name: "show_captions", value: true }
-    const twoImageMode: ComfyWidget = { name: "two_image_mode", value: false }
-    const promptByOrder: ComfyWidget = { name: "prompt_by_order", value: false }
+    const horizontalCards: ComfyWidget = { name: "horizontal_cards", value: false }
     const cardAspect: ComfyWidget = { name: "card_aspect", value: "4 / 3" }
     const previewFit: ComfyWidget = { name: "preview_fit", value: "contain" }
     const waveformPairs: ComfyWidget = { name: "waveform_pairs", value: 300 }
@@ -539,8 +538,7 @@ describe("Reference Loader custom widget", () => {
         gridColumns,
         previewPixels,
         showCaptions,
-        twoImageMode,
-        promptByOrder,
+        horizontalCards,
         cardAspect,
         previewFit,
         waveformPairs,
@@ -583,16 +581,20 @@ describe("Reference Loader custom widget", () => {
       (node.properties?.referenceLoader as Record<string, unknown> | undefined)?.showCaptions,
     ).toBe(false)
     expect(loaderRoot?.querySelector("textarea[data-field='caption']")).toBeNull()
-    twoImageMode.callback?.(true)
-    expect(twoImageMode.value).toBe(true)
+    expect(horizontalCards.value).toBe(false)
+    expect(loaderRoot?.querySelector(".rl-card-grid--horizontal")).toBeNull()
+    horizontalCards.callback?.(true)
+    expect(horizontalCards.value).toBe(true)
     expect(
-      (node.properties?.referenceLoader as Record<string, unknown> | undefined)?.twoImageMode,
+      (node.properties?.referenceLoader as Record<string, unknown> | undefined)?.horizontalCards,
     ).toBe(true)
-    promptByOrder.callback?.(true)
-    expect(promptByOrder.value).toBe(true)
+    expect(loaderRoot?.querySelector(".rl-card-grid--horizontal")).not.toBeNull()
+    horizontalCards.callback?.(false)
+    expect(horizontalCards.value).toBe(false)
     expect(
-      (node.properties?.referenceLoader as Record<string, unknown> | undefined)?.promptByOrder,
-    ).toBe(true)
+      (node.properties?.referenceLoader as Record<string, unknown> | undefined)?.horizontalCards,
+    ).toBe(false)
+    expect(loaderRoot?.querySelector(".rl-card-grid--horizontal")).toBeNull()
     cardAspect.callback?.("9 / 16")
     previewFit.callback?.("cover")
     waveformPairs.callback?.(750)
@@ -619,8 +621,7 @@ describe("Reference Loader custom widget", () => {
     gridColumns.value = 8
     previewPixels.value = 16
     showCaptions.value = true
-    twoImageMode.value = false
-    promptByOrder.value = false
+    horizontalCards.value = true
     cardAspect.value = "16 / 9"
     previewFit.value = "cover"
     waveformPairs.value = 1000
@@ -632,8 +633,7 @@ describe("Reference Loader custom widget", () => {
     expect(gridColumns.value).toBe(2)
     expect(previewPixels.value).toBe(4)
     expect(showCaptions.value).toBe(false)
-    expect(twoImageMode.value).toBe(true)
-    expect(promptByOrder.value).toBe(true)
+    expect(horizontalCards.value).toBe(false)
     expect(cardAspect.value).toBe("1 / 1")
     expect(previewFit.value).toBe("contain")
     expect(waveformPairs.value).toBe(450)
@@ -644,8 +644,7 @@ describe("Reference Loader custom widget", () => {
     gridColumns.value = 7
     previewPixels.value = 12
     showCaptions.value = true
-    twoImageMode.value = false
-    promptByOrder.value = false
+    horizontalCards.value = true
     cardAspect.value = "16 / 9"
     previewFit.value = "cover"
     waveformPairs.value = 1000
@@ -657,8 +656,7 @@ describe("Reference Loader custom widget", () => {
     expect(gridColumns.value).toBe(2)
     expect(previewPixels.value).toBe(4)
     expect(showCaptions.value).toBe(false)
-    expect(twoImageMode.value).toBe(true)
-    expect(promptByOrder.value).toBe(true)
+    expect(horizontalCards.value).toBe(false)
     expect(cardAspect.value).toBe("1 / 1")
     expect(previewFit.value).toBe("contain")
     expect(waveformPairs.value).toBe(450)
@@ -847,8 +845,7 @@ describe("Reference Loader custom widget", () => {
       { name: "grid_columns", value: 3 },
       { name: "preview_pixels", value: 1 },
       { name: "show_captions", value: true },
-      { name: "two_image_mode", value: false },
-      { name: "prompt_by_order", value: false },
+      { name: "horizontal_cards", value: false },
       { name: "card_aspect", value: "4 / 3" },
       { name: "preview_fit", value: "contain" },
       { name: "waveform_pairs", value: 300 },
@@ -900,8 +897,7 @@ describe("Reference Loader custom widget", () => {
       alphaBackground: "#123456",
       promptSchemaPreset: "minimax_h3_t2v",
       showCaptions: false,
-      twoImageMode: true,
-      promptByOrder: true,
+      horizontalCards: false,
     }
     const snapshot = serializeReferenceLoaderSnapshot({
       loaderState: serializeLoaderState(loaderState),
@@ -938,12 +934,10 @@ describe("Reference Loader custom widget", () => {
       expect(node.widgets?.find((widget) => widget.name === "h3_total_frames")?.value).toBe(200)
       expect(node.widgets?.find((widget) => widget.name === "h3_fps")?.value).toBe(30)
       expect(node.widgets?.find((widget) => widget.name === "show_captions")?.value).toBe(false)
-      expect(node.widgets?.find((widget) => widget.name === "two_image_mode")?.value).toBe(true)
-      expect(node.widgets?.find((widget) => widget.name === "prompt_by_order")?.value).toBe(true)
+      expect(node.widgets?.find((widget) => widget.name === "horizontal_cards")?.value).toBe(false)
       expect(node.properties?.referenceLoader).toEqual({
         showCaptions: false,
-        twoImageMode: true,
-        promptByOrder: true,
+        horizontalCards: false,
       })
       expect(loaderRoot?.querySelector(".rl-status")?.textContent).toBe("Snapshot loaded.")
       expect(beforeChanges).toBe(1)

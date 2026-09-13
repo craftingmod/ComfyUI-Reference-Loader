@@ -3,7 +3,7 @@ import { deserializePromptDocumentV6 } from "./prompt-v6.ts"
 import { deserializeLoaderState, serializeLoaderState } from "./serialization.ts"
 
 export const REFERENCE_LOADER_SNAPSHOT_FORMAT = "reference-loader-snapshot" as const
-export const REFERENCE_LOADER_SNAPSHOT_VERSION = 1 as const
+export const REFERENCE_LOADER_SNAPSHOT_VERSION = 2 as const
 export const REFERENCE_LOADER_SNAPSHOT_FILENAME = "reference-loader-snapshot.json"
 export const MAX_REFERENCE_LOADER_SNAPSHOT_CHARACTERS = 1_500_000
 export const MAX_REFERENCE_LOADER_SNAPSHOT_BYTES = 6_000_000
@@ -15,8 +15,7 @@ export interface ReferenceLoaderSnapshotSettings {
   alphaBackground: string
   promptSchemaPreset: string
   showCaptions: boolean
-  twoImageMode: boolean
-  promptByOrder: boolean
+  horizontalCards: boolean
 }
 
 export interface ParsedReferenceLoaderSnapshot {
@@ -66,8 +65,10 @@ function parseSettings(value: unknown): ReferenceLoaderSnapshotSettings {
     alphaBackground,
     promptSchemaPreset: requiredString(value.prompt_schema_preset, "prompt_schema_preset", 128),
     showCaptions: requiredBoolean(value.show_captions, "show_captions"),
-    twoImageMode: requiredBoolean(value.two_image_mode, "two_image_mode"),
-    promptByOrder: requiredBoolean(value.prompt_by_order, "prompt_by_order"),
+    horizontalCards:
+      value.horizontal_cards === undefined
+        ? false
+        : requiredBoolean(value.horizontal_cards, "horizontal_cards"),
   }
 }
 
@@ -79,18 +80,8 @@ function serializedSettings(settings: ReferenceLoaderSnapshotSettings): Record<s
     alpha_background: settings.alphaBackground,
     prompt_schema_preset: settings.promptSchemaPreset,
     show_captions: settings.showCaptions,
-    two_image_mode: settings.twoImageMode,
-    prompt_by_order: settings.promptByOrder,
+    horizontal_cards: settings.horizontalCards,
   }
-}
-
-function activeImageCount(loaderState: string): number {
-  const state = JSON.parse(loaderState) as {
-    items: Record<string, { kind?: unknown; imageEnabled?: unknown }>
-  }
-  return Object.values(state.items).filter(
-    (item) => item.kind === "image" && item.imageEnabled === true,
-  ).length
 }
 
 export function serializeReferenceLoaderSnapshot(source: SnapshotSource): string {
@@ -103,8 +94,6 @@ export function serializeReferenceLoaderSnapshot(source: SnapshotSource): string
     throw new Error(`Prompt state is invalid: ${prompt.issues.join(" ")}`)
   const loaderState = serializeLoaderState(loader.state)
   const settings = parseSettings(serializedSettings(source.settings))
-  if (settings.twoImageMode && activeImageCount(loaderState) > 2)
-    throw new Error("Two-image mode cannot be saved with more than two enabled Images.")
   const serialized = JSON.stringify(
     {
       format: REFERENCE_LOADER_SNAPSHOT_FORMAT,
@@ -144,8 +133,6 @@ export function parseReferenceLoaderSnapshot(value: string): ParsedReferenceLoad
     throw new Error(`Snapshot Prompt state is invalid: ${prompt.issues.join(" ")}`)
   const settings = parseSettings(raw.node_settings)
   const loaderState = serializeLoaderState(loader.state)
-  if (settings.twoImageMode && activeImageCount(loaderState) > 2)
-    throw new Error("Snapshot enables two-image mode with more than two enabled Images.")
   return {
     loaderState,
     promptState: JSON.stringify(prompt.document),
@@ -171,7 +158,7 @@ function snapshotMaxImagePixels(value: unknown): number {
 
 export function captureReferenceLoaderSnapshotSettings(
   node: ComfyNode,
-  display: Pick<ReferenceLoaderSnapshotSettings, "showCaptions" | "twoImageMode" | "promptByOrder">,
+  display: Pick<ReferenceLoaderSnapshotSettings, "showCaptions" | "horizontalCards">,
   promptSchemaPreset: string,
 ): ReferenceLoaderSnapshotSettings {
   return {

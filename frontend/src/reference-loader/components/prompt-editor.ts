@@ -20,7 +20,6 @@ import {
   parsePromptPartsV6,
   normalizePromptPartsV6,
   promptPartsV6Equal,
-  rebindPromptMentionsByOrderV6,
   renderAuthoringPromptV6,
   removePromptDefinitionV6,
   renamePromptDefinitionV6,
@@ -874,17 +873,13 @@ export class ReferencePromptController {
     this.#renderEditor()
   }
 
-  refreshReferences(bindByOrder = false): void {
+  refreshReferences(): void {
     if (this.#destroyed) return
     const currentReferences = this.#references()
     // Media previews are runtime-only metadata. The Prompt document does not
     // change when a restored reference finishes loading, so invalidate the
     // React snapshots explicitly to refresh existing chips.
     this.#invalidateV6Snapshots()
-    if (bindByOrder) {
-      this.#documentV6 = rebindPromptMentionsByOrderV6(this.#documentV6, currentReferences)
-      this.#invalidateV6Snapshots()
-    }
     if (this.#documentV6.view === "raw") {
       this.#v6RawDraft = renderAuthoringPromptV6(this.#documentV6, currentReferences)
       this.#v6RawReferenceFingerprint = this.#v6ReferenceFingerprint()

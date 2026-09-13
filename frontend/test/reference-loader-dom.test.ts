@@ -62,6 +62,79 @@ describe("Reference Loader DOM lifecycle", () => {
     root.remove()
   })
 
+  test("redraws waveforms after the loader is resized and disconnects the observer", async () => {
+    const originalResizeObserver = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver")
+    let resizeCallback: ResizeObserverCallback | undefined
+    let disconnects = 0
+    class TestResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback
+      }
+
+      observe(): void {}
+
+      disconnect(): void {
+        disconnects += 1
+      }
+    }
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: TestResizeObserver,
+    })
+
+    const root = document.createElement("div")
+    document.body.append(root)
+    const audio = createMediaItem(
+      "audio",
+      {
+        path: "reference_loader/sources/resize.wav",
+        mime: "audio/wav",
+        sha256: "1".repeat(64),
+      },
+      "resize-audio",
+    )
+    const state = loaderReducer(createEmptyLoaderState(), { type: "add", item: audio })
+    let controller: ReferenceLoaderController | undefined
+    try {
+      controller = new ReferenceLoaderController(
+        root,
+        {
+          addWidget: () => ({ name: "unused", value: null }),
+          addDOMWidget: () => ({ name: "unused", value: null }),
+          setDirtyCanvas: () => undefined,
+        },
+        new ReferenceLoaderApi({
+          fetchApi: async (route) => {
+            if (route.endsWith("metadata"))
+              return new Response(JSON.stringify({ metadata: { duration: 2 } }), { status: 200 })
+            if (route.endsWith("waveform"))
+              return new Response(JSON.stringify({ pairs: [[-0.5, 0.5]], duration: 2 }), {
+                status: 200,
+              })
+            throw new Error(`Unexpected route: ${route}`)
+          },
+          apiURL: (route) => `/comfy${route}`,
+        }),
+        serializeLoaderState(state),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      const canvas = root.querySelector<HTMLCanvasElement>("canvas[data-waveform-id]")
+      expect(canvas).not.toBeNull()
+      canvas!.width = 1
+      resizeCallback?.([], {} as ResizeObserver)
+      expect(canvas!.width).toBe(160)
+      controller.destroy()
+      expect(disconnects).toBe(1)
+    } finally {
+      controller?.destroy()
+      root.remove()
+      if (originalResizeObserver)
+        Object.defineProperty(globalThis, "ResizeObserver", originalResizeObserver)
+      else Reflect.deleteProperty(globalThis, "ResizeObserver")
+    }
+  })
+
   test("routes Snapshot Save and Load controls through controller actions", async () => {
     const root = document.createElement("div")
     document.body.append(root)
@@ -386,177 +459,6 @@ describe("Reference Loader DOM lifecycle", () => {
     root.remove()
   })
 
-  test("two-image mode blocks only a third enabled IMAGE output", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const node: ComfyNode = {
-      properties: { referenceLoader: { twoImageMode: true } },
-      addWidget: () => ({ name: "unused", value: null }),
-      addDOMWidget: () => ({ name: "unused", value: null }),
-      setDirtyCanvas: () => undefined,
-    }
-    let state = createEmptyLoaderState()
-    for (const [index, id] of ["first", "second", "candidate"].entries()) {
-      state = loaderReducer(state, {
-        type: "add",
-        item: createMediaItem(
-          "image",
-          {
-            path: `reference_loader/sources/${id}.png`,
-            mime: "image/png",
-            sha256: String(index + 1).repeat(64),
-          },
-          id,
-        ),
-      })
-    }
-    state = loaderReducer(state, { type: "toggle", id: "candidate", channel: "image" })
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Promise<Response>(() => undefined) }),
-      serializeLoaderState(state),
-    )
-
-    root
-      .querySelector<HTMLButtonElement>(
-        '.rl-card[data-id="candidate"] [data-action="toggle-image"]',
-      )
-      ?.click()
-    expect(controller.state.items.candidate).toMatchObject({ imageEnabled: false })
-    expect(root.querySelector(".rl-status")?.textContent).toContain("at most two enabled Images")
-
-    root
-      .querySelector<HTMLButtonElement>('.rl-card[data-id="second"] [data-action="toggle-image"]')
-      ?.click()
-    root
-      .querySelector<HTMLButtonElement>(
-        '.rl-card[data-id="candidate"] [data-action="toggle-image"]',
-      )
-      ?.click()
-    expect(controller.state.items.second).toMatchObject({ imageEnabled: false })
-    expect(controller.state.items.candidate).toMatchObject({ imageEnabled: true })
-
-    controller.destroy()
-    root.remove()
-  })
-
-  test("two-image mode rejects activation when three Images are already enabled", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const node: ComfyNode = {
-      properties: {},
-      addWidget: () => ({ name: "unused", value: null }),
-      addDOMWidget: () => ({ name: "unused", value: null }),
-      setDirtyCanvas: () => undefined,
-    }
-    let state = createEmptyLoaderState()
-    for (const [index, id] of ["one", "two", "three"].entries()) {
-      state = loaderReducer(state, {
-        type: "add",
-        item: createMediaItem(
-          "image",
-          {
-            path: `reference_loader/sources/${id}.png`,
-            mime: "image/png",
-            sha256: String(index + 1).repeat(64),
-          },
-          id,
-        ),
-      })
-    }
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi({ fetchApi: async () => new Promise<Response>(() => undefined) }),
-      serializeLoaderState(state),
-    )
-
-    controller.writeDisplayProxy({ twoImageMode: true })
-
-    expect(
-      (node.properties?.referenceLoader as Record<string, unknown> | undefined)?.twoImageMode,
-    ).not.toBe(true)
-    expect(root.querySelector(".rl-status")?.textContent).toContain(
-      "requires at most two enabled Images",
-    )
-    controller.destroy()
-    root.remove()
-  })
-
-  test("two-image mode keeps additional uploaded Images disabled", async () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-    const node: ComfyNode = {
-      properties: { referenceLoader: { twoImageMode: true } },
-      addWidget: () => ({ name: "unused", value: null }),
-      addDOMWidget: () => ({ name: "unused", value: null }),
-      setDirtyCanvas: () => undefined,
-    }
-    let state = createEmptyLoaderState()
-    for (const [index, id] of ["start", "end"].entries()) {
-      state = loaderReducer(state, {
-        type: "add",
-        item: createMediaItem(
-          "image",
-          {
-            path: `reference_loader/sources/${id}.png`,
-            mime: "image/png",
-            sha256: String(index + 1).repeat(64),
-          },
-          id,
-        ),
-      })
-    }
-    const api: ComfyApiLike = {
-      fetchApi: async (route) => {
-        if (route.endsWith("/upload")) {
-          return new Response(
-            JSON.stringify({
-              kind: "image",
-              source: {
-                path: "reference_loader/sources/extra.png",
-                mime: "image/png",
-                sha256: "e".repeat(64),
-              },
-              metadata: { width: 1, height: 1 },
-            }),
-            { status: 201 },
-          )
-        }
-        if (route.endsWith("/metadata")) {
-          return new Response(JSON.stringify({ metadata: { width: 1, height: 1 } }))
-        }
-        if (route.endsWith("/image_proxy")) {
-          return new Response(JSON.stringify({ url: "/api/view?filename=extra.webp" }))
-        }
-        return new Response("{}")
-      },
-    }
-    const controller = new ReferenceLoaderController(
-      root,
-      node,
-      new ReferenceLoaderApi(api),
-      serializeLoaderState(state),
-    )
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    const input = root.querySelector<HTMLInputElement>('[data-upload-kind="image"]')
-    Object.defineProperty(input, "files", {
-      configurable: true,
-      value: [new File(["extra"], "extra.png", { type: "image/png" })],
-    })
-    input?.dispatchEvent(new Event("change", { bubbles: true }))
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    const extra = Object.values(controller.state.items).find(
-      (item) => item.source.path === "reference_loader/sources/extra.png",
-    )
-    expect(extra).toMatchObject({ kind: "image", imageEnabled: false })
-    expect(root.querySelector(".rl-status")?.textContent).toContain("disabled by two-image mode")
-    controller.destroy()
-    root.remove()
-  })
-
   test("uploads a media file dropped onto the loader and shows drop feedback", async () => {
     const root = document.createElement("div")
     document.body.append(root)
@@ -780,6 +682,20 @@ describe("Reference Loader DOM lifecycle", () => {
     expect(actions?.closest(".rl-card__media")).toBeNull()
     expect(actions?.closest(".rl-card__body")).not.toBeNull()
     expect(actions?.previousElementSibling?.matches("textarea[data-field='caption']")).toBe(true)
+    expect([...(actions?.children ?? [])].map((child) => child.className)).toEqual([
+      "rl-output-actions",
+      "rl-action-divider",
+      "rl-order-actions",
+      "rl-actions-spacer",
+      "rl-media-actions",
+    ])
+    expect(
+      card?.querySelector('[data-action="toggle-image"]')?.closest(".rl-output-actions"),
+    ).not.toBeNull()
+    expect(
+      card?.querySelector('[data-action="move-back"]')?.closest(".rl-order-actions"),
+    ).not.toBeNull()
+    expect(card?.querySelector('[data-action="edit"]')?.closest(".rl-media-actions")).not.toBeNull()
     const editButton = card?.querySelector<HTMLButtonElement>('[data-action="edit"]')
     expect(editButton?.textContent?.trim()).toBe("R")
     expect(editButton?.getAttribute("aria-label")).toBe("Edit reference")
@@ -854,6 +770,7 @@ describe("Reference Loader DOM lifecycle", () => {
       expect(button?.classList.contains("rl-button")).toBe(true)
       expect(button?.classList.contains("rl-button--output")).toBe(true)
       expect(button?.classList.contains("rl-button--card-action")).toBe(true)
+      expect(button?.closest(".rl-output-actions")).not.toBeNull()
     }
     expect(
       videoCard
@@ -861,10 +778,16 @@ describe("Reference Loader DOM lifecycle", () => {
         ?.classList.contains("rl-button--preview"),
     ).toBe(true)
     expect(
+      videoCard?.querySelector('[data-action="preview-video"]')?.closest(".rl-media-actions"),
+    ).not.toBeNull()
+    expect(
       audioCard
         ?.querySelector('[data-action="toggle-audio"]')
         ?.classList.contains("rl-button--output"),
     ).toBe(true)
+    expect(
+      audioCard?.querySelector('[data-action="toggle-audio"]')?.closest(".rl-output-actions"),
+    ).not.toBeNull()
     expect(
       videoCard
         ?.querySelector<HTMLButtonElement>('[data-action="toggle-video-audio"]')

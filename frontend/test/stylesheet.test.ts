@@ -269,6 +269,16 @@ describe("Reference Loader stylesheet", () => {
     expect(timeline).not.toContain(".rl-h3-editor")
     expect(timeline).not.toContain(".rl-h3-workspace")
     expect(cards).toContain(".rl-h3-card-badges")
+    expect(cards).toContain(".rl-guide-index")
+    expect(cards).toContain('.rl-card[data-channel="image"] .rl-output-index')
+    expect(cards).toContain('.rl-card[data-channel="video"] .rl-output-index')
+    expect(cards).toContain('.rl-card[data-channel="audio"] .rl-output-index')
+    expect(cards).toContain('.rl-card[data-channel="image"] .rl-h3-card-badge.is-reference')
+    expect(cards).toContain('.rl-card[data-channel="video"] .rl-h3-card-badge.is-reference')
+    expect(cards).toContain('.rl-card[data-channel="audio"] .rl-h3-card-badge.is-reference')
+    expect(cards).toContain("#64b5f6")
+    expect(cards).not.toContain('.rl-card[data-media-kind="video"] .rl-h3-card-badge.is-reference')
+    expect(cards).not.toContain('.rl-card[data-media-kind="audio"] .rl-h3-card-badge.is-reference')
     expect(cards).not.toContain(".rl-guide-button.is-on")
     expect(workspace).toContain(".rl-h3-workspace__footer button")
     expect(workspace).not.toContain(".rl-h3-workspace__status-row")
@@ -291,9 +301,6 @@ describe("Reference Loader stylesheet", () => {
         ),
       )
     ).join("\n")
-    const cards = await Bun.file(
-      new URL("../src/reference-loader/styles/cards.css", import.meta.url),
-    ).text()
     const prompt = (
       await Promise.all(
         ["prompt.css", "prompt-editor.css"].map((file) =>
@@ -319,7 +326,6 @@ describe("Reference Loader stylesheet", () => {
     ]) {
       expect(h3).not.toContain(selector)
     }
-    expect(cards).not.toContain(".rl-guide-index")
     for (const selector of [
       ".rl-prompt-definition__body-host",
       ".rl-prompt-section__body",
@@ -598,9 +604,11 @@ describe("Reference Loader stylesheet", () => {
       new URL("../src/reference-loader/styles/h3-timeline.css", import.meta.url),
     ).text()
     const rulerRule = timeline.match(/\.rl-h3-timeline__ruler\s*\{([^}]*)\}/)?.[1]
+    const rulerAxisRule = timeline.match(/\.rl-h3-timeline__ruler-axis\s*\{([^}]*)\}/)?.[1]
     const outputRule = timeline.match(/\.rl-h3-timeline__output-boundary > span\s*\{([^}]*)\}/)?.[1]
 
     expect(rulerRule).toContain("height: 36px;")
+    expect(rulerAxisRule).toContain("overflow: hidden;")
     expect(outputRule).toContain("bottom: 2px;")
     expect(outputRule).not.toContain("top: 2px;")
   })

@@ -584,6 +584,11 @@ function MediaCard({
               #{card.outputIndex}
             </span>
           )}
+          {card.guideIndex === undefined ? null : (
+            <span className="rl-guide-index" title={`Guide #${card.guideIndex}`}>
+              G#{card.guideIndex}
+            </span>
+          )}
           {card.megapixelLabel ? (
             <span
               className="rl-megapixels"

@@ -188,6 +188,7 @@ describe("Reference Loader Media Timeline integration", () => {
         (badge) => badge.textContent,
       ),
     ).toEqual(["Ref #1", "Guide #1", "0f"])
+    expect(root.querySelector('.rl-card[data-id="scene"] .rl-guide-index')?.textContent).toBe("G#1")
     expect(
       root.querySelector('.rl-card[data-id="scene"] .rl-h3-card-badge.is-reference'),
     ).not.toBeNull()
@@ -253,17 +254,33 @@ describe("Reference Loader Media Timeline integration", () => {
     document.body.append(root)
     const controller = mountController(root, serializeLoaderState(stateWithImage()))
     controller.setPromptShots([{ tag: "opening", frameIndex: 48 }])
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+    const scrollCalls: ScrollIntoViewOptions[] = []
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: (options?: ScrollIntoViewOptions) => {
+        if (options) scrollCalls.push(options)
+      },
+    })
 
-    controller.editH3GuidesForShot("opening")
+    try {
+      controller.editH3GuidesForShot("opening")
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      })
+    }
 
     expect(
       root.querySelector<HTMLElement>("[data-h3-workspace]")?.classList.contains("is-collapsed"),
     ).toBe(false)
     expect(
-      root.querySelector<HTMLButtonElement>('[data-timeline-shot="opening"]')?.getAttribute(
-        "aria-pressed",
-      ),
+      root
+        .querySelector<HTMLButtonElement>('[data-timeline-shot="opening"]')
+        ?.getAttribute("aria-pressed"),
     ).toBe("true")
+    expect(scrollCalls).toEqual([{ block: "nearest", inline: "nearest" }])
 
     controller.destroy()
     root.remove()

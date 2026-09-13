@@ -165,6 +165,7 @@
 }
 .rl-kind,
 .rl-output-index,
+.rl-guide-index,
 .rl-duration,
 .rl-megapixels {
   padding: 2px 4px;
@@ -195,6 +196,19 @@
 }
 .rl-output-index {
   color: color-mix(in srgb, var(--rl-accent) 80%, #fff);
+  font-variant-numeric: tabular-nums;
+}
+.rl-card[data-channel="image"] .rl-output-index {
+  color: #64b5f6;
+}
+.rl-card[data-channel="video"] .rl-output-index {
+  color: #decfff;
+}
+.rl-card[data-channel="audio"] .rl-output-index {
+  color: #c5f0d5;
+}
+.rl-guide-index {
+  color: color-mix(in srgb, var(--rl-guide) 86%, #fff);
   font-variant-numeric: tabular-nums;
 }
 .rl-media-filename {
@@ -309,6 +323,24 @@
   color: var(--rl-edit);
   border-color: color-mix(in srgb, var(--rl-edit) 55%, var(--rl-border));
   background: color-mix(in srgb, var(--rl-edit) 10%, var(--rl-panel));
+}
+
+.rl-card[data-channel="image"] .rl-h3-card-badge.is-reference {
+  color: #64b5f6;
+  border-color: color-mix(in srgb, #64b5f6 55%, var(--rl-border));
+  background: color-mix(in srgb, #64b5f6 10%, var(--rl-panel));
+}
+
+.rl-card[data-channel="video"] .rl-h3-card-badge.is-reference {
+  color: #decfff;
+  border-color: color-mix(in srgb, #9176c7 55%, var(--rl-border));
+  background: color-mix(in srgb, #342653 10%, var(--rl-panel));
+}
+
+.rl-card[data-channel="audio"] .rl-h3-card-badge.is-reference {
+  color: #c5f0d5;
+  border-color: color-mix(in srgb, #68a982 55%, var(--rl-border));
+  background: color-mix(in srgb, #1e4130 10%, var(--rl-panel));
 }
 
 .rl-h3-card-badge.is-guide {

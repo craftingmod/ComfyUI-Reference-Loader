@@ -133,9 +133,7 @@ function GuideList({
   if (marks.length === 0)
     return <p className="rl-h3-workspace__empty">No Guides or Shots yet. Choose a Media source.</p>
 
-  const selectedGuideId =
-    h3.editor?.selectedGuideId ??
-    (h3.selection?.kind === "guide" ? h3.selection.guideId : undefined)
+  const selectedGuideId = h3.selection?.kind === "guide" ? h3.selection.guideId : undefined
 
   const selectMark = (mark: (typeof marks)[number]): void => {
     if (mark.shotTag) actions.selectShot(mark.shotTag)
@@ -217,6 +215,10 @@ function GuideList({
                 removeLabel="Remove Shot"
                 frameAriaLabel="Shot frame"
                 fps={fps}
+                shortcuts={[
+                  { label: "Start", frame: 0 },
+                  { label: "End", frame: Math.max(0, snapshot.display.h3TotalFrames - 1) },
+                ]}
                 compact
                 onInput={() => undefined}
                 onCommit={(value) => {

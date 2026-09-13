@@ -162,12 +162,15 @@ export function timelineExtent(
     configuredFrameCount,
     ...marks
       .filter((mark) => mark.placement.kind !== "end" && Number.isSafeInteger(mark.frame))
-      .map(
-        (mark) =>
+      .map((mark) => {
+        if (mark.channel === "shot" && mark.frame === configuredFrameCount - 1)
+          return configuredFrameCount
+        return (
           Math.ceil(
             Math.max(mark.frame + (mark.frames ?? 1) + displayFps, mark.frame * 1.16) / displayFps,
-          ) * displayFps,
-      ),
+          ) * displayFps
+        )
+      }),
   )
 }
 

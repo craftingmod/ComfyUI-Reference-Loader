@@ -999,12 +999,12 @@ export class ReferenceLoaderController {
     )
     const selection = this.#h3SelectedRole
       ? ({ kind: this.#h3SelectedRole } as const)
-      : editor?.mediaId
-        ? ({ kind: "source", mediaId: editor.mediaId, channel: editor.channel } as const)
+      : this.#h3SelectedShot
+        ? ({ kind: "shot", tag: this.#h3SelectedShot } as const)
         : editor?.selectedGuideId
           ? ({ kind: "guide", guideId: editor.selectedGuideId, channel: editor.channel } as const)
-          : this.#h3SelectedShot
-            ? ({ kind: "shot", tag: this.#h3SelectedShot } as const)
+          : editor?.mediaId
+            ? ({ kind: "source", mediaId: editor.mediaId, channel: editor.channel } as const)
             : undefined
     const issue = editor ? this.#h3DraftIssue(editor) : undefined
     const guideDirty = this.#h3EditorDirty()
@@ -1426,6 +1426,7 @@ export class ReferenceLoaderController {
           focusGuide,
           true,
           placement.kind,
+          false,
         )
         return this.#h3Session !== sessionBefore
       }
@@ -1435,6 +1436,7 @@ export class ReferenceLoaderController {
       }
       this.#h3SelectedShot = undefined
       this.#h3SelectedRole = placement.kind
+      this.#selectedId = undefined
       this.render(true)
       return this.#h3Session !== sessionBefore
     }
@@ -1443,13 +1445,40 @@ export class ReferenceLoaderController {
     if (placement.kind === "guide" && placement.guideId) {
       const id = channel === "visual" ? placement.visualId : placement.audioId
       if (id)
-        this.#openH3EditorForMedia(id, channel, placement.guideId, "edit", false, focusGuide, true)
-      else this.#openH3EditorForGuide(placement.guideId, focusGuide)
+        this.#openH3EditorForMedia(
+          id,
+          channel,
+          placement.guideId,
+          "edit",
+          false,
+          focusGuide,
+          true,
+          undefined,
+          false,
+        )
+      else {
+        this.#openH3EditorForGuide(placement.guideId, focusGuide)
+        this.#selectedId = undefined
+      }
       return this.#h3Session !== sessionBefore
     }
     const id = channel === "visual" ? placement.visualId : placement.audioId
-    if (id) this.#openH3EditorForMedia(id, channel, placement.guideId, "edit", false, false, true)
-    else if (placement.guideId) this.#openH3EditorForGuide(placement.guideId, focusGuide)
+    if (id)
+      this.#openH3EditorForMedia(
+        id,
+        channel,
+        placement.guideId,
+        "edit",
+        false,
+        false,
+        true,
+        undefined,
+        false,
+      )
+    else if (placement.guideId) {
+      this.#openH3EditorForGuide(placement.guideId, focusGuide)
+      this.#selectedId = undefined
+    }
     return this.#h3Session !== sessionBefore
   }
 
@@ -1505,6 +1534,7 @@ export class ReferenceLoaderController {
     }
     this.#h3SelectedShot = tag
     this.#h3SelectedRole = undefined
+    this.#selectedId = undefined
     this.#promptShotSelect?.(tag)
     this.render(true)
     const mark = [
@@ -1512,7 +1542,7 @@ export class ReferenceLoaderController {
         "[data-timeline-shot]",
       ),
     ].find((button) => button.dataset.timelineShot === tag)
-    if (scroll) mark?.scrollIntoView?.({ block: "nearest", inline: "center" })
+    if (scroll) mark?.scrollIntoView?.({ block: "nearest", inline: "nearest" })
     mark?.focus({ preventScroll: true })
     return this.#h3Session !== sessionBefore
   }
@@ -1526,6 +1556,7 @@ export class ReferenceLoaderController {
     focusGuide = true,
     preserveDraft = false,
     selectedRole?: "start" | "end",
+    selectCard = true,
   ): void {
     const wasCollapsed = this.#h3Collapsed
     this.#h3SelectedShot = undefined
@@ -1545,7 +1576,8 @@ export class ReferenceLoaderController {
     this.#h3SelectedRole = selectedRole
     const editor = this.#h3Editor
     if (editor?.mediaId === mediaId && editor.channel === channel) {
-      if (guideId) editor.selectedGuideId = guideId
+      editor.selectedGuideId = guideId
+      if (!selectCard) this.#selectedId = undefined
       this.#h3Collapsed = false
       this.render(true)
       if (guideId && focusGuide) this.#focusH3EditorGuide(guideId)
@@ -1564,7 +1596,7 @@ export class ReferenceLoaderController {
       editor.selectedGuideId = guideId
       editor.returnFocus = { mediaId, channel, control }
       this.#h3Session += 1
-      this.#selectedId = item.id
+      this.#selectedId = selectCard ? item.id : undefined
       this.#h3Collapsed = false
       this.render(true)
       if (guideId && focusGuide) this.#focusH3EditorGuide(guideId)
@@ -1594,7 +1626,7 @@ export class ReferenceLoaderController {
       returnFocus: { mediaId, channel, control },
     }
     this.#h3Session += 1
-    this.#selectedId = item.id
+    this.#selectedId = selectCard ? item.id : undefined
     this.#h3Collapsed = false
     this.render(true)
     if (guideId && focusGuide) this.#focusH3EditorGuide(guideId)
@@ -2073,6 +2105,9 @@ export class ReferenceLoaderController {
   }
 
   #selectItem(id: string): void {
+    this.#h3SelectedShot = undefined
+    this.#h3SelectedRole = undefined
+    if (this.#h3Editor) this.#h3Editor.selectedGuideId = undefined
     this.#selectedId = id
     this.#publishView()
     this.#reactMount?.update()

@@ -123,6 +123,7 @@ export interface LoaderCardView {
   readonly guideAvailable: boolean
   readonly guideConfigured: boolean
   readonly guideEnabled: boolean
+  readonly guideIndex: number | undefined
   readonly guideLabels: readonly string[]
 }
 
@@ -313,6 +314,7 @@ function cardView(
     guideAvailable,
     guideConfigured,
     guideEnabled,
+    guideIndex,
     guideLabels,
   }
 }

@@ -222,6 +222,27 @@ describe("Guide timeline", () => {
     expect(status.getAttribute("aria-pressed")).toBe("false")
   })
 
+  test("does not render a terminal ruler tick outside the Timeline track", () => {
+    const { root } = mount()
+    const ticks = root.querySelectorAll<HTMLElement>(
+      ".rl-h3-timeline__ruler-axis > span:not(.rl-h3-timeline__output-boundary)",
+    )
+
+    expect([...ticks].some((tick) => tick.style.left === "100%")).toBe(false)
+  })
+
+  test("anchors the Output end border inside the track edge", () => {
+    const { root } = mount()
+    const boundary = root.querySelector<HTMLElement>('[role="separator"]')!
+    const lines = root.querySelectorAll<HTMLElement>(".rl-h3-timeline__output-boundary-line")
+
+    expect(boundary.style.left).toBe("")
+    expect(boundary.style.right).toBe("0px")
+    expect([...lines].every((line) => line.style.left === "" && line.style.right === "0px")).toBe(
+      true,
+    )
+  })
+
   test("uses the mention badges for Audio and Shot timeline previews", () => {
     const state = fixture()
     state.h3Timeline.guides.push({
@@ -243,6 +264,64 @@ describe("Guide timeline", () => {
       '[data-timeline-channel="shot"] .rl-h3-timeline__mark .rl-prompt-subject-icon',
     )
     expect(shotBadge?.textContent).toBe("SH1")
+  })
+
+  test("renders compact source labels above Start and End roles", () => {
+    const state = fixture()
+    state.h3Timeline.startImageId = "scene"
+    state.h3Timeline.guides.push({
+      id: "last",
+      frameIndex: 239,
+      visualId: "scene",
+      audioId: null,
+    })
+    const { root, controller } = mount(state)
+    const visualEndpointMarkers = root.querySelectorAll<HTMLButtonElement>(
+      '[data-timeline-channel="visual"] .rl-h3-timeline__mark.is-endpoint-preview',
+    )
+
+    expect(visualEndpointMarkers).toHaveLength(3)
+    expect(
+      [...visualEndpointMarkers].every((marker) => marker.querySelector("small") === null),
+    ).toBe(true)
+    expect(
+      [...visualEndpointMarkers].some((marker) => marker.classList.contains("is-endpoint-end")),
+    ).toBe(true)
+    const startMarker = root.querySelector<HTMLButtonElement>(
+      '[data-timeline-channel="visual"] .rl-h3-timeline__mark[aria-label^="Start ·"]',
+    )!
+    expect(startMarker.classList.contains("is-endpoint-role")).toBe(true)
+    expect(startMarker.querySelector(".rl-h3-timeline__endpoint-source")?.textContent).toBe(
+      "scene.png",
+    )
+    expect(startMarker.querySelector(".rl-h3-timeline__endpoint-role")?.textContent).toBe("Start")
+    const endMarker = root.querySelector<HTMLButtonElement>("[data-h3-end-mark]")!
+    expect(endMarker.classList.contains("is-endpoint-role")).toBe(true)
+    expect(endMarker.querySelector(".rl-h3-timeline__endpoint-source")?.textContent).toBe(
+      "scene.png",
+    )
+    expect(endMarker.querySelector(".rl-h3-timeline__endpoint-role")?.textContent).toBe("End")
+
+    dirtyShot(controller, 0)
+    const shot = root.querySelector<HTMLButtonElement>(
+      '[data-timeline-channel="shot"] .rl-h3-timeline__mark',
+    )!
+    expect(shot.classList.contains("is-endpoint-preview")).toBe(true)
+    expect(shot.classList.contains("is-endpoint-role")).toBe(true)
+    expect(shot.querySelector(".rl-prompt-subject-icon")?.textContent).toBe("SH1")
+    expect(shot.querySelector("small")).toBeNull()
+    expect(shot.querySelector(".rl-h3-timeline__endpoint-source")?.textContent).toBe("#opening")
+    expect(shot.querySelector(".rl-h3-timeline__endpoint-role")?.textContent).toBe("Start")
+    dirtyShot(controller, 239)
+    expect(shot.classList.contains("is-endpoint-role")).toBe(true)
+    expect(shot.querySelector(".rl-h3-timeline__endpoint-role")?.textContent).toBe("End")
+    const shotPosition = shot.closest<HTMLElement>(".rl-h3-timeline__mark-position")
+    const endPosition = root.querySelector<HTMLElement>("[data-h3-end-position]")!
+    expect(shotPosition?.style.left).toBe(endPosition.style.left)
+    const lastGuidePosition = root
+      .querySelector<HTMLElement>('[data-timeline-guide="last"]')
+      ?.closest<HTMLElement>(".rl-h3-timeline__mark-position")
+    expect(lastGuidePosition?.style.left).not.toBe(endPosition.style.left)
   })
 
   test("uses the Reference Loader H3 output settings and opens selected Guides in the Inspector", () => {
@@ -313,19 +392,20 @@ describe("Guide timeline", () => {
     expect(marker).not.toBeNull()
     expect(marker?.classList.contains("is-out-of-range")).toBe(true)
     expect(marker?.title).toContain("Out of range · output ends at 124f")
-    expect(root.querySelector("[data-h3-end-dock] .rl-h3-timeline__end-mark")).toBeNull()
+    expect(root.querySelector("[data-h3-end-dock] [data-h3-end-mark]")).toBeNull()
     const endMark = root.querySelector<HTMLButtonElement>(
-      '[data-timeline-channel="visual"] .rl-h3-timeline__end-mark',
+      '[data-timeline-channel="visual"] [data-h3-end-mark]',
     )
     expect(endMark).not.toBeNull()
-    expect(endMark?.textContent).not.toContain("scene.png")
+    expect(endMark?.classList.contains("rl-h3-timeline__mark")).toBe(true)
+    expect(endMark?.classList.contains("is-endpoint-preview")).toBe(true)
+    expect(endMark?.classList.contains("is-endpoint-end")).toBe(true)
+    expect(endMark?.textContent).toContain("scene.png")
     expect(endMark?.title).toContain("scene.png")
     endMark?.click()
     expect(
       root
-        .querySelector<HTMLButtonElement>(
-          '[data-timeline-channel="visual"] .rl-h3-timeline__end-mark',
-        )
+        .querySelector<HTMLButtonElement>('[data-timeline-channel="visual"] [data-h3-end-mark]')
         ?.classList.contains("is-selected"),
     ).toBe(true)
   })
@@ -336,7 +416,7 @@ describe("Guide timeline", () => {
     const { root } = mount(state)
 
     expect(root.querySelector('[data-timeline-guide="pair"]')).not.toBeNull()
-    expect(root.querySelector(".rl-h3-timeline__end-mark")).toBeNull()
+    expect(root.querySelector("[data-h3-end-mark]")).toBeNull()
   })
 
   test("highlights the selected Start or End role in the Guide Inspector", () => {
@@ -346,7 +426,7 @@ describe("Guide timeline", () => {
 
     for (const [role, selector] of [
       ["start", 'button[aria-label^="Start ·"]'],
-      ["end", ".rl-h3-timeline__end-mark"],
+      ["end", "[data-h3-end-mark]"],
     ] as const) {
       root.querySelector<HTMLButtonElement>(selector)!.click()
       expect(
@@ -386,6 +466,14 @@ describe("Guide timeline", () => {
     ).toBeUndefined()
   })
 
+  test("keeps a terminal Shot at the configured output extent", () => {
+    const state = fixture()
+    state.h3Timeline.endImageId = null
+    const marks = timelineMarks(state, new Map(), [{ tag: "final", frameIndex: 239 }])
+
+    expect(timelineExtent(marks, 240, 24)).toBe(240)
+  })
+
   test("snaps using screen width at different canvas scales and clamps the lower boundary", () => {
     expect(draggedFrame(48, 64, 640, 240)).toBe(72)
     expect(draggedFrame(48, 32, 320, 240)).toBe(72)
@@ -423,7 +511,7 @@ describe("Guide timeline", () => {
   test("packs an attached End marker into an available visual Guide row", () => {
     const state = fixture()
     state.h3Timeline.guides = [
-      { id: "before-end", frameIndex: 100, visualId: "scene", audioId: null },
+      { id: "before-end", frameIndex: 60, visualId: "scene", audioId: null },
     ]
     const { root, controller } = mount(state)
 
@@ -436,7 +524,7 @@ describe("Guide timeline", () => {
 
     state.h3Timeline.guides[0]!.frameIndex = 200
     controller.restore(serializeLoaderState(state))
-    expect(endPosition?.style.top).toBe("44px")
+    expect(endPosition?.style.top).toBe("4px")
     expect(visualLane.style.height).toBe("84px")
   })
 
@@ -445,7 +533,7 @@ describe("Guide timeline", () => {
     state.h3Output = { fps: 24, totalFrames: 124 }
     state.h3Timeline.guides = [
       { id: "first", frameIndex: 0, visualId: "scene", audioId: null },
-      { id: "out-of-range", frameIndex: 200, visualId: "scene", audioId: null },
+      { id: "out-of-range", frameIndex: 140, visualId: "scene", audioId: null },
     ]
     const { root } = mount(state)
 
@@ -520,6 +608,19 @@ describe("Guide timeline", () => {
     controller.destroy()
     pointer(document, "pointermove", 240)
     pointer(document, "pointerup", 240)
+  })
+
+  test("removes the dragging marker class after pointer release", () => {
+    const { root } = mount()
+    sizeSurface(root)
+    const marker = root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!
+
+    pointer(marker, "pointerdown", 128)
+    pointer(document, "pointermove", 192)
+    expect(marker.classList.contains("is-dragging")).toBe(true)
+
+    pointer(document, "pointerup", 192)
+    expect(root.querySelectorAll(".rl-h3-timeline__mark.is-dragging")).toHaveLength(0)
   })
 
   test("keeps the Guide Inspector Frame field live while a marker is dragged", () => {
@@ -728,9 +829,45 @@ describe("Guide timeline", () => {
     expect(row?.querySelector('[data-h3-element-remove][aria-label="Remove Shot"]')).not.toBeNull()
   })
 
+  test("sets the selected Shot to the output Start or End frame", () => {
+    const { root, controller } = mount()
+    const shot = dirtyShot(controller, 25)
+    root.querySelector<HTMLButtonElement>('[data-timeline-shot="opening"]')!.click()
+
+    const dock = root.querySelector<HTMLElement>("[data-h3-end-dock]")!
+    flushSync(() => {
+      dock.querySelector<HTMLButtonElement>('[data-h3-frame-shortcut="start"]')!.click()
+    })
+    expect(shot.frame).toBe(0)
+    expect(dock.querySelector<HTMLInputElement>("[data-h3-inline-frame]")!.value).toBe("0")
+
+    flushSync(() => {
+      dock.querySelector<HTMLButtonElement>('[data-h3-frame-shortcut="end"]')!.click()
+    })
+    expect(shot.frame).toBe(239)
+    expect(dock.querySelector<HTMLInputElement>("[data-h3-inline-frame]")!.value).toBe("239")
+
+    flushSync(() => {
+      root
+        .querySelector<HTMLButtonElement>('[aria-label="Timeline view"] button:nth-child(2)')!
+        .click()
+    })
+    const row = [...root.querySelectorAll<HTMLElement>("[data-h3-list-item]")].find((item) =>
+      item.textContent?.includes("Shot #opening"),
+    )!
+    flushSync(() => {
+      row.querySelector<HTMLButtonElement>('[data-h3-frame-shortcut="start"]')!.click()
+    })
+    expect(shot.frame).toBe(0)
+    flushSync(() => {
+      row.querySelector<HTMLButtonElement>('[data-h3-frame-shortcut="end"]')!.click()
+    })
+    expect(shot.frame).toBe(239)
+  })
+
   test("removes a selected End role through the timeline draft", () => {
     const { root, controller } = mount()
-    root.querySelector<HTMLButtonElement>(".rl-h3-timeline__end-mark")!.click()
+    root.querySelector<HTMLButtonElement>("[data-h3-end-mark]")!.click()
     root
       .querySelector<HTMLButtonElement>('[data-h3-action="remove-draft-role"][data-h3-role="end"]')!
       .click()
@@ -823,6 +960,75 @@ describe("Guide timeline", () => {
     expect(document.activeElement).toBe(endButton)
   })
 
+  test("does not keep same-image Start or End selected when another Guide or Shot is selected", () => {
+    const state = fixture()
+    state.h3Timeline.startImageId = "scene"
+    const { root, controller } = mount(state)
+    const sceneCard = root.querySelector<HTMLElement>('.rl-card[data-id="scene"]')!
+
+    root.querySelector<HTMLButtonElement>('[data-action="edit-h3-guide"][data-id="scene"]')!.click()
+    expect(sceneCard.classList.contains("is-selected")).toBe(true)
+    expect(root.querySelectorAll('[data-timeline-channel="visual"] .is-selected')).toHaveLength(0)
+    expect(root.querySelector("[data-h3-end-mark]")?.classList).not.toContain("is-selected")
+
+    root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
+    expect(controller.getViewSnapshot().h3?.selection).toMatchObject({
+      kind: "guide",
+      guideId: "pair",
+    })
+    expect(
+      root.querySelector('[data-timeline-channel="visual"] [aria-label^="Start ·"]')?.classList,
+    ).not.toContain("is-selected")
+    expect(root.querySelector("[data-h3-end-mark]")?.classList).not.toContain("is-selected")
+    expect(root.querySelector('[data-timeline-guide="pair"]')?.classList).toContain("is-selected")
+    expect(sceneCard.classList.contains("is-selected")).toBe(false)
+
+    dirtyShot(controller)
+    root.querySelector<HTMLButtonElement>('[data-timeline-shot="opening"]')!.click()
+    expect(controller.getViewSnapshot().h3?.selection).toMatchObject({
+      kind: "shot",
+      tag: "opening",
+    })
+    expect(
+      root.querySelector('[data-timeline-channel="visual"] [aria-label^="Start ·"]')?.classList,
+    ).not.toContain("is-selected")
+    expect(root.querySelector("[data-h3-end-mark]")?.classList).not.toContain("is-selected")
+    expect(root.querySelector('[data-timeline-shot="opening"]')?.classList).toContain("is-selected")
+    expect(sceneCard.classList.contains("is-selected")).toBe(false)
+  })
+
+  test("clears H3 placement selection after choosing another Media card", () => {
+    const state = fixture()
+    state.h3Timeline.startImageId = "scene"
+    state.h3Timeline.guides = [{ id: "at-start", frameIndex: 0, visualId: "scene", audioId: null }]
+    state.items.other = createMediaItem(
+      "image",
+      {
+        path: "reference_loader/sources/other.png",
+        mime: "image/png",
+        sha256: "b".repeat(64),
+      },
+      "other",
+    )
+    state.imageOrder.push("other")
+    const { root, controller } = mount(state)
+    root.querySelector<HTMLButtonElement>('[data-timeline-guide="at-start"]')!.click()
+    expect(controller.getViewSnapshot().h3?.selection).toMatchObject({
+      kind: "guide",
+      guideId: "at-start",
+    })
+    root.querySelector<HTMLElement>('.rl-card[data-id="other"]')!.click()
+    expect(controller.getViewSnapshot().h3?.selection).toMatchObject({
+      kind: "source",
+      mediaId: "scene",
+      channel: "visual",
+    })
+    expect(root.querySelectorAll(".rl-h3-timeline__mark.is-selected")).toHaveLength(0)
+    expect(root.querySelectorAll("[data-h3-list-item].is-selected")).toHaveLength(0)
+    expect(root.querySelectorAll(".is-selected")).toHaveLength(1)
+    expect(root.querySelector('.rl-card[data-id="other"]')?.classList).toContain("is-selected")
+  })
+
   test("removes Start and End independently when they share one image", () => {
     const state = fixture()
     state.h3Timeline.startImageId = "scene"
@@ -839,7 +1045,7 @@ describe("Guide timeline", () => {
       endImageId: "scene",
     })
 
-    root.querySelector<HTMLButtonElement>(".rl-h3-timeline__end-mark")!.click()
+    root.querySelector<HTMLButtonElement>("[data-h3-end-mark]")!.click()
     root
       .querySelector<HTMLButtonElement>('[data-h3-action="remove-draft-role"][data-h3-role="end"]')!
       .click()

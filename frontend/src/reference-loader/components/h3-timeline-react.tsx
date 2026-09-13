@@ -99,6 +99,7 @@ export interface H3FrameControlProps {
   onRemove(): void
   compact?: boolean
   fps?: number
+  shortcuts?: readonly { label: string; frame: number }[]
 }
 
 export function H3FrameControl({
@@ -112,6 +113,7 @@ export function H3FrameControl({
   onRemove,
   compact = false,
   fps = H3_TIMELINE_FPS,
+  shortcuts,
 }: H3FrameControlProps): ReactNode {
   const externalFrame = frameInputValue(frameIndex)
   const previousExternalFrame = useRef(externalFrame)
@@ -175,6 +177,28 @@ export function H3FrameControl({
           {Number.isSafeInteger(frameIndex) ? `${timelineSeconds(frameIndex, fps)}s` : ""}
         </small>
       </label>
+      {shortcuts?.length ? (
+        <span className="rl-h3-element-controls__shortcuts">
+          {shortcuts.map((shortcut) => (
+            <Button
+              key={shortcut.label}
+              type="button"
+              data-h3-frame-shortcut={shortcut.label.toLowerCase()}
+              aria-label={`Set ${frameAriaLabel} to ${shortcut.label}`}
+              title={`Set frame to ${shortcut.label} (${shortcut.frame})`}
+              onClick={(event) => {
+                event.stopPropagation()
+                const value = String(shortcut.frame)
+                setFrame(value)
+                onInput(value)
+                commit(value)
+              }}
+            >
+              {shortcut.label}
+            </Button>
+          ))}
+        </span>
+      ) : null}
       <Button
         type="button"
         data-h3-element-remove=""
@@ -202,10 +226,7 @@ function isSelectedMark(mark: TimelineMark, h3: H3WorkspaceView): boolean {
   if (!selection) return false
   if (selection.kind === "shot") return mark.shotTag === selection.tag
   if (selection.kind === "guide") return mark.placement.guideId === selection.guideId
-  if (selection.kind === "source") {
-    const id = selection.channel === "visual" ? mark.placement.visualId : mark.placement.audioId
-    return mark.channel === selection.channel && id === selection.mediaId
-  }
+  if (selection.kind === "source") return false
   return selection.kind === mark.placement.kind
 }
 
@@ -256,9 +277,11 @@ function SelectedElementControls({
   actions,
   preview,
   fps,
+  frameCount,
 }: Pick<H3TimelineReactProps, "h3" | "actions"> & {
   preview?: { id: string; frame: number }
   fps: number
+  frameCount: number
 }): ReactNode {
   const previewShotTag = preview?.id.startsWith("shot:") ? preview.id.slice(5) : undefined
   const shotTag = previewShotTag ?? (h3.selection?.kind === "shot" ? h3.selection.tag : undefined)
@@ -275,6 +298,10 @@ function SelectedElementControls({
         removeLabel="Remove Shot"
         frameAriaLabel="Shot frame"
         fps={fps}
+        shortcuts={[
+          { label: "Start", frame: 0 },
+          { label: "End", frame: Math.max(0, frameCount - 1) },
+        ]}
         onInput={() => undefined}
         onCommit={(value) => {
           const frame = parseFrameInput(value)
@@ -302,11 +329,7 @@ function EndTimelineMark({
 }): ReactNode {
   const id = h3.timeline.endImageId
   if (!id) return null
-  const selected =
-    h3.selection?.kind === "end" ||
-    (h3.selection?.kind === "source" &&
-      h3.selection.channel === "visual" &&
-      h3.selection.mediaId === id)
+  const selected = h3.selection?.kind === "end"
   const imagePreview = runtime.get(id)?.previewUrl
   const placement: H3TimelinePlacement = { kind: "end", frameIndex: null, visualId: id }
   return (
@@ -320,7 +343,8 @@ function EndTimelineMark({
     >
       <Button
         type="button"
-        className={`rl-h3-timeline__end-mark${selected ? " is-selected" : ""}`}
+        className={`rl-h3-timeline__mark is-endpoint-preview is-endpoint-role is-endpoint-end${selected ? " is-selected" : ""}`}
+        data-h3-end-mark=""
         aria-label={`End image: ${sourceLabel(state, id, "visual")}`}
         title={`End image: ${sourceLabel(state, id, "visual")}`}
         aria-pressed={selected}
@@ -330,6 +354,8 @@ function EndTimelineMark({
         }}
       >
         {imagePreview ? <img src={imagePreview} alt="" draggable={false} /> : null}
+        <span className="rl-h3-timeline__endpoint-source">{sourceLabel(state, id, "visual")}</span>
+        <span className="rl-h3-timeline__endpoint-role">End</span>
       </Button>
     </span>
   )
@@ -340,13 +366,21 @@ function EndDock({
   actions,
   preview,
   fps,
+  frameCount,
 }: Pick<H3TimelineReactProps, "h3" | "actions"> & {
   preview?: { id: string; frame: number }
   fps: number
+  frameCount: number
 }): ReactNode {
   return (
     <div className="rl-h3-timeline__end-dock" data-h3-end-dock="">
-      <SelectedElementControls h3={h3} actions={actions} preview={preview} fps={fps} />
+      <SelectedElementControls
+        h3={h3}
+        actions={actions}
+        preview={preview}
+        fps={fps}
+        frameCount={frameCount}
+      />
     </div>
   )
 }
@@ -369,6 +403,11 @@ export function H3TimelineReact({
   const [preview, setPreview] = useState<{ id: string; frame: number }>()
   const [drop, setDrop] = useState<{ channel: "visual" | "audio"; frame: number }>()
   const [trackWidth, setTrackWidth] = useState(0)
+  const clearDraggingMarks = useCallback((): void => {
+    scroller.current
+      ?.querySelectorAll<HTMLElement>(".rl-h3-timeline__mark.is-dragging")
+      .forEach((mark) => mark.classList.remove("is-dragging"))
+  }, [])
   const marks = useMemo(
     () => timelineMarks({ ...state, h3Timeline: h3.timeline }, runtime, h3.shots, fps),
     [fps, h3.shots, h3.timeline, runtime, state],
@@ -392,8 +431,13 @@ export function H3TimelineReact({
   const cancelActiveGesture = useCallback((): void => {
     const gesture = gestureRef.current
     gestureRef.current = undefined
-    if (!gesture) return
+    clearDraggingMarks()
     suppressClick.current = false
+    if (!gesture) {
+      setGestureActive(false)
+      setPreview(undefined)
+      return
+    }
     try {
       if (gesture.target.hasPointerCapture(gesture.pointerId))
         gesture.target.releasePointerCapture(gesture.pointerId)
@@ -414,11 +458,11 @@ export function H3TimelineReact({
     }
   }, [cancelActiveGesture, h3.sessionId])
 
-  useEffect(() => {
-    if (!gestureActive) return undefined
-    const finish = (cancel: boolean): void => {
+  const finishGesture = useCallback(
+    (cancel: boolean): void => {
       const gesture = gestureRef.current
       gestureRef.current = undefined
+      clearDraggingMarks()
       setGestureActive(false)
       setPreview(undefined)
       if (!gesture) return
@@ -434,7 +478,12 @@ export function H3TimelineReact({
         if (gesture.shotTag) actions.changeShot(gesture.shotTag, nativeFrame)
         else actions.movePlacement(gesture.id, nativeFrame)
       }
-    }
+    },
+    [actions, clearDraggingMarks, fps],
+  )
+
+  useEffect(() => {
+    if (!gestureActive) return undefined
     const onMove = (event: globalThis.PointerEvent): void => {
       const gesture = gestureRef.current
       if (!gesture || event.pointerId !== gesture.pointerId) return
@@ -452,33 +501,38 @@ export function H3TimelineReact({
     const onUp = (event: globalThis.PointerEvent): void => {
       if (event.pointerId !== gestureRef.current?.pointerId) return
       event.stopPropagation()
-      finish(false)
+      finishGesture(false)
     }
     const onCancel = (event: globalThis.PointerEvent): void => {
       if (event.pointerId !== gestureRef.current?.pointerId) return
       event.stopPropagation()
-      finish(true)
+      finishGesture(true)
     }
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
       if (event.key !== "Escape") return
       event.preventDefault()
       event.stopPropagation()
-      finish(true)
+      finishGesture(true)
     }
-    const onBlur = (): void => finish(true)
+    const onBlur = (): void => finishGesture(true)
+    const onLostPointerCapture = (event: globalThis.PointerEvent): void => {
+      if (event.pointerId === gestureRef.current?.pointerId) finishGesture(true)
+    }
     document.addEventListener("pointermove", onMove, { capture: true })
     document.addEventListener("pointerup", onUp, { capture: true })
     document.addEventListener("pointercancel", onCancel, { capture: true })
+    document.addEventListener("lostpointercapture", onLostPointerCapture, { capture: true })
     document.addEventListener("keydown", onKeyDown, { capture: true })
     globalThis.addEventListener("blur", onBlur)
     return () => {
       document.removeEventListener("pointermove", onMove, true)
       document.removeEventListener("pointerup", onUp, true)
       document.removeEventListener("pointercancel", onCancel, true)
+      document.removeEventListener("lostpointercapture", onLostPointerCapture, true)
       document.removeEventListener("keydown", onKeyDown, true)
       globalThis.removeEventListener("blur", onBlur)
     }
-  }, [actions, extent, fps, gestureActive])
+  }, [extent, finishGesture, gestureActive])
 
   const startGesture = (mark: TimelineMark, event: PointerEvent<HTMLButtonElement>): void => {
     if (event.button !== 0 || event.isPrimary === false || mark.placement.kind === "end") return
@@ -559,18 +613,30 @@ export function H3TimelineReact({
       setDrop(undefined)
   }
 
-  const selectedGuideId =
-    h3.editor?.selectedGuideId ??
-    (h3.selection?.kind === "guide" ? h3.selection.guideId : undefined)
+  const selectedGuideId = h3.selection?.kind === "guide" ? h3.selection.guideId : undefined
 
   const markButton = (mark: TimelineMark, index: number): ReactNode => {
-    const selected = selectedGuideId
-      ? mark.placement.guideId === selectedGuideId
-      : isSelectedMark(mark, h3)
+    const selected =
+      selectedGuideId !== undefined
+        ? mark.placement.guideId === selectedGuideId
+        : isSelectedMark(mark, h3)
     const frame = displayFrame(mark, preview)
     const draggable = mark.placement.kind !== "end" && Boolean(mark.placement.guideId)
     const outOfRange = Number.isSafeInteger(frame) && frame >= frameCount
     const title = markerTitle(mark, frame, fps, frameCount)
+    const endpointPreview =
+      (mark.channel === "visual" || mark.channel === "shot") &&
+      frameCount > 0 &&
+      Number.isSafeInteger(frame) &&
+      (frame === 0 || frame === frameCount - 1)
+    const endpointAtEnd = endpointPreview && frame === frameCount - 1
+    const endpointRoleLabel =
+      mark.placement.kind === "start" || (mark.channel === "shot" && frame === 0)
+        ? "Start"
+        : endpointAtEnd && mark.channel === "shot"
+          ? "End"
+          : undefined
+    const endpointRole = endpointRoleLabel !== undefined
     const key = `${mark.placement.guideId ?? mark.placement.kind}:${mark.channel}:${mark.shotTag ?? mark.label}`
     const shotOrdinal = mark.shotTag
       ? h3.shots.findIndex((shot) => shot.tag === mark.shotTag) + 1
@@ -579,7 +645,7 @@ export function H3TimelineReact({
       <Button
         key={key}
         type="button"
-        className={`rl-h3-timeline__mark${mark.disabled ? " is-paused" : ""}${mark.incomplete ? " is-incomplete" : ""}${mark.warning ? " is-warning" : ""}${outOfRange ? " is-out-of-range" : ""}${selected ? " is-selected" : ""}${mark.channel === "audio" ? " is-audio" : ""}${mark.channel === "shot" ? " is-shot" : ""}${mark.frames === undefined ? " is-unknown" : ""}${preview?.id === mark.placement.guideId ? " is-dragging" : ""}`}
+        className={`rl-h3-timeline__mark${mark.disabled ? " is-paused" : ""}${mark.incomplete ? " is-incomplete" : ""}${mark.warning ? " is-warning" : ""}${outOfRange ? " is-out-of-range" : ""}${selected ? " is-selected" : ""}${mark.channel === "audio" ? " is-audio" : ""}${mark.channel === "shot" ? " is-shot" : ""}${mark.frames === undefined ? " is-unknown" : ""}${endpointPreview ? " is-endpoint-preview" : ""}${endpointRole ? " is-endpoint-role" : ""}${endpointAtEnd ? " is-endpoint-end" : ""}${gestureActive && preview?.id === mark.placement.guideId ? " is-dragging" : ""}`}
         data-timeline-mark={index}
         data-timeline-guide={mark.placement.guideId}
         data-timeline-shot={mark.shotTag}
@@ -590,6 +656,12 @@ export function H3TimelineReact({
         title={title}
         draggable={false}
         onPointerDownCapture={(event) => startGesture(mark, event)}
+        onPointerUpCapture={(event) => {
+          if (event.pointerId === gestureRef.current?.pointerId) finishGesture(false)
+        }}
+        onPointerCancelCapture={(event) => {
+          if (event.pointerId === gestureRef.current?.pointerId) finishGesture(true)
+        }}
         onClick={(event) => {
           event.stopPropagation()
           if (suppressClick.current) {
@@ -638,13 +710,22 @@ export function H3TimelineReact({
         ) : mark.previewUrl ? (
           <img src={mark.previewUrl} alt="" draggable={false} />
         ) : null}
-        <span>
-          {mark.placement.kind === "start" ? "Start · " : ""}
-          {mark.label}
-        </span>
-        <small data-timeline-time="">
-          {mark.placement.kind === "end" ? "End · final output" : timing(frame, fps)}
-        </small>
+        {endpointRole ? (
+          <>
+            <span className="rl-h3-timeline__endpoint-source">{mark.label}</span>
+            <span className="rl-h3-timeline__endpoint-role">{endpointRoleLabel}</span>
+          </>
+        ) : !endpointPreview ? (
+          <>
+            <span>
+              {mark.placement.kind === "start" ? "Start · " : ""}
+              {mark.label}
+            </span>
+            <small data-timeline-time="">
+              {mark.placement.kind === "end" ? "End · final output" : timing(frame, fps)}
+            </small>
+          </>
+        ) : null}
       </Button>
     )
   }
@@ -660,12 +741,16 @@ export function H3TimelineReact({
     tickValues.push(frame)
   }
   if (tickValues[tickValues.length - 1] !== extent) tickValues.push(extent)
-  const ticks: ReactNode[] = tickValues.map((frame) => (
-    <span key={frame} style={{ left: `${(frame / extent) * 100}%` }}>
-      {timelineSeconds(frame, fps)}s · {frame}f
-    </span>
-  ))
+  const ticks: ReactNode[] = tickValues
+    .filter((frame) => frame < extent)
+    .map((frame) => (
+      <span key={frame} style={{ left: `${(frame / extent) * 100}%` }}>
+        {timelineSeconds(frame, fps)}s · {frame}f
+      </span>
+    ))
   const outputBoundaryLeft = `${(Math.min(Math.max(frameCount, 0), extent) / extent) * 100}%`
+  const outputBoundaryPosition =
+    outputBoundaryLeft === "100%" ? { right: "0px" } : { left: outputBoundaryLeft }
   const outputBoundaryLabel = `Output end · ${timelineSeconds(frameCount, fps)}s · ${frameCount}f`
 
   return (
@@ -688,7 +773,7 @@ export function H3TimelineReact({
               {outputBoundaryLeft !== undefined ? (
                 <span
                   className="rl-h3-timeline__output-boundary"
-                  style={{ left: outputBoundaryLeft }}
+                  style={outputBoundaryPosition}
                   role="separator"
                   aria-label={outputBoundaryLabel}
                 >
@@ -712,7 +797,7 @@ export function H3TimelineReact({
             const minMarkerFrames = Math.max(1, (extent * 100) / layoutWidth)
             const hasEndMarker = channel === "visual" && Boolean(h3.timeline.endImageId)
             const endFrame = Math.min(Math.max(frameCount, 0), extent)
-            const endMarkerFrames = (extent * 36) / layoutWidth
+            const endMarkerFrames = (extent * 76) / layoutWidth
             const endStartFrame = endFrame - endMarkerFrames
             let endRow = 0
             let endMarkerPlaced = false
@@ -763,7 +848,7 @@ export function H3TimelineReact({
                 >
                   <span
                     className="rl-h3-timeline__output-boundary-line"
-                    style={{ left: outputBoundaryLeft }}
+                    style={outputBoundaryPosition}
                     aria-hidden="true"
                   />
                   {channel === "visual" ? (
@@ -786,6 +871,10 @@ export function H3TimelineReact({
                   ) : null}
                   {rows.map(({ mark, row }) => {
                     const frame = displayFrame(mark, preview)
+                    const markerLeftFrame =
+                      mark.channel === "shot" && frameCount > 0 && frame === frameCount - 1
+                        ? frameCount
+                        : frame
                     const width =
                       channel === "audio" && mark.frames !== undefined
                         ? `${
@@ -802,7 +891,7 @@ export function H3TimelineReact({
                         key={`${mark.placement.guideId ?? mark.placement.kind}:${mark.shotTag ?? mark.label}`}
                         className="rl-h3-timeline__mark-position"
                         style={{
-                          left: `${(frame / extent) * 100}%`,
+                          left: `${(markerLeftFrame / extent) * 100}%`,
                           top: `${row * 40 + 4}px`,
                           ...(width ? { width } : {}),
                         }}
@@ -817,7 +906,7 @@ export function H3TimelineReact({
           })}
         </div>
       </div>
-      <EndDock h3={h3} actions={actions} preview={preview} fps={fps} />
+      <EndDock h3={h3} actions={actions} preview={preview} fps={fps} frameCount={frameCount} />
     </div>
   )
 }

@@ -23,25 +23,22 @@ import {
   type MediaItem,
 } from "../types.ts"
 import { VideoPreviewPlayer } from "../video-preview-player.ts"
+import { LoaderViewBridge } from "../view-bridge.ts"
 import {
-  createLoaderViewSnapshot,
   projectPromptReferences,
   promptReferenceSourceKey,
-  sameLoaderViewSnapshot,
   samePromptReferences,
   type LoaderDisplayState,
   type LoaderViewSnapshot,
 } from "../view-model.ts"
 import { isSilentWaveform } from "../waveform.ts"
-import { createH3WorkspaceReact, type H3WorkspaceReactMount } from "./h3-workspace-react.tsx"
+import type { H3WorkspaceReactMount } from "./h3-workspace-react.tsx"
 import {
   clearFileDropFeedback,
-  createLoaderReact,
   mediaDropKinds,
   setFileDropFeedback,
   transferFiles,
   type LoaderReactActions,
-  type LoaderReactMount,
 } from "./loader-react.tsx"
 
 export interface LoaderChangeEvents {
@@ -220,10 +217,7 @@ function drawWaveform(
 
 export class ReferenceLoaderController {
   readonly root: HTMLElement
-  #reactHost: HTMLElement
-  #reactMount: LoaderReactMount | undefined
-  #h3WorkspaceRoot: HTMLElement | undefined
-  #h3WorkspaceMount: H3WorkspaceReactMount | undefined
+  #viewBridge!: LoaderViewBridge
   #reactActions: LoaderReactActions = {
     addFiles: (files, replaceId) => this.uploadFiles(files, replaceId),
     saveSnapshot: () => this.saveSnapshot(),
@@ -293,13 +287,10 @@ export class ReferenceLoaderController {
   #modalController: AbortController | undefined
   #dragScope =
     globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  #renderFrame: number | undefined
   #destroyed = false
   #changeEvents: LoaderChangeEvents
   #mode: ReferenceLoaderMode
   #referenceListeners = new Set<() => void>()
-  #viewListeners = new Set<() => void>()
-  #viewSnapshot: LoaderViewSnapshot | undefined
   #promptReferences: PromptReference[] = []
   #promptReferenceSourceKey = ""
   #timelineSession: H3TimelineSession
@@ -313,9 +304,6 @@ export class ReferenceLoaderController {
     options: ReferenceLoaderControllerOptions = {},
   ) {
     this.root = root
-    this.#reactHost = document.createElement("div")
-    this.#reactHost.dataset.loaderReactRoot = ""
-    this.root.replaceChildren(this.#reactHost)
     this.#node = node
     this.#api = api
     this.#changeEvents = changeEvents
@@ -330,7 +318,7 @@ export class ReferenceLoaderController {
         this.#status = message
       },
       render: () => this.render(),
-      scheduleRender: () => this.#scheduleRender(),
+      scheduleRender: () => this.#viewBridge.scheduleRender(),
       publishRuntimeUpdate: () => this.#publishRuntimeUpdate(),
       commitUploadedMedia: (uploaded, replaceId, filename) =>
         this.#commitUploadedMedia(uploaded, replaceId, filename),
@@ -357,18 +345,43 @@ export class ReferenceLoaderController {
           this.#status = message
         },
         requestRender: (force, focus) => this.#requestH3Render(force, focus),
-        publishView: () => this.#publishView(),
+        publishView: () => this.#viewBridge.publish(),
         selectMedia: (id) => {
           this.#selectedId = id
         },
         resolveGuideDrop: (channel, dataTransfer) => this.#h3GuideDragSource(channel, dataTransfer),
       },
     })
+    this.#viewBridge = new LoaderViewBridge({
+      root: this.root,
+      mode: this.#mode,
+      dragScope: this.#dragScope,
+      getViewInput: () => ({
+        state: this.state,
+        display: this.#displayState(),
+        runtime: this.#mediaRuntime.runtime,
+        pending: [...this.#mediaRuntime.pending.values()].map((pending) => ({
+          id: pending.id,
+          filename: pending.file.name,
+        })),
+        selectedId: this.#selectedId,
+        status: this.#status,
+        deferPreviews: this.#deferPreviews,
+        canUndo: this.#store.canUndo,
+        canRedo: this.#store.canRedo,
+        h3: this.#timelineSession.view,
+      }),
+      actions: this.#reactActions,
+      onReactCommit: () => {
+        this.#drawWaveforms()
+        this.#syncPlaybackUi()
+      },
+      requestRender: () => this.render(),
+    })
     if (parsed.issues.length > 0) this.#status = parsed.issues.join(" ")
     else if (this.#mode === "single-image") this.#status = ""
     this.#promptReferences = projectPromptReferences(this.state, this.#mediaRuntime.runtime)
     this.#promptReferenceSourceKey = promptReferenceSourceKey(this.state)
-    this.#viewSnapshot = this.#buildViewSnapshot()
     this.#unsubscribeAudioPreview = this.#audioPreview.subscribe(() => this.#syncPlaybackUi())
     this.#unsubscribeVideoPreview = this.#videoPreview.subscribe(() => this.#syncPlaybackUi())
     this.#hydrateRestoredRuntime()
@@ -387,35 +400,15 @@ export class ReferenceLoaderController {
   }
 
   getViewSnapshot(): LoaderViewSnapshot {
-    if (!this.#viewSnapshot) this.#viewSnapshot = this.#buildViewSnapshot()
-    return this.#viewSnapshot
+    return this.#viewBridge.getSnapshot()
   }
 
   subscribeView(listener: () => void): () => void {
-    if (this.#destroyed) return () => undefined
-    this.#viewListeners.add(listener)
-    listener()
-    return () => this.#viewListeners.delete(listener)
+    return this.#viewBridge.subscribe(listener)
   }
 
   mountH3Workspace(container: HTMLElement): H3WorkspaceReactMount {
-    this.#h3WorkspaceMount?.destroy()
-    this.#h3WorkspaceRoot = container
-    const mount = createH3WorkspaceReact({
-      container,
-      subscribe: (listener) => this.subscribeView(listener),
-      getSnapshot: () => this.getViewSnapshot(),
-      actions: this.#reactActions,
-    })
-    const managedMount = {
-      destroy: () => {
-        mount.destroy()
-        if (this.#h3WorkspaceRoot === container) this.#h3WorkspaceRoot = undefined
-        if (this.#h3WorkspaceMount === managedMount) this.#h3WorkspaceMount = undefined
-      },
-    }
-    this.#h3WorkspaceMount = managedMount
-    return managedMount
+    return this.#viewBridge.mountH3Workspace(container)
   }
 
   #displayState(): LoaderDisplayState {
@@ -701,7 +694,7 @@ export class ReferenceLoaderController {
           ? ""
           : "Workflow state restored."
     this.#syncPromptReferences()
-    this.#cancelScheduledRender()
+    this.#viewBridge.cancelScheduledRender()
     this.#hydrateRestoredRuntime(true)
   }
 
@@ -737,7 +730,7 @@ export class ReferenceLoaderController {
   destroy(): void {
     if (this.#destroyed) return
     this.#destroyed = true
-    this.#cancelScheduledRender()
+    this.#viewBridge.cancelScheduledRender()
     this.#modalController?.abort()
     this.#destroyController.abort()
     this.#unsubscribeAudioPreview?.()
@@ -748,20 +741,14 @@ export class ReferenceLoaderController {
     this.#videoPreview.destroy()
     this.#mediaRuntime.destroy()
     this.#referenceListeners.clear()
-    this.#viewListeners.clear()
     this.#timelineSession.destroy()
-    this.#h3WorkspaceMount?.destroy()
-    this.#h3WorkspaceMount = undefined
-    this.#h3WorkspaceRoot = undefined
-    this.#destroyReactMount()
-    this.root.replaceChildren()
+    this.#viewBridge.destroy()
   }
 
   render(force = false): void {
     if (this.#destroyed) return
     if (this.#deferPreviews && !this.#hasFocusedCaption()) this.#deferPreviews = false
-    this.#publishView()
-    this.#cancelScheduledRender()
+    this.#viewBridge.cancelScheduledRender()
     const state = this.state
     this.root.style.setProperty("--rl-card-aspect", state.ui.cardAspectRatio)
     this.root.style.setProperty(
@@ -770,7 +757,7 @@ export class ReferenceLoaderController {
     )
     this.root.style.setProperty("--rl-preview-fit", state.ui.previewFit)
     void force
-    this.#renderReact()
+    this.#viewBridge.render()
   }
 
   #hydrateRestoredRuntime(force = false): void {
@@ -780,48 +767,6 @@ export class ReferenceLoaderController {
       completionRender: "scheduled",
     })
     this.render(force)
-  }
-
-  #scheduleRender(): void {
-    if (this.#destroyed || this.#renderFrame !== undefined) return
-    this.#renderFrame = globalThis.requestAnimationFrame(() => {
-      this.#renderFrame = undefined
-      this.render()
-    })
-  }
-
-  #cancelScheduledRender(): void {
-    if (this.#renderFrame === undefined) return
-    globalThis.cancelAnimationFrame(this.#renderFrame)
-    this.#renderFrame = undefined
-  }
-
-  #buildViewSnapshot(): LoaderViewSnapshot {
-    return createLoaderViewSnapshot({
-      state: this.state,
-      display: this.#displayState(),
-      runtime: this.#mediaRuntime.runtime,
-      pending: [...this.#mediaRuntime.pending.values()].map((pending) => ({
-        id: pending.id,
-        filename: pending.file.name,
-      })),
-      selectedId: this.#selectedId,
-      status: this.#status,
-      deferPreviews: this.#deferPreviews,
-      canUndo: this.#store.canUndo,
-      canRedo: this.#store.canRedo,
-      h3: this.#buildH3View(),
-    })
-  }
-
-  #buildH3View() {
-    return this.#timelineSession.view
-  }
-  #publishView(): void {
-    const next = this.#buildViewSnapshot()
-    if (this.#viewSnapshot && sameLoaderViewSnapshot(this.#viewSnapshot, next)) return
-    this.#viewSnapshot = next
-    for (const listener of this.#viewListeners) listener()
   }
 
   #syncPromptReferences(notify = true): boolean {
@@ -845,14 +790,6 @@ export class ReferenceLoaderController {
       active.dataset.field === "caption" &&
       this.root.contains(active)
     )
-  }
-
-  #destroyReactMount(): void {
-    this.#reactMount?.destroy()
-    this.#reactMount = undefined
-    this.root.classList.remove("is-dragging", "is-file-dragging")
-    delete this.root.dataset.fileDropKinds
-    delete this.root.dataset.fileDropTarget
   }
 
   #installRootDropEvents(): void {
@@ -894,26 +831,8 @@ export class ReferenceLoaderController {
     )
   }
 
-  #renderReact(): void {
-    const options = {
-      container: this.#reactHost,
-      surface: this.root,
-      mode: this.#mode,
-      dragScope: this.#dragScope,
-      subscribe: (listener: () => void) => this.subscribeView(listener),
-      getSnapshot: () => this.getViewSnapshot(),
-      actions: this.#reactActions,
-      onCommit: () => {
-        this.#drawWaveforms()
-        this.#syncPlaybackUi()
-      },
-    }
-    if (!this.#reactMount) this.#reactMount = createLoaderReact(options)
-    else this.#reactMount.update()
-  }
-
   #publishRuntimeUpdate(): void {
-    this.#publishView()
+    this.#viewBridge.publish()
     this.#syncPromptReferences()
   }
 
@@ -937,7 +856,7 @@ export class ReferenceLoaderController {
     }
     this.render(force)
     if (!focus) return
-    const surface = this.#h3WorkspaceRoot ?? this.root
+    const surface = this.#viewBridge.interactionRoot ?? this.root
     if (focus.kind === "editor-guide") {
       this.#focusH3EditorGuide(focus.guideId)
       return
@@ -984,7 +903,7 @@ export class ReferenceLoaderController {
   }
 
   #focusH3EditorGuide(guideId: string): void {
-    for (const row of (this.#h3WorkspaceRoot ?? this.root).querySelectorAll<HTMLElement>(
+    for (const row of (this.#viewBridge.interactionRoot ?? this.root).querySelectorAll<HTMLElement>(
       "[data-h3-editor] [data-h3-guide-id]",
     )) {
       if (row.dataset.h3GuideId !== guideId) continue
@@ -995,7 +914,7 @@ export class ReferenceLoaderController {
   }
 
   #focusH3Workspace(): void {
-    const workspace = (this.#h3WorkspaceRoot ?? this.root).querySelector<HTMLElement>(
+    const workspace = (this.#viewBridge.interactionRoot ?? this.root).querySelector<HTMLElement>(
       "[data-h3-workspace]",
     )
     if (!workspace) return
@@ -1017,7 +936,7 @@ export class ReferenceLoaderController {
         : undefined
     this.render(true)
     if (field) {
-      for (const element of (this.#h3WorkspaceRoot ?? this.root).querySelectorAll<
+      for (const element of (this.#viewBridge.interactionRoot ?? this.root).querySelectorAll<
         HTMLInputElement | HTMLSelectElement
       >("[data-h3-draft-field]")) {
         if (element.dataset.h3DraftField === field && element.dataset.h3GuideId === guideId) {
@@ -1027,9 +946,9 @@ export class ReferenceLoaderController {
       }
     }
     if (focusGuideId) {
-      for (const input of (this.#h3WorkspaceRoot ?? this.root).querySelectorAll<HTMLInputElement>(
-        '[data-h3-draft-field="frame"]',
-      )) {
+      for (const input of (
+        this.#viewBridge.interactionRoot ?? this.root
+      ).querySelectorAll<HTMLInputElement>('[data-h3-draft-field="frame"]')) {
         if (input.dataset.h3GuideId === focusGuideId) {
           input.focus()
           break
@@ -1107,8 +1026,8 @@ export class ReferenceLoaderController {
   #selectItem(id: string): void {
     this.#timelineSession.clearMediaSelection()
     this.#selectedId = id
-    this.#publishView()
-    this.#reactMount?.update()
+    this.#viewBridge.publish()
+    this.#viewBridge.update()
   }
 
   #clearAll(): void {
@@ -1615,6 +1534,6 @@ export class ReferenceLoaderController {
     }
     this.#node.setDirtyCanvas(true, true)
     this.#syncPromptReferences()
-    this.#publishView()
+    this.#viewBridge.publish()
   }
 }

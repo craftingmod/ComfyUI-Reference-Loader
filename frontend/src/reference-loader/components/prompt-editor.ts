@@ -2,6 +2,10 @@ import type { ComfyNode } from "../../comfyui.ts"
 import { PromptEditorEngine } from "../prompt-editor-engine.ts"
 import { PROMPT_MESSAGES, detectPromptLocale, localize } from "../prompt-i18n.ts"
 import {
+  PromptMutationCoordinator,
+  type PromptMutationOutcome,
+} from "../prompt-mutation-coordinator.ts"
+import {
   normalizePromptPresetCatalog,
   resolvePromptPreset,
   type PromptAlias,
@@ -11,12 +15,8 @@ import {
 } from "../prompt-presets.ts"
 import { PromptStore } from "../prompt-store.ts"
 import {
-  assertPromptDocumentV6,
-  createPromptDefinitionId,
   normalizePromptSectionTitle,
   normalizePromptTag,
-  normalizePromptPartsV6,
-  promptPartsV6Equal,
   type PromptDocumentV6,
   type PromptPartV6,
   type PromptReference,
@@ -196,20 +196,10 @@ export class ReferencePromptController {
   #references: ReferenceProvider
   #sessionScope = createPromptSessionScope()
   #store: PromptStore
-  #v6ShotDraft:
-    | {
-        initial: PromptDocumentV6
-        document: PromptDocumentV6
-      }
-    | undefined
-  #bodyRevisions = new Map<string, number>()
-  #bodyEpoch = 0
   #editorEngine = new PromptEditorEngine()
+  #mutations: PromptMutationCoordinator
   #v6PickerTarget: PromptEditorTargetV6 | undefined
   #v6PickerReplaceLength = 0
-  #v6RawDraft: string | undefined
-  #v6RawBaseFingerprint = ""
-  #v6RawReferenceFingerprint = ""
   #pickerMode: "reference" | "subject" | "alias" | undefined
   #pickerReferences: PromptReference[] = []
   #pickerSubjects: PromptSubjectV6[] = []
@@ -254,8 +244,21 @@ export class ReferencePromptController {
     this.#preset = resolvePromptPreset(options.presetId, this.#presetCatalog)
     this.#locale = options.locale ?? detectPromptLocale()
     this.#store = new PromptStore(references, serialized)
+    this.#mutations = new PromptMutationCoordinator(this.#store, {
+      runGraphChange: (change) => {
+        const graph = node.graph
+        graph?.beforeChange?.()
+        try {
+          change()
+        } finally {
+          graph?.afterChange?.()
+        }
+      },
+      markDirty: () => node.setDirtyCanvas(true, true),
+      referenceFingerprint: () => this.#v6ReferenceFingerprint(),
+    })
     const issues = this.#store.initialIssues
-    this.#ensureV6RawSession()
+    this.#mutations.rawDraftText
     this.#viewSnapshot = this.#buildViewSnapshot()
     this.#pendingRenderHint = issues.join(" ")
     this.#setHint(this.#pendingRenderHint)
@@ -266,54 +269,21 @@ export class ReferencePromptController {
   }
 
   get #documentV6(): PromptDocumentV6 {
-    return this.#store.document
-  }
-
-  set #documentV6(value: PromptDocumentV6) {
-    this.#store.replace(value)
+    return this.#mutations.document
   }
 
   getPromptBodySnapshot(target: PromptEditorTargetV6): PromptBodySnapshot | undefined {
-    const owner = this.#v6BodyOwner(target)
-    if (!owner) return undefined
-    const key = this.#v6BodyKey(target)
-    return {
-      target,
-      parts: owner.parts,
-      revision: this.#bodyRevisions.get(key) ?? 0,
-      epoch: this.#bodyEpoch,
-    }
+    return this.#mutations.getPromptBodySnapshot(target)
   }
 
   applyPromptBodyEdit(edit: PromptBodyEdit): PromptBodyEditResult {
-    if (this.#v6ShotDraft) return { ok: false, reason: "stale" }
-    if (edit.epoch !== this.#bodyEpoch) return { ok: false, reason: "stale" }
-    const owner = this.#v6BodyOwner(edit.target)
-    if (!owner) return { ok: false, reason: "missing-target" }
-    const key = this.#v6BodyKey(edit.target)
-    const revision = this.#bodyRevisions.get(key) ?? 0
-    if (edit.baseRevision !== revision) return { ok: false, reason: "stale" }
-    let parts: PromptPartV6[]
-    try {
-      parts = normalizePromptPartsV6(edit.parts)
-    } catch {
-      return { ok: false, reason: "invalid" }
-    }
-    if (promptPartsV6Equal(parts, owner.parts)) return { ok: true, revision, editId: edit.editId }
-    try {
-      const next = this.#replaceV6Body(edit.target, parts)
-      this.#documentV6 = assertPromptDocumentV6(next)
-    } catch {
-      return { ok: false, reason: "invalid" }
-    }
-    const nextRevision = revision + 1
-    this.#bodyRevisions.set(key, nextRevision)
+    const result = this.#mutations.applyPromptBodyEdit(edit)
+    if (!result.ok) return result
     this.#invalidateV6Snapshots()
     this.#publishView()
     if (edit.target.type === "definition") this.#publishDefinitions()
     this.#notifyShots()
-    this.#node.setDirtyCanvas(true, true)
-    return { ok: true, revision: nextRevision, editId: edit.editId }
+    return result
   }
 
   registerPromptBodyEditor(
@@ -365,7 +335,7 @@ export class ReferencePromptController {
           }
         : undefined
     }
-    const document = this.#v6ShotDraft?.document ?? this.#documentV6
+    const document = this.#mutations.draftDocument ?? this.#documentV6
     const subjectIndex = document.subjects.findIndex((subject) => subject.id === part.definitionId)
     if (subjectIndex >= 0)
       return {
@@ -384,30 +354,21 @@ export class ReferencePromptController {
   }
 
   validatePromptBodyParts(target: PromptEditorTargetV6, parts: readonly PromptPartV6[]): boolean {
-    if (this.#v6ShotDraft || !this.#v6BodyOwner(target)) return false
-    try {
-      assertPromptDocumentV6(this.#replaceV6Body(target, parts))
-      return true
-    } catch {
-      return false
-    }
+    return this.#mutations.validatePromptBodyParts(target, parts)
   }
 
   parsePromptBodyText(value: string): PromptPartV6[] {
-    return this.#store.parsePromptParts(value, this.#v6ShotDraft?.document ?? this.#documentV6)
+    return this.#mutations.parsePromptBodyText(value)
   }
 
   get rawDraftText(): string | undefined {
-    this.#ensureV6RawSession()
-    return this.#v6RawDraft ?? this.#store.sourceText
+    return this.#mutations.rawDraftText
   }
 
   updateRawDraftText(value: string): void {
-    if (this.#documentV6.view !== "raw") return
-    this.#ensureV6RawSession()
-    this.#v6RawDraft = value
+    const result = this.#mutations.updateRawDraftText(value)
+    if (!result.accepted) return
     this.#publishView()
-    this.#node.setDirtyCanvas(true, true)
   }
 
   mountDefinitions(root: HTMLElement | undefined): void {
@@ -625,15 +586,27 @@ export class ReferencePromptController {
       this.#publishDefinitions(true)
       return true
     }
-    return this.#renameV6Definition(identity, next)
+    return this.#finishMutation(this.#mutations.renameDefinition(identity, next), {
+      closePicker: true,
+      render: true,
+      notifyShots: true,
+    })
   }
 
   reorderDefinition(kind: PromptDefinitionKind, identity: string, delta: -1 | 1): void {
-    this.#moveV6Definition(kind, identity, delta)
+    this.#finishMutation(this.#mutations.reorderDefinition(kind, identity, delta), {
+      closePicker: true,
+      render: true,
+      notifyShots: true,
+    })
   }
 
   removeDefinition(kind: PromptDefinitionKind, identity: string): void {
-    this.#removeV6Definition(kind, identity)
+    this.#finishMutation(this.#mutations.removeDefinition(kind, identity), {
+      closePicker: true,
+      render: true,
+      notifyShots: true,
+    })
   }
 
   setShotFrameByIdentity(identity: string, frameIndex: number): boolean {
@@ -642,11 +615,18 @@ export class ReferencePromptController {
   }
 
   clear(): void {
-    this.#clearPrompt()
+    this.#finishMutation(this.#mutations.clear(), {
+      closePicker: true,
+      render: true,
+      hint: localize(PROMPT_MESSAGES.cleared, this.#locale),
+    })
   }
 
   toggleView(): void {
-    this.#toggleView()
+    this.#finishMutation(this.#mutations.toggleView(), {
+      closePicker: true,
+      render: true,
+    })
   }
 
   copySource(): Promise<void> {
@@ -663,19 +643,19 @@ export class ReferencePromptController {
 
   get document(): PromptDocumentV6 {
     this.#flushBodyEditors()
-    return this.#v6ShotDraft?.document ?? this.#documentV6
+    return this.#documentV6
   }
 
   get shots(): readonly { tag: string; frameIndex: number }[] {
     this.#flushBodyEditors()
-    return (this.#v6ShotDraft?.document.shots ?? this.#documentV6.shots).map((shot) => ({
+    return this.#documentV6.shots.map((shot) => ({
       tag: shot.tag,
       frameIndex: shot.frameIndex,
     }))
   }
 
   get hasShotDraft(): boolean {
-    return this.#v6ShotDraft !== undefined
+    return this.#mutations.hasShotDraft
   }
 
   subscribeShots(listener: () => void): () => void {
@@ -686,91 +666,42 @@ export class ReferencePromptController {
   }
 
   setShotFrame(tag: string, frameIndex: number): boolean {
-    if (this.#destroyed || !Number.isSafeInteger(frameIndex) || frameIndex < 0) return false
-    const current = this.#documentV6.shots.find((shot) => shot.tag === tag)
-    if (!current || current.frameIndex === frameIndex) return Boolean(current)
-    this.#recordGraphChange(() => {
-      this.#documentV6 = assertPromptDocumentV6({
-        ...this.#documentV6,
-        shots: this.#documentV6.shots.map((shot) =>
-          shot.id === current.id ? { ...shot, frameIndex } : shot,
-        ),
-      })
-      this.#invalidateV6Snapshots()
+    if (this.#destroyed) return false
+    return this.#finishMutation(this.#mutations.setShotFrame(tag, frameIndex), {
+      render: true,
+      notifyShots: true,
     })
-    this.#renderEditor()
-    this.#notifyShots()
-    this.#node.setDirtyCanvas(true, true)
-    return true
   }
 
   setShotFrameDraft(tag: string, frameIndex: number): boolean {
-    if (this.#destroyed || !Number.isSafeInteger(frameIndex) || frameIndex < 0) return false
-    const current = (this.#v6ShotDraft?.document.shots ?? this.#documentV6.shots).find(
-      (shot) => shot.tag === tag,
-    )
-    if (!current || current.frameIndex === frameIndex) return Boolean(current)
-    if (!this.#v6ShotDraft)
-      this.#v6ShotDraft = { initial: this.#documentV6, document: this.#documentV6 }
-    this.#v6ShotDraft = {
-      ...this.#v6ShotDraft,
-      document: assertPromptDocumentV6({
-        ...this.#v6ShotDraft.document,
-        shots: this.#v6ShotDraft.document.shots.map((shot) =>
-          shot.id === current.id ? { ...shot, frameIndex } : shot,
-        ),
-      }),
-    }
-    this.#invalidateV6Snapshots()
-    this.#renderEditor()
-    this.#notifyShots()
-    this.#node.setDirtyCanvas(true, true)
-    return true
+    if (this.#destroyed) return false
+    return this.#finishMutation(this.#mutations.setShotFrameDraft(tag, frameIndex), {
+      render: true,
+      notifyShots: true,
+    })
   }
 
   removeShot(tag: string): void {
-    const current = (this.#v6ShotDraft?.document.shots ?? this.#documentV6.shots).find(
-      (shot) => shot.tag === tag,
-    )
-    if (!current) return
-    if (!this.#v6ShotDraft)
-      this.#v6ShotDraft = { initial: this.#documentV6, document: this.#documentV6 }
-    this.#v6ShotDraft = {
-      ...this.#v6ShotDraft,
-      document: assertPromptDocumentV6({
-        ...this.#v6ShotDraft.document,
-        shots: this.#v6ShotDraft.document.shots.filter((shot) => shot.id !== current.id),
-      }),
-    }
-    this.#invalidateV6Snapshots()
-    this.#renderEditor()
-    this.#notifyShots()
-    this.#node.setDirtyCanvas(true, true)
+    this.#finishMutation(this.#mutations.removeShot(tag), {
+      render: true,
+      notifyShots: true,
+    })
   }
 
   applyShotDraft(): boolean {
-    if (this.#destroyed || !this.#v6ShotDraft) return false
-    this.#recordGraphChange(() => {
-      this.#documentV6 = this.#v6ShotDraft!.document
-      this.#v6ShotDraft = undefined
-      this.#bodyEpoch += 1
-      this.#bodyRevisions.clear()
-      this.#invalidateV6Snapshots()
+    if (this.#destroyed) return false
+    return this.#finishMutation(this.#mutations.applyShotDraft(), {
+      render: true,
+      notifyShots: true,
     })
-    this.#renderEditor()
-    this.#notifyShots()
-    this.#node.setDirtyCanvas(true, true)
-    return true
   }
 
   cancelShotDraft(): boolean {
-    if (this.#destroyed || !this.#v6ShotDraft) return false
-    this.#v6ShotDraft = undefined
-    this.#invalidateV6Snapshots()
-    this.#renderEditor()
-    this.#notifyShots()
-    this.#node.setDirtyCanvas(true, true)
-    return true
+    if (this.#destroyed) return false
+    return this.#finishMutation(this.#mutations.cancelShotDraft(), {
+      render: true,
+      notifyShots: true,
+    })
   }
 
   focusShot(tag: string): void {
@@ -793,30 +724,11 @@ export class ReferencePromptController {
 
   restore(serialized: unknown): void {
     if (this.#destroyed) return
-    if (serialized === undefined || serialized === null || serialized === "") {
-      this.#v6ShotDraft = undefined
-      this.#store.restore(undefined)
-      this.#bodyEpoch += 1
-      this.#bodyRevisions.clear()
-      this.#v6RawDraft = undefined
-      this.#ensureV6RawSession()
-      this.#invalidateV6Snapshots()
-      this.#closePicker()
-      this.#renderEditor()
-      this.#setHint()
-      this.#notifyShots()
-      return
-    }
-    const parsed = this.#store.restore(serialized)
-    if (!parsed.document) {
+    const parsed = this.#mutations.restore(serialized)
+    if (!parsed.accepted) {
       this.#setHint([...parsed.issues, "Only Prompt state version 6 can be restored."].join(" "))
       return
     }
-    this.#v6ShotDraft = undefined
-    this.#bodyEpoch += 1
-    this.#bodyRevisions.clear()
-    this.#v6RawDraft = undefined
-    this.#ensureV6RawSession()
     this.#invalidateV6Snapshots()
     this.#closePicker()
     this.#renderEditor()
@@ -840,10 +752,7 @@ export class ReferencePromptController {
     // React snapshots explicitly to refresh existing chips.
     this.#store.refresh()
     this.#invalidateV6Snapshots()
-    if (this.#documentV6.view === "raw") {
-      this.#v6RawDraft = this.#store.sourceText
-      this.#v6RawReferenceFingerprint = this.#v6ReferenceFingerprint()
-    }
+    this.#mutations.refreshRawReferenceSession(this.#v6ReferenceFingerprint())
     if (this.#pickerMode === "reference") this.#updateReferencePicker()
     this.#publishDefinitions()
     this.#setHint()
@@ -858,8 +767,6 @@ export class ReferencePromptController {
     this.#sectionsListeners.clear()
     this.#pickerListeners.clear()
     this.#editorEngine.destroy()
-    this.#bodyRevisions.clear()
-    this.#v6ShotDraft = undefined
     this.#closePicker()
     this.#clearDefinitionDrag()
     this.#workspaceRoot = undefined
@@ -874,56 +781,14 @@ export class ReferencePromptController {
     return roots
   }
 
-  #v6BodyKey(target: PromptEditorTargetV6): string {
-    return `${target.type}:${target.id}`
-  }
-
-  #v6BodyOwner(
-    target: PromptEditorTargetV6,
-  ):
-    | PromptDocumentV6["sections"][number]
-    | PromptDocumentV6["subjects"][number]
-    | PromptDocumentV6["shots"][number]
-    | undefined {
-    const document = this.#v6ShotDraft?.document ?? this.#documentV6
-    if (!document) return undefined
-    if (target.type === "section")
-      return document.sections.find((section) => section.id === target.id)
-    return (
-      document.subjects.find((subject) => subject.id === target.id) ??
-      document.shots.find((shot) => shot.id === target.id)
-    )
-  }
-
   #v6Definition(
     id: string,
-    document: PromptDocumentV6 | undefined = this.#v6ShotDraft?.document ?? this.#documentV6,
+    document: PromptDocumentV6 | undefined = this.#documentV6,
   ): PromptDocumentV6["subjects"][number] | PromptDocumentV6["shots"][number] | undefined {
     return (
       document?.subjects.find((subject) => subject.id === id) ??
       document?.shots.find((shot) => shot.id === id)
     )
-  }
-
-  #replaceV6Body(target: PromptEditorTargetV6, parts: readonly PromptPartV6[]): PromptDocumentV6 {
-    const document = this.#v6ShotDraft?.document ?? this.#documentV6
-    if (!document) throw new Error("Prompt v6 document is unavailable.")
-    if (target.type === "section")
-      return {
-        ...document,
-        sections: document.sections.map((section) =>
-          section.id === target.id ? { ...section, parts: [...parts] } : section,
-        ),
-      }
-    return {
-      ...document,
-      subjects: document.subjects.map((subject) =>
-        subject.id === target.id ? { ...subject, parts: [...parts] } : subject,
-      ),
-      shots: document.shots.map((shot) =>
-        shot.id === target.id ? { ...shot, parts: [...parts] } : shot,
-      ),
-    }
   }
 
   #invalidateV6Snapshots(): void {
@@ -1001,41 +866,6 @@ export class ReferencePromptController {
     )
   }
 
-  #ensureV6RawSession(): void {
-    if (this.#documentV6.view !== "raw" || this.#v6RawDraft !== undefined) return
-    this.#v6RawDraft = this.#store.sourceText
-    this.#v6RawBaseFingerprint = this.#store.serialize()
-    this.#v6RawReferenceFingerprint = this.#v6ReferenceFingerprint()
-  }
-
-  #applyV6RawDraft(): boolean {
-    this.#ensureV6RawSession()
-    if (this.#v6RawReferenceFingerprint !== this.#v6ReferenceFingerprint()) {
-      this.#setHint("References changed while Raw Import was open. Reopen Raw and apply again.")
-      return false
-    }
-    if (this.#v6RawBaseFingerprint !== this.#store.serialize()) {
-      this.#setHint("Prompt changed while Raw Import was open. Reopen Raw and apply again.")
-      return false
-    }
-    try {
-      const next = this.#store.parseAuthoring(this.#v6RawDraft ?? "", this.#documentV6)
-      this.#recordGraphChange(() => {
-        this.#documentV6 = next
-        this.#bodyEpoch += 1
-        this.#bodyRevisions.clear()
-        this.#v6RawDraft = undefined
-        this.#v6RawBaseFingerprint = ""
-        this.#v6RawReferenceFingerprint = ""
-        this.#invalidateV6Snapshots()
-      })
-      return true
-    } catch (error) {
-      this.#setHint(error instanceof Error ? error.message : "Raw Prompt is invalid.")
-      return false
-    }
-  }
-
   #definitionRecords(): {
     kind: PromptDefinitionKind
     tag: string
@@ -1046,7 +876,7 @@ export class ReferencePromptController {
     bodySnapshot: PromptBodySnapshot
     placeholder: string
   }[] {
-    const document = this.#v6ShotDraft?.document ?? this.#documentV6
+    const document = this.#mutations.draftDocument ?? this.#documentV6
     const placeholder = localize(
       this.#preset.subjectMode === "disabled"
         ? PROMPT_MESSAGES.bodyPlaceholder
@@ -1082,7 +912,7 @@ export class ReferencePromptController {
     return {
       subjects: records.filter((record) => record.kind === "subject"),
       shots: records.filter((record) => record.kind === "shot"),
-      draft: this.#v6ShotDraft !== undefined,
+      draft: this.#mutations.hasShotDraft,
       mounted: this.#definitionsRoot !== undefined,
     }
   }
@@ -1327,7 +1157,8 @@ export class ReferencePromptController {
       rawPlaceholder: localize(PROMPT_MESSAGES.rawPlaceholder, this.#locale),
       sectionEntryPlaceholder: localize(PROMPT_MESSAGES.addSectionPlaceholder, this.#locale),
       sectionEntryAria: localize(PROMPT_MESSAGES.addSectionAria, this.#locale),
-      sourceText: document.view === "raw" ? (this.#v6RawDraft ?? "") : this.#store.sourceText,
+      sourceText:
+        document.view === "raw" ? (this.#mutations.rawDraftText ?? "") : this.#store.sourceText,
       compiledText: this.#store.compiledText,
       canClear: document.sections.length > 0,
       hint: this.#hintText,
@@ -1389,112 +1220,31 @@ export class ReferencePromptController {
     for (const listener of this.#shotListeners) listener()
   }
 
-  #renameV6Definition(definitionId: string, tag: string): boolean {
-    if (
-      [...this.#documentV6.subjects, ...this.#documentV6.shots].some(
-        (definition) => definition.tag === tag && definition.id !== definitionId,
-      )
-    ) {
-      this.#setHint("Subject and Shot tags must be unique.")
-      return false
-    }
-    try {
-      this.#recordGraphChange(() => {
-        this.#store.renameDefinition(definitionId, tag)
-        this.#invalidateV6Snapshots()
-      })
-    } catch (error) {
-      this.#setHint(error instanceof Error ? error.message : "Definition tag is invalid.")
-      return false
-    }
-    this.#closePicker()
-    this.#renderEditor()
-    this.#notifyShots()
-    this.#node.setDirtyCanvas(true, true)
-    return true
-  }
-
-  #moveV6Definition(kind: PromptDefinitionKind, definitionId: string, delta: -1 | 1): void {
-    if (this.#v6ShotDraft) return
-    const values = kind === "subject" ? [...this.#documentV6.subjects] : [...this.#documentV6.shots]
-    const index = values.findIndex((definition) => definition.id === definitionId)
-    const target = Math.max(0, Math.min(values.length - 1, index + delta))
-    if (index < 0 || index === target) return
-    const [item] = values.splice(index, 1)
-    if (!item) return
-    values.splice(target, 0, item)
-    this.#recordGraphChange(() => {
-      this.#documentV6 = assertPromptDocumentV6(
-        kind === "subject"
-          ? { ...this.#documentV6!, subjects: values }
-          : { ...this.#documentV6!, shots: values },
-      )
-      this.#invalidateV6Snapshots()
-    })
-    this.#closePicker()
-    this.#renderEditor()
-    this.#notifyShots()
-    this.#node.setDirtyCanvas(true, true)
-  }
-
-  #removeV6Definition(kind: PromptDefinitionKind, definitionId: string): void {
-    if (this.#v6ShotDraft) return
-    const definition = this.#v6Definition(definitionId)
-    if (
-      !definition ||
-      (kind === "subject" && !this.#documentV6.subjects.some((item) => item.id === definitionId)) ||
-      (kind === "shot" && !this.#documentV6.shots.some((item) => item.id === definitionId))
-    )
-      return
-    try {
-      this.#recordGraphChange(() => {
-        this.#store.removeDefinition(definitionId)
-        this.#bodyEpoch += 1
-        this.#bodyRevisions.delete(`definition:${definitionId}`)
-        this.#invalidateV6Snapshots()
-      })
-    } catch (error) {
-      this.#setHint(error instanceof Error ? error.message : "Definition is still referenced.")
-      return
-    }
-    this.#closePicker()
-    this.#renderEditor()
-    this.#notifyShots()
-    this.#node.setDirtyCanvas(true, true)
+  #finishMutation(
+    result: PromptMutationOutcome,
+    options: {
+      readonly closePicker?: boolean
+      readonly render?: boolean
+      readonly notifyShots?: boolean
+      readonly hint?: string
+    } = {},
+  ): boolean {
+    if (result.message) this.#setHint(result.message)
+    if (result.accepted && options.closePicker) this.#closePicker()
+    if (!result.changed) return result.accepted
+    this.#invalidateV6Snapshots()
+    if (options.render) this.#renderEditor()
+    if (options.notifyShots) this.#notifyShots()
+    if (options.hint) this.#setHint(options.hint)
+    return result.accepted
   }
 
   #addDefinition(kind: "subject" | "shot"): void {
-    if (this.#v6ShotDraft) {
-      this.#setHint("Apply or cancel the current Shot timing edit first.")
-      return
-    }
-    let index = 1
-    let tag = `${kind}_${index}`
-    while (
-      [...this.#documentV6.subjects, ...this.#documentV6.shots].some(
-        (definition) => definition.tag === tag,
-      )
-    )
-      tag = `${kind}_${++index}`
-    const id = createPromptDefinitionId()
-    this.#closePicker()
-    this.#recordGraphChange(() => {
-      this.#documentV6 = assertPromptDocumentV6(
-        kind === "subject"
-          ? {
-              ...this.#documentV6,
-              subjects: [...this.#documentV6.subjects, { id, tag, parts: [] }],
-            }
-          : {
-              ...this.#documentV6,
-              shots: [...this.#documentV6.shots, { id, tag, frameIndex: 0, parts: [] }],
-            },
-      )
-      this.#invalidateV6Snapshots()
-      this.#renderEditor()
+    this.#finishMutation(this.#mutations.addDefinition(kind), {
+      closePicker: true,
+      render: true,
+      notifyShots: true,
     })
-    this.#notifyShots()
-    this.#node.setDirtyCanvas(true, true)
   }
 
   #handlePickerKeydown(event: KeyboardEvent): boolean {
@@ -1516,34 +1266,6 @@ export class ReferencePromptController {
       return true
     }
     return false
-  }
-
-  #toggleView(): void {
-    this.#flushBodyEditors()
-    if (this.#documentV6.view === "raw") {
-      if (!this.#applyV6RawDraft()) return
-      this.#documentV6 = { ...this.#documentV6, view: "structured" }
-    } else {
-      this.#documentV6 = { ...this.#documentV6, view: "raw" }
-      this.#v6RawDraft = undefined
-      this.#ensureV6RawSession()
-    }
-    this.#closePicker()
-    this.#invalidateV6Snapshots()
-    this.#renderEditor()
-    this.#node.setDirtyCanvas(true, true)
-  }
-
-  #clearPrompt(): void {
-    if (this.#documentV6.sections.length === 0) return
-    this.#documentV6 = { ...this.#documentV6, sections: [] }
-    this.#bodyEpoch += 1
-    this.#bodyRevisions.clear()
-    this.#closePicker()
-    this.#invalidateV6Snapshots()
-    this.#renderEditor()
-    this.#setHint(localize(PROMPT_MESSAGES.cleared, this.#locale))
-    this.#node.setDirtyCanvas(true, true)
   }
 
   async #copyPrompt(compiled: boolean): Promise<void> {
@@ -1576,59 +1298,30 @@ export class ReferencePromptController {
   }
 
   #addOrFocusSection(title: string): void {
-    const existing = this.#documentV6.sections.find((section) => section.title === title)
-    if (existing) {
-      this.#closePicker()
-      return
-    }
-    const id = createPromptDefinitionId()
-    this.#documentV6 = assertPromptDocumentV6({
-      ...this.#documentV6,
-      view: "structured",
-      sections: [...this.#documentV6.sections, { id, title, parts: [] }],
+    const changed = this.#finishMutation(this.#mutations.addOrFocusSection(title), {
+      closePicker: true,
+      render: true,
     })
-    this.#closePicker()
-    this.#invalidateV6Snapshots()
-    this.#renderEditor()
+    if (!changed) return
     const body = this.#workspaceRoot?.querySelector<HTMLElement>(
       `[data-prompt-section-body="${CSS.escape(title)}"]`,
     )
     if (body) placeCaretAtEnd(body)
-    this.#node.setDirtyCanvas(true, true)
   }
 
   #removeSection(title: string): void {
-    if (!this.#documentV6.sections.some((section) => section.title === title)) return
-    this.#documentV6 = assertPromptDocumentV6({
-      ...this.#documentV6,
-      sections: this.#documentV6.sections.filter((section) => section.title !== title),
+    this.#finishMutation(this.#mutations.removeSection(title), {
+      closePicker: true,
+      render: true,
     })
-    this.#bodyEpoch += 1
-    this.#bodyRevisions.clear()
-    this.#closePicker()
-    this.#invalidateV6Snapshots()
-    this.#renderEditor()
-    this.#node.setDirtyCanvas(true, true)
   }
 
   #moveSection(title: string, delta: -1 | 1): void {
-    const sourceIndex = this.#documentV6.sections.findIndex((section) => section.title === title)
-    const targetIndex = Math.max(
-      0,
-      Math.min(this.#documentV6.sections.length - 1, sourceIndex + delta),
-    )
-    if (sourceIndex < 0 || sourceIndex === targetIndex) return
-    const sections = [...this.#documentV6.sections]
-    const [section] = sections.splice(sourceIndex, 1)
-    if (!section) return
-    sections.splice(targetIndex, 0, section)
-    this.#recordGraphChange(() => {
-      this.#documentV6 = assertPromptDocumentV6({ ...this.#documentV6, sections })
-      this.#closePicker()
-      this.#invalidateV6Snapshots()
-      this.#renderEditor()
-      this.#node.setDirtyCanvas(true, true)
+    const changed = this.#finishMutation(this.#mutations.reorderSection(title, delta), {
+      closePicker: true,
+      render: true,
     })
+    if (!changed) return
     this.#workspaceRoot
       ?.querySelector<HTMLElement>(`[data-prompt-section-drag-handle="${CSS.escape(title)}"]`)
       ?.focus()
@@ -1668,7 +1361,7 @@ export class ReferencePromptController {
       event.target instanceof Element
         ? event.target.closest<HTMLElement>("[data-prompt-definition]")
         : undefined
-    if (!tag || this.#v6ShotDraft) {
+    if (!tag || this.#mutations.hasShotDraft) {
       event.preventDefault()
       return
     }
@@ -1719,36 +1412,10 @@ export class ReferencePromptController {
     }
     event.preventDefault()
     event.stopPropagation()
-    const values =
-      source.kind === "subject" ? [...this.#documentV6.subjects] : [...this.#documentV6.shots]
-    const sourceIndex = values.findIndex((definition) => definition.tag === source.tag)
-    if (sourceIndex < 0) {
-      this.#clearDefinitionDrag()
-      return
-    }
-    const [item] = values.splice(sourceIndex, 1)
-    if (!item) {
-      this.#clearDefinitionDrag()
-      return
-    }
-    const targetIndex = values.findIndex((definition) => definition.tag === targetTag)
-    if (targetIndex < 0) {
-      this.#clearDefinitionDrag()
-      return
-    }
-    values.splice(targetIndex + (after ? 1 : 0), 0, item)
-    this.#closePicker()
-    this.#recordGraphChange(() => {
-      this.#documentV6 = assertPromptDocumentV6(
-        source.kind === "subject"
-          ? { ...this.#documentV6, subjects: values }
-          : { ...this.#documentV6, shots: values },
-      )
-      this.#invalidateV6Snapshots()
-      this.#renderEditor()
-    })
-    this.#notifyShots()
-    this.#node.setDirtyCanvas(true, true)
+    this.#finishMutation(
+      this.#mutations.reorderDefinitionByTarget(source.kind, source.tag, targetTag, after),
+      { closePicker: true, render: true, notifyShots: true },
+    )
     this.#clearDefinitionDrag()
   }
 
@@ -1792,27 +1459,9 @@ export class ReferencePromptController {
     }
     event.preventDefault()
     event.stopPropagation()
-    const sourceIndex = this.#documentV6.sections.findIndex(
-      (section) => section.title === sourceTitle,
-    )
-    const targetIndex = this.#documentV6.sections.findIndex(
-      (section) => section.title === targetTitle,
-    )
-    if (sourceIndex < 0 || targetIndex < 0) {
-      this.#clearSectionDrag()
-      return
-    }
-    this.#recordGraphChange(() => {
-      const sections = [...this.#documentV6.sections]
-      const [section] = sections.splice(sourceIndex, 1)
-      if (!section) return
-      const adjustedTargetIndex = sections.findIndex((candidate) => candidate.title === targetTitle)
-      sections.splice(adjustedTargetIndex + (after ? 1 : 0), 0, section)
-      this.#documentV6 = assertPromptDocumentV6({ ...this.#documentV6, sections })
-      this.#closePicker()
-      this.#invalidateV6Snapshots()
-      this.#renderEditor()
-      this.#node.setDirtyCanvas(true, true)
+    this.#finishMutation(this.#mutations.reorderSectionByTarget(sourceTitle, targetTitle, after), {
+      closePicker: true,
+      render: true,
     })
     this.#clearSectionDrag()
   }
@@ -1831,16 +1480,6 @@ export class ReferencePromptController {
       ?.querySelectorAll<HTMLElement>("[data-prompt-section].is-dragging")
       ?.forEach((section) => section.classList.remove("is-dragging"))
     this.#draggedSectionTitle = undefined
-  }
-
-  #recordGraphChange(change: () => void): void {
-    const graph = this.#node.graph
-    graph?.beforeChange?.()
-    try {
-      change()
-    } finally {
-      graph?.afterChange?.()
-    }
   }
 
   #updatePickerQuery(canOpenSubjectPicker = true): void {
@@ -1985,15 +1624,11 @@ export class ReferencePromptController {
 
   #createAndInsertSubject(label: string | undefined): void {
     if (!label) return
-    if (this.#documentV6.subjects.some((candidate) => candidate.tag === label)) return
-    const id = createPromptDefinitionId()
-    this.#documentV6 = assertPromptDocumentV6({
-      ...this.#documentV6,
-      subjects: [...this.#documentV6.subjects, { id, tag: label, parts: [] }],
-    })
+    const result = this.#mutations.createSubject(label)
+    if (!result.accepted || !result.id) return
     this.#invalidateV6Snapshots()
     this.#renderEditor()
-    this.#insertV6Part({ type: "definition-ref", definitionId: id })
+    this.#insertV6Part({ type: "definition-ref", definitionId: result.id })
   }
 
   #insertAlias(alias: PromptAlias | undefined): void {

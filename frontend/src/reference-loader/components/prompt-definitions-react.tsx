@@ -18,7 +18,12 @@ import {
   type PromptDefinitionsSnapshot,
   type ReferencePromptController,
 } from "./prompt-editor.ts"
-import { PromptEditor, type PromptEditorActions } from "./prompt-react.tsx"
+import {
+  createPromptReactActions,
+  PromptEditor,
+  type PromptEditorActions,
+  type PromptReactCommandPort,
+} from "./prompt-react.tsx"
 
 export interface PromptDefinitionsReactActions extends PromptEditorActions {
   addDefinition(kind: PromptDefinitionKind): void
@@ -41,6 +46,41 @@ export interface PromptDefinitionsReactOptions {
 
 export interface PromptDefinitionsReactMount {
   destroy(): void
+}
+
+export type PromptDefinitionsCommandPort = PromptReactCommandPort &
+  Pick<
+    ReferencePromptController,
+    | "addDefinition"
+    | "renameDefinition"
+    | "reorderDefinition"
+    | "startDefinitionDrag"
+    | "definitionDragOver"
+    | "dropDefinition"
+    | "endDefinitionDrag"
+    | "removeDefinition"
+    | "setShotFrameByIdentity"
+  >
+
+export function createPromptDefinitionsReactActions(
+  controller: PromptDefinitionsCommandPort,
+  onEditShotGuides?: (tag: string) => void,
+): PromptDefinitionsReactActions {
+  return {
+    ...createPromptReactActions(controller),
+    addDefinition: (kind) => controller.addDefinition(kind),
+    renameDefinition: (kind, identity, value) => controller.renameDefinition(kind, identity, value),
+    reorderDefinition: (kind, identity, delta) =>
+      controller.reorderDefinition(kind, identity, delta),
+    startDefinitionDrag: (kind, identity, event) =>
+      controller.startDefinitionDrag(kind, identity, event),
+    definitionDragOver: (event) => controller.definitionDragOver(event),
+    dropDefinition: (event) => controller.dropDefinition(event),
+    endDefinitionDrag: () => controller.endDefinitionDrag(),
+    removeDefinition: (kind, identity) => controller.removeDefinition(kind, identity),
+    setShotFrame: (identity, frameIndex) => controller.setShotFrameByIdentity(identity, frameIndex),
+    editShotGuides: (tag) => onEditShotGuides?.(tag),
+  }
 }
 
 function PromptDefinitionCard({
@@ -310,38 +350,10 @@ export class PromptDefinitionsReactBridge implements PromptDefinitionsReactMount
   constructor(options: PromptDefinitionsReactOptions) {
     this.#container = options.container
     this.#controller = options.controller
-    this.#actions = {
-      sessionScope: this.#controller.promptSessionScope,
-      addDefinition: (kind) => this.#controller.addDefinition(kind),
-      renameDefinition: (kind, identity, value) =>
-        this.#controller.renameDefinition(kind, identity, value),
-      reorderDefinition: (kind, identity, delta) =>
-        this.#controller.reorderDefinition(kind, identity, delta),
-      startDefinitionDrag: (kind, identity, event) =>
-        this.#controller.startDefinitionDrag(kind, identity, event),
-      definitionDragOver: (event) => this.#controller.definitionDragOver(event),
-      dropDefinition: (event) => this.#controller.dropDefinition(event),
-      endDefinitionDrag: () => this.#controller.endDefinitionDrag(),
-      removeDefinition: (kind, identity) => this.#controller.removeDefinition(kind, identity),
-      setShotFrame: (identity, frameIndex) =>
-        this.#controller.setShotFrameByIdentity(identity, frameIndex),
-      editShotGuides: (tag) => options.onEditShotGuides?.(tag),
-      handleReactEditorInput: (target, editor, input) =>
-        this.#controller.handleReactEditorInput(target, editor, input),
-      handleReactEditorKeydown: (event) => this.#controller.handleReactEditorKeydown(event),
-      handleReactEditorPaste: (event) => this.#controller.handleReactEditorPaste(event),
-      handleReactEditorBlur: () => this.#controller.handleReactEditorBlur(),
-      applyPromptBodyEdit: (edit) => this.#controller.applyPromptBodyEdit(edit),
-      registerPromptBodyEditor: (target, handle) =>
-        this.#controller.registerPromptBodyEditor(target, handle),
-      resolvePromptPartLabel: (part) => this.#controller.resolvePromptPartLabel(part),
-      resolvePromptPartVisual: (part) => this.#controller.resolvePromptPartVisual(part),
-      handlePromptBodyTrigger: (target, trigger) =>
-        this.#controller.handlePromptBodyTrigger(target, trigger),
-      validatePromptBodyParts: (target, parts) =>
-        this.#controller.validatePromptBodyParts(target, parts),
-      parsePromptBodyText: (value) => this.#controller.parsePromptBodyText(value),
-    }
+    this.#actions = createPromptDefinitionsReactActions(
+      options.controller,
+      options.onEditShotGuides,
+    )
     this.#root = createRoot(this.#container)
     this.update()
   }

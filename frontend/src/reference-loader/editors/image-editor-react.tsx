@@ -5,7 +5,7 @@ import { EditorFooter } from "../ui/editor-footer.tsx"
 import { Field } from "../ui/field.tsx"
 import { StatusMessage } from "../ui/status-message.tsx"
 import { ToggleGroup } from "../ui/toggle-group.tsx"
-import type { ImageEditorDraft } from "./image-editor.ts"
+import type { ImageEditorDraft } from "./image-editor-model.ts"
 
 export interface ImageEditorReactRefs {
   image: HTMLImageElement

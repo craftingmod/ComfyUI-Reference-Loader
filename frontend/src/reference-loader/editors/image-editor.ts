@@ -3,86 +3,90 @@ import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
 import { LocalHistory } from "../history.ts"
-import type { ImageEditRecipe, ImageItem, NormalizedCrop } from "../types.ts"
+import type { NormalizedCrop } from "../types.ts"
+import {
+  FULL_STAGE_FRAME,
+  clamp,
+  constrainCropViewport,
+  cropAspectRatioValue,
+  cropSelectionModeForFrame,
+  fitNormalizedCropToAspect,
+  isCropAspectPreset,
+  isCropHandleVisible,
+  isNormalizedCropViewportFilling,
+  moveNormalizedCrop,
+  normalizedCropToPixels,
+  pixelCropToNormalized,
+  projectCropToViewport,
+  resolveImageEditorPointerIntent,
+  resizeNormalizedCrop,
+  resizeNormalizedCropToAspect,
+  unprojectCropFromViewport,
+  updatePixelCropForAspect,
+  viewportPanBounds,
+} from "./image-editor-geometry.ts"
+import { invertMaskPixels, maskBrushToolForModifier } from "./image-editor-mask.ts"
+import {
+  createInitialImageDraft,
+  isMaterializedImageEdit,
+  recipeFromDraft,
+  type CropHandle,
+  type CropSelectionMode,
+  type ImageEditorDraft,
+  type ImageEditorInteractionMode,
+  type ImageEditorOptions,
+  type ImageEditorPointerSurface,
+  type ImageEditorResult,
+  type MaskBrushTool,
+} from "./image-editor-model.ts"
 import {
   ImageEditorDialog,
   type ImageEditorReactOptions,
   type ImageEditorReactRefs,
 } from "./image-editor-react.tsx"
 
-export type MaskBrushTool = "erase" | "restore"
-export type CropHandle = "north-west" | "north-east" | "south-west" | "south-east"
-export type ImageEditorInteractionMode = "view" | "crop" | "mask"
-export type CropSelectionMode = "unfocused" | "focused" | "clipped"
-export type CropAspectPreset =
-  | "custom"
-  | "original"
-  | "1:1"
-  | "4:3"
-  | "3:4"
-  | "3:2"
-  | "2:3"
-  | "16:9"
-  | "9:16"
-export type ImageEditorPointerSurface = "stage" | "crop-body" | "crop-handle" | "mask"
-export type ImageEditorPointerIntent =
-  | "ignore"
-  | "pan"
-  | "unfocus-and-pan"
-  | "pending-select"
-  | "pending-pan"
-  | "move-crop"
-  | "resize-crop"
-  | "paint-mask"
-
-export function maskBrushToolForModifier(tool: MaskBrushTool, invert: boolean): MaskBrushTool {
-  return invert ? (tool === "erase" ? "restore" : "erase") : tool
-}
-
-export interface ImageEditorPointerContext {
-  interactionMode: ImageEditorInteractionMode
-  cropSelection: CropSelectionMode
-  surface: ImageEditorPointerSurface
-  ctrlKey: boolean
-  viewportFilling: boolean
-}
-
-export function resolveImageEditorPointerIntent(
-  context: ImageEditorPointerContext,
-): ImageEditorPointerIntent {
-  if (context.ctrlKey) return "pan"
-  if (context.interactionMode === "view") return context.surface === "stage" ? "pan" : "ignore"
-  if (context.interactionMode === "mask")
-    return context.surface === "mask" ? "paint-mask" : "ignore"
-  if (context.surface === "stage") return "unfocus-and-pan"
-  if (context.surface === "crop-handle") return "resize-crop"
-  if (context.surface !== "crop-body") return "ignore"
-  if (context.cropSelection === "unfocused") return "pending-select"
-  if (context.cropSelection === "clipped") return "pending-pan"
-  return context.viewportFilling ? "pan" : "move-crop"
-}
-
-export interface ImageEditorDraft {
-  interactionMode: ImageEditorInteractionMode
-  cropAspect: CropAspectPreset
-  crop: NormalizedCrop
-  cropFrame: NormalizedCrop
-  flipX: boolean
-  flipY: boolean
-  removeBackground: boolean
-  backgroundMode: "transparent" | "solid"
-  backgroundColor: string
-  tool: MaskBrushTool
-  brushSize: number
-  brushOpacity: number
-  zoom: number
-  panX: number
-  panY: number
-  maskPixels?: Uint8ClampedArray
-  maskWidth?: number
-  maskHeight?: number
-  maskTouched: boolean
-}
+export type {
+  AppliedImageEditorResult,
+  CropAspectPreset,
+  CropHandle,
+  CropSelectionMode,
+  ImageEditorDraft,
+  ImageEditorInteractionMode,
+  ImageEditorOptions,
+  ImageEditorPointerContext,
+  ImageEditorPointerIntent,
+  ImageEditorPointerSurface,
+  ImageEditorResult,
+  MaskBrushTool,
+  RestoredImageEditorResult,
+} from "./image-editor-model.ts"
+export type { CropViewport, PixelCrop, ViewportPanBounds } from "./image-editor-geometry.ts"
+export {
+  createInitialImageDraft,
+  initialImageEditorRecipe,
+  isMaterializedImageEdit,
+  recipeFromDraft,
+} from "./image-editor-model.ts"
+export {
+  constrainCropViewport,
+  cropAspectRatioValue,
+  fitNormalizedCropToAspect,
+  isCropHandleVisible,
+  isNormalizedCropFullyVisible,
+  isNormalizedCropViewportFilling,
+  moveNormalizedCrop,
+  normalizedCropToPixels,
+  pixelCropToNormalized,
+  projectCropToViewport,
+  resolveImageEditorPointerIntent,
+  resizeNormalizedCrop,
+  resizeNormalizedCropToAspect,
+  unprojectCropFromViewport,
+  updatePixelCrop,
+  updatePixelCropForAspect,
+  viewportPanBounds,
+} from "./image-editor-geometry.ts"
+export { applyMaskBrush, invertMaskPixels, maskBrushToolForModifier } from "./image-editor-mask.ts"
 
 type ImageEditorGesture =
   | { kind: "idle" }
@@ -108,108 +112,6 @@ type ImageEditorGesture =
     }
   | { kind: "paint-mask"; lastPoint: readonly [number, number] }
 
-export interface ImageEditorOptions {
-  item: ImageItem
-  previewUrl?: string
-  captionLabel?: string
-  captionPlaceholder?: string
-  showCaption?: boolean
-  imageWidth?: number
-  imageHeight?: number
-  imageMetadata?: (signal: AbortSignal) => Promise<{ width?: number; height?: number }>
-  backgroundPreview?: (signal: AbortSignal) => Promise<string>
-  signal?: AbortSignal
-}
-
-export interface AppliedImageEditorResult {
-  action: "apply"
-  edit: ImageEditRecipe
-  caption: string
-  maskFile?: File
-}
-
-export interface RestoredImageEditorResult {
-  action: "restore-original"
-  caption: string
-}
-
-export type ImageEditorResult = AppliedImageEditorResult | RestoredImageEditorResult
-
-export interface PixelCrop {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-export interface CropViewport {
-  zoom: number
-  panX: number
-  panY: number
-  flipX: boolean
-  flipY: boolean
-}
-
-export interface ViewportPanBounds {
-  minX: number
-  maxX: number
-  minY: number
-  maxY: number
-}
-
-const FULL_STAGE_FRAME: NormalizedCrop = { x: 0, y: 0, width: 1, height: 1 }
-const CROP_ASPECT_PRESETS: readonly CropAspectPreset[] = [
-  "custom",
-  "original",
-  "1:1",
-  "4:3",
-  "3:4",
-  "3:2",
-  "2:3",
-  "16:9",
-  "9:16",
-]
-
-function isCropAspectPreset(value: string): value is CropAspectPreset {
-  return CROP_ASPECT_PRESETS.includes(value as CropAspectPreset)
-}
-
-export function viewportPanBounds(
-  frame: NormalizedCrop,
-  zoom: number,
-  viewportWidth: number,
-  viewportHeight: number,
-): ViewportPanBounds {
-  const safeZoom = Math.max(1, zoom)
-  const width = Math.max(1, viewportWidth)
-  const height = Math.max(1, viewportHeight)
-  return {
-    minX: (frame.x + frame.width - 0.5 - safeZoom / 2) * width,
-    maxX: (frame.x - 0.5 + safeZoom / 2) * width,
-    minY: (frame.y + frame.height - 0.5 - safeZoom / 2) * height,
-    maxY: (frame.y - 0.5 + safeZoom / 2) * height,
-  }
-}
-
-export function constrainCropViewport(
-  frame: NormalizedCrop,
-  viewport: Pick<ImageEditorDraft, "zoom" | "panX" | "panY">,
-  viewportWidth: number,
-  viewportHeight: number,
-): Pick<ImageEditorDraft, "zoom" | "panX" | "panY"> {
-  const zoom = clamp(viewport.zoom, 1, 3)
-  const bounds = viewportPanBounds(frame, zoom, viewportWidth, viewportHeight)
-  return {
-    zoom,
-    panX: clamp(viewport.panX, bounds.minX, bounds.maxX),
-    panY: clamp(viewport.panY, bounds.minY, bounds.maxY),
-  }
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(maximum, Math.max(minimum, value))
-}
-
 function cssPercentage(value: number): string {
   const percentage = Math.abs(value) < 1e-10 ? 0 : value * 100
   return `${percentage}%`
@@ -217,357 +119,6 @@ function cssPercentage(value: number): string {
 
 function filename(path: string): string {
   return path.split("/").pop() ?? path
-}
-
-export function resizeNormalizedCrop(
-  crop: NormalizedCrop,
-  handle: CropHandle,
-  deltaX: number,
-  deltaY: number,
-): NormalizedCrop {
-  const minimumSize = 0.01
-  let left = crop.x
-  let top = crop.y
-  let right = crop.x + crop.width
-  let bottom = crop.y + crop.height
-  if (handle.endsWith("west")) left = clamp(left + deltaX, 0, right - minimumSize)
-  else right = clamp(right + deltaX, left + minimumSize, 1)
-  if (handle.startsWith("north")) top = clamp(top + deltaY, 0, bottom - minimumSize)
-  else bottom = clamp(bottom + deltaY, top + minimumSize, 1)
-  return { x: left, y: top, width: right - left, height: bottom - top }
-}
-
-export function cropAspectRatioValue(
-  preset: CropAspectPreset,
-  imageWidth: number,
-  imageHeight: number,
-): number | undefined {
-  if (preset === "custom") return undefined
-  if (preset === "original") return Math.max(1, imageWidth) / Math.max(1, imageHeight)
-  const [width, height] = preset.split(":").map(Number)
-  return width && height ? width / height : undefined
-}
-
-export function fitNormalizedCropToAspect(
-  crop: NormalizedCrop,
-  aspectRatio: number,
-  imageWidth: number,
-  imageHeight: number,
-): NormalizedCrop {
-  const safeAspect = Math.max(1 / 1_000_000, aspectRatio)
-  const sourceAspect = Math.max(1, imageWidth) / Math.max(1, imageHeight)
-  const normalizedAspect = safeAspect / sourceAspect
-  let width = crop.width
-  let height = crop.height
-  if (width / height > normalizedAspect) width = height * normalizedAspect
-  else height = width / normalizedAspect
-  return {
-    x: clamp(crop.x + (crop.width - width) / 2, 0, 1 - width),
-    y: clamp(crop.y + (crop.height - height) / 2, 0, 1 - height),
-    width,
-    height,
-  }
-}
-
-export function resizeNormalizedCropToAspect(
-  crop: NormalizedCrop,
-  handle: CropHandle,
-  deltaX: number,
-  deltaY: number,
-  aspectRatio: number,
-  viewportWidth: number,
-  viewportHeight: number,
-): NormalizedCrop {
-  const normalizedAspect =
-    (Math.max(1 / 1_000_000, aspectRatio) * Math.max(1, viewportHeight)) /
-    Math.max(1, viewportWidth)
-  const movingWest = handle.endsWith("west")
-  const movingNorth = handle.startsWith("north")
-  const anchorX = movingWest ? crop.x + crop.width : crop.x
-  const anchorY = movingNorth ? crop.y + crop.height : crop.y
-  const pointerX = (movingWest ? crop.x : crop.x + crop.width) + deltaX
-  const pointerY = (movingNorth ? crop.y : crop.y + crop.height) + deltaY
-  const rawWidth = Math.abs(pointerX - anchorX)
-  const rawHeight = Math.abs(pointerY - anchorY)
-  const widthDrivenDistance = (rawWidth / normalizedAspect - rawHeight) ** 2
-  const heightDrivenWidth = rawHeight * normalizedAspect
-  const heightDrivenDistance = (heightDrivenWidth - rawWidth) ** 2
-  const desiredWidth = widthDrivenDistance <= heightDrivenDistance ? rawWidth : heightDrivenWidth
-  const horizontalLimit = movingWest ? anchorX : 1 - anchorX
-  const verticalLimit = movingNorth ? anchorY : 1 - anchorY
-  const maximumWidth = Math.max(
-    1 / 1_000_000,
-    Math.min(horizontalLimit, verticalLimit * normalizedAspect),
-  )
-  const minimumWidth = Math.min(maximumWidth, Math.max(0.01, 0.01 * normalizedAspect))
-  const width = clamp(desiredWidth, minimumWidth, maximumWidth)
-  const height = width / normalizedAspect
-  return {
-    x: movingWest ? anchorX - width : anchorX,
-    y: movingNorth ? anchorY - height : anchorY,
-    width,
-    height,
-  }
-}
-
-export function moveNormalizedCrop(
-  crop: NormalizedCrop,
-  deltaX: number,
-  deltaY: number,
-): NormalizedCrop {
-  return {
-    ...crop,
-    x: clamp(crop.x + deltaX, 0, 1 - crop.width),
-    y: clamp(crop.y + deltaY, 0, 1 - crop.height),
-  }
-}
-
-export function isNormalizedCropFullyVisible(crop: NormalizedCrop, epsilon = 1e-9): boolean {
-  return (
-    crop.x >= -epsilon &&
-    crop.y >= -epsilon &&
-    crop.x + crop.width <= 1 + epsilon &&
-    crop.y + crop.height <= 1 + epsilon
-  )
-}
-
-export function isNormalizedCropViewportFilling(crop: NormalizedCrop, epsilon = 1e-9): boolean {
-  return (
-    Math.abs(crop.x) <= epsilon &&
-    Math.abs(crop.y) <= epsilon &&
-    Math.abs(crop.x + crop.width - 1) <= epsilon &&
-    Math.abs(crop.y + crop.height - 1) <= epsilon
-  )
-}
-
-export function cropSelectionModeForFrame(
-  crop: NormalizedCrop,
-): Exclude<CropSelectionMode, "unfocused"> {
-  return isNormalizedCropFullyVisible(crop) ? "focused" : "clipped"
-}
-
-export function isCropHandleVisible(
-  crop: NormalizedCrop,
-  handle: CropHandle,
-  epsilon = 1e-9,
-): boolean {
-  const x = handle.endsWith("west") ? crop.x : crop.x + crop.width
-  const y = handle.startsWith("north") ? crop.y : crop.y + crop.height
-  return x >= -epsilon && x <= 1 + epsilon && y >= -epsilon && y <= 1 + epsilon
-}
-
-function viewportCoordinate(value: number, zoom: number, pan: number, flipped: boolean): number {
-  const oriented = flipped ? 1 - value : value
-  return 0.5 + (oriented - 0.5) * zoom + pan
-}
-
-function sourceCoordinate(value: number, zoom: number, pan: number, flipped: boolean): number {
-  const oriented = (value - 0.5 - pan) / zoom + 0.5
-  return flipped ? 1 - oriented : oriented
-}
-
-export function projectCropToViewport(
-  crop: NormalizedCrop,
-  viewport: CropViewport,
-): NormalizedCrop {
-  const x1 = viewportCoordinate(crop.x, viewport.zoom, viewport.panX, viewport.flipX)
-  const x2 = viewportCoordinate(crop.x + crop.width, viewport.zoom, viewport.panX, viewport.flipX)
-  const y1 = viewportCoordinate(crop.y, viewport.zoom, viewport.panY, viewport.flipY)
-  const y2 = viewportCoordinate(crop.y + crop.height, viewport.zoom, viewport.panY, viewport.flipY)
-  return {
-    x: Math.min(x1, x2),
-    y: Math.min(y1, y2),
-    width: Math.abs(x2 - x1),
-    height: Math.abs(y2 - y1),
-  }
-}
-
-export function unprojectCropFromViewport(
-  crop: NormalizedCrop,
-  viewport: CropViewport,
-): NormalizedCrop {
-  const x1 = sourceCoordinate(crop.x, viewport.zoom, viewport.panX, viewport.flipX)
-  const x2 = sourceCoordinate(crop.x + crop.width, viewport.zoom, viewport.panX, viewport.flipX)
-  const y1 = sourceCoordinate(crop.y, viewport.zoom, viewport.panY, viewport.flipY)
-  const y2 = sourceCoordinate(crop.y + crop.height, viewport.zoom, viewport.panY, viewport.flipY)
-  const width = clamp(Math.abs(x2 - x1), 1 / 1_000_000, 1)
-  const height = clamp(Math.abs(y2 - y1), 1 / 1_000_000, 1)
-  return {
-    x: clamp(Math.min(x1, x2), 0, 1 - width),
-    y: clamp(Math.min(y1, y2), 0, 1 - height),
-    width,
-    height,
-  }
-}
-
-export function normalizedCropToPixels(
-  crop: NormalizedCrop,
-  imageWidth: number,
-  imageHeight: number,
-): PixelCrop {
-  const width = Math.max(1, Math.round(imageWidth))
-  const height = Math.max(1, Math.round(imageHeight))
-  const left = clamp(Math.round(crop.x * width), 0, width - 1)
-  const top = clamp(Math.round(crop.y * height), 0, height - 1)
-  const right = clamp(Math.round((crop.x + crop.width) * width), left + 1, width)
-  const bottom = clamp(Math.round((crop.y + crop.height) * height), top + 1, height)
-  return { x: left, y: top, width: right - left, height: bottom - top }
-}
-
-export function pixelCropToNormalized(
-  crop: PixelCrop,
-  imageWidth: number,
-  imageHeight: number,
-): NormalizedCrop {
-  const width = Math.max(1, Math.round(imageWidth))
-  const height = Math.max(1, Math.round(imageHeight))
-  const left = clamp(Math.round(crop.x), 0, width - 1)
-  const top = clamp(Math.round(crop.y), 0, height - 1)
-  const cropWidth = clamp(Math.round(crop.width), 1, width - left)
-  const cropHeight = clamp(Math.round(crop.height), 1, height - top)
-  return { x: left / width, y: top / height, width: cropWidth / width, height: cropHeight / height }
-}
-
-export function updatePixelCrop(
-  crop: PixelCrop,
-  field: keyof PixelCrop,
-  value: number,
-  imageWidth: number,
-  imageHeight: number,
-): PixelCrop {
-  const width = Math.max(1, Math.round(imageWidth))
-  const height = Math.max(1, Math.round(imageHeight))
-  const integer = Math.round(value)
-  if (field === "x") return { ...crop, x: clamp(integer, 0, width - crop.width) }
-  if (field === "y") return { ...crop, y: clamp(integer, 0, height - crop.height) }
-  if (field === "width") return { ...crop, width: clamp(integer, 1, width - crop.x) }
-  return { ...crop, height: clamp(integer, 1, height - crop.y) }
-}
-
-export function updatePixelCropForAspect(
-  crop: PixelCrop,
-  field: keyof PixelCrop,
-  value: number,
-  imageWidth: number,
-  imageHeight: number,
-  aspectRatio?: number,
-): PixelCrop {
-  if (aspectRatio === undefined || field === "x" || field === "y") {
-    return updatePixelCrop(crop, field, value, imageWidth, imageHeight)
-  }
-  const maximumWidth = Math.max(1, Math.round(imageWidth) - crop.x)
-  const maximumHeight = Math.max(1, Math.round(imageHeight) - crop.y)
-  if (field === "width") {
-    let width = clamp(Math.round(value), 1, maximumWidth)
-    let height = Math.max(1, Math.round(width / aspectRatio))
-    if (height > maximumHeight) {
-      height = maximumHeight
-      width = clamp(Math.round(height * aspectRatio), 1, maximumWidth)
-    }
-    return { ...crop, width, height }
-  }
-  let height = clamp(Math.round(value), 1, maximumHeight)
-  let width = Math.max(1, Math.round(height * aspectRatio))
-  if (width > maximumWidth) {
-    width = maximumWidth
-    height = clamp(Math.round(width / aspectRatio), 1, maximumHeight)
-  }
-  return { ...crop, width, height }
-}
-
-function isMaterializedEdit(item: ImageItem): boolean {
-  return (
-    item.source.path !== item.originalSource.path ||
-    item.source.sha256 !== item.originalSource.sha256
-  )
-}
-
-export function createInitialImageDraft(item: ImageItem): ImageEditorDraft {
-  const materialized = isMaterializedEdit(item)
-  return {
-    interactionMode: "view",
-    cropAspect: "custom",
-    crop: materialized
-      ? { x: 0, y: 0, width: 1, height: 1 }
-      : (item.edit?.crop ?? { x: 0, y: 0, width: 1, height: 1 }),
-    cropFrame: materialized
-      ? { x: 0, y: 0, width: 1, height: 1 }
-      : (item.edit?.crop ?? { x: 0, y: 0, width: 1, height: 1 }),
-    flipX: materialized ? false : (item.edit?.flipX ?? false),
-    flipY: materialized ? false : (item.edit?.flipY ?? false),
-    removeBackground: materialized ? false : (item.edit?.removeBackground ?? false),
-    backgroundMode: materialized ? "transparent" : (item.edit?.background?.mode ?? "transparent"),
-    backgroundColor: materialized ? "#ffffff" : (item.edit?.background?.color ?? "#ffffff"),
-    tool: "erase",
-    brushSize: 48,
-    brushOpacity: 1,
-    zoom: 1,
-    panX: 0,
-    panY: 0,
-    maskTouched: false,
-  }
-}
-
-function recipeFromDraft(item: ImageItem, draft: ImageEditorDraft): ImageEditRecipe {
-  const materialized = isMaterializedEdit(item)
-  return {
-    crop: draft.crop,
-    flipX: draft.flipX,
-    flipY: draft.flipY,
-    ...(draft.removeBackground ? { removeBackground: true } : {}),
-    background: { mode: draft.backgroundMode, color: draft.backgroundColor },
-    ...(!materialized && item.edit?.mask
-      ? { mask: item.edit.mask, maskMode: "keep" as const }
-      : {}),
-    revision: (item.source.revision ?? item.edit?.revision ?? 0) + 1,
-  }
-}
-
-export function initialImageEditorRecipe(item: ImageItem): ImageEditRecipe {
-  return recipeFromDraft(item, createInitialImageDraft(item))
-}
-
-export function applyMaskBrush(
-  pixels: Uint8ClampedArray,
-  width: number,
-  height: number,
-  centerX: number,
-  centerY: number,
-  radius: number,
-  opacity: number,
-  tool: MaskBrushTool,
-): Uint8ClampedArray {
-  const next = new Uint8ClampedArray(pixels)
-  const target = tool === "erase" ? 0 : 255
-  const alpha = clamp(opacity, 0, 1)
-  const safeRadius = Math.max(0.5, radius)
-  const left = Math.max(0, Math.floor(centerX - safeRadius))
-  const right = Math.min(width - 1, Math.ceil(centerX + safeRadius))
-  const top = Math.max(0, Math.floor(centerY - safeRadius))
-  const bottom = Math.min(height - 1, Math.ceil(centerY + safeRadius))
-  for (let y = top; y <= bottom; y += 1) {
-    for (let x = left; x <= right; x += 1) {
-      if ((x - centerX) ** 2 + (y - centerY) ** 2 > safeRadius ** 2) continue
-      const index = (y * width + x) * 4
-      const current = next[index] ?? 255
-      const value = Math.round(current + (target - current) * alpha)
-      next[index] = value
-      next[index + 1] = value
-      next[index + 2] = value
-      next[index + 3] = 255
-    }
-  }
-  return next
-}
-
-export function invertMaskPixels(pixels: Uint8ClampedArray): Uint8ClampedArray {
-  const next = new Uint8ClampedArray(pixels)
-  for (let index = 0; index < next.length; index += 4) {
-    next[index] = 255 - (next[index] ?? 255)
-    next[index + 1] = 255 - (next[index + 1] ?? 255)
-    next[index + 2] = 255 - (next[index + 2] ?? 255)
-  }
-  return next
 }
 
 function canvasFile(canvas: HTMLCanvasElement, filename: string): Promise<File> {
@@ -600,7 +151,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       captionLabel,
       captionPlaceholder,
       showCaption: options.showCaption !== false,
-      materialized: isMaterializedEdit(options.item),
+      materialized: isMaterializedImageEdit(options.item),
       initialDraft: history.value,
       onAction: (action) => handleAction(action),
       onInput: (field, value) => handleInput(field, value),

@@ -2,19 +2,14 @@ import { describe, expect, test } from "bun:test"
 
 import { AudioPreviewPlayer } from "../src/reference-loader/audio-preview-player.ts"
 import {
-  applyMaskBrush,
   constrainCropViewport,
   cropAspectRatioValue,
   fitNormalizedCropToAspect,
-  initialImageEditorRecipe,
-  invertMaskPixels,
   isCropHandleVisible,
   isNormalizedCropFullyVisible,
   isNormalizedCropViewportFilling,
   moveNormalizedCrop,
-  maskBrushToolForModifier,
   normalizedCropToPixels,
-  openImageEditor,
   pixelCropToNormalized,
   projectCropToViewport,
   resolveImageEditorPointerIntent,
@@ -24,7 +19,18 @@ import {
   updatePixelCrop,
   updatePixelCropForAspect,
   viewportPanBounds,
-} from "../src/reference-loader/editors/image-editor.ts"
+} from "../src/reference-loader/editors/image-editor-geometry.ts"
+import {
+  applyMaskBrush,
+  invertMaskPixels,
+  maskBrushToolForModifier,
+} from "../src/reference-loader/editors/image-editor-mask.ts"
+import {
+  createInitialImageDraft,
+  initialImageEditorRecipe,
+  recipeFromDraft,
+} from "../src/reference-loader/editors/image-editor-model.ts"
+import { openImageEditor } from "../src/reference-loader/editors/image-editor.ts"
 import { openTrimEditor } from "../src/reference-loader/editors/trim-editor.ts"
 import type { ImageItem } from "../src/reference-loader/types.ts"
 
@@ -92,6 +98,47 @@ describe("audio preview timing", () => {
 })
 
 describe("image editor revision semantics", () => {
+  test("keeps the persisted edit recipe at the model boundary", () => {
+    const source = {
+      path: "reference_loader/sources/original.png",
+      mime: "image/png",
+      sha256: "a".repeat(64),
+    }
+    const edit = {
+      crop: { x: 0.1, y: 0.2, width: 0.5, height: 0.6 },
+      flipY: true,
+      background: { mode: "solid" as const, color: "#ff0000" },
+      mask: { path: "mask.png", mime: "image/png", sha256: "b".repeat(64) },
+      revision: 4,
+    }
+    const item: ImageItem = {
+      id: "model",
+      kind: "image",
+      source,
+      originalSource: source,
+      caption: "caption",
+      imageEnabled: true,
+      edit,
+    }
+    const draft = createInitialImageDraft(item)
+    expect(draft).toMatchObject({
+      crop: edit.crop,
+      cropFrame: edit.crop,
+      flipY: true,
+      backgroundMode: "solid",
+      backgroundColor: "#ff0000",
+    })
+    expect(recipeFromDraft(item, draft)).toEqual({
+      crop: edit.crop,
+      flipX: false,
+      flipY: true,
+      background: { mode: "solid", color: "#ff0000" },
+      mask: edit.mask,
+      maskMode: "keep",
+      revision: 5,
+    })
+  })
+
   test("does not reapply crop and flip after the source was materialized", () => {
     const item: ImageItem = {
       id: "edited",

@@ -7,10 +7,12 @@
   background: var(--rl-bg);
   box-shadow: 0 2px 8px #0003;
   cursor: grab;
+  display: flex;
+  flex-direction: column;
 }
 .rl-card--has-caption {
-  display: grid;
-  grid-template-rows: auto minmax(max-content, 1fr);
+  /* display: grid; */
+  /* grid-template-rows: auto minmax(max-content, 1fr); */
   height: 100%;
   min-height: 0;
 }
@@ -227,7 +229,9 @@
   white-space: nowrap;
 }
 .rl-card__body {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
   gap: 5px;
   padding: 5px;
 }
@@ -268,6 +272,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 3px;
+  margin-top: auto;
 }
 .rl-edit-actions {
   display: inline-flex;

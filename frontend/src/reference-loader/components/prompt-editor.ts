@@ -8,22 +8,14 @@ import {
   type PromptPreset,
   type PromptPresetCatalog,
 } from "../prompt-presets.ts"
+import { PromptStore } from "../prompt-store.ts"
 import {
   assertPromptDocumentV6,
-  compilePromptDocumentV6,
-  createEmptyPromptDocumentV6,
   createPromptDefinitionId,
-  deserializePromptDocumentV6,
   normalizePromptSectionTitle,
   normalizePromptTag,
-  parseAuthoringPromptV6,
-  parsePromptPartsV6,
   normalizePromptPartsV6,
   promptPartsV6Equal,
-  renderAuthoringPromptV6,
-  removePromptDefinitionV6,
-  renamePromptDefinitionV6,
-  serializePromptDocumentV6,
   type PromptDocumentV6,
   type PromptPartV6,
   type PromptReference,
@@ -202,7 +194,7 @@ export class ReferencePromptController {
   #node: ComfyNode
   #references: ReferenceProvider
   #sessionScope = createPromptSessionScope()
-  #documentV6: PromptDocumentV6
+  #store: PromptStore
   #v6ShotDraft:
     | {
         initial: PromptDocumentV6
@@ -261,14 +253,8 @@ export class ReferencePromptController {
     this.#presetCatalog = normalizePromptPresetCatalog(options.presetCatalog)
     this.#preset = resolvePromptPreset(options.presetId, this.#presetCatalog)
     this.#locale = options.locale ?? detectPromptLocale()
-    const parsed = deserializePromptDocumentV6(serialized)
-    this.#documentV6 = parsed.document ?? createEmptyPromptDocumentV6()
-    const issues = parsed.document
-      ? parsed.issues
-      : [
-          ...parsed.issues,
-          "Only Prompt state version 6 is supported; the previous state was reset.",
-        ]
+    this.#store = new PromptStore(references, serialized)
+    const issues = this.#store.initialIssues
     this.#ensureV6RawSession()
     this.#viewSnapshot = this.#buildViewSnapshot()
     this.#pendingRenderHint = issues.join(" ")
@@ -277,6 +263,14 @@ export class ReferencePromptController {
 
   get promptSessionScope(): string {
     return this.#sessionScope
+  }
+
+  get #documentV6(): PromptDocumentV6 {
+    return this.#store.document
+  }
+
+  set #documentV6(value: PromptDocumentV6) {
+    this.#store.replace(value)
   }
 
   getPromptBodySnapshot(target: PromptEditorTargetV6): PromptBodySnapshot | undefined {
@@ -408,16 +402,12 @@ export class ReferencePromptController {
   }
 
   parsePromptBodyText(value: string): PromptPartV6[] {
-    return parsePromptPartsV6(
-      value,
-      this.#references(),
-      this.#v6ShotDraft?.document ?? this.#documentV6,
-    )
+    return this.#store.parsePromptParts(value, this.#v6ShotDraft?.document ?? this.#documentV6)
   }
 
   get rawDraftText(): string | undefined {
     this.#ensureV6RawSession()
-    return this.#v6RawDraft ?? renderAuthoringPromptV6(this.#documentV6, this.#references())
+    return this.#v6RawDraft ?? this.#store.sourceText
   }
 
   updateRawDraftText(value: string): void {
@@ -822,19 +812,19 @@ export class ReferencePromptController {
 
   get compiledPrompt(): string {
     this.#flushBodyEditors()
-    return compilePromptDocumentV6(this.#documentV6, this.#references())
+    return this.#store.compiledText
   }
 
   serialize(): string {
     this.#flushBodyEditors()
-    return serializePromptDocumentV6(this.#documentV6)
+    return this.#store.serialize()
   }
 
   restore(serialized: unknown): void {
     if (this.#destroyed) return
     if (serialized === undefined || serialized === null || serialized === "") {
       this.#v6ShotDraft = undefined
-      this.#documentV6 = createEmptyPromptDocumentV6()
+      this.#store.restore(undefined)
       this.#bodyEpoch += 1
       this.#bodyRevisions.clear()
       this.#v6RawDraft = undefined
@@ -846,7 +836,7 @@ export class ReferencePromptController {
       this.#notifyShots()
       return
     }
-    const parsed = deserializePromptDocumentV6(serialized)
+    const parsed = this.#store.restore(serialized)
     if (!parsed.document) {
       this.#setHint([...parsed.issues, "Only Prompt state version 6 can be restored."].join(" "))
       return
@@ -875,13 +865,13 @@ export class ReferencePromptController {
 
   refreshReferences(): void {
     if (this.#destroyed) return
-    const currentReferences = this.#references()
     // Media previews are runtime-only metadata. The Prompt document does not
     // change when a restored reference finishes loading, so invalidate the
     // React snapshots explicitly to refresh existing chips.
+    this.#store.refresh()
     this.#invalidateV6Snapshots()
     if (this.#documentV6.view === "raw") {
-      this.#v6RawDraft = renderAuthoringPromptV6(this.#documentV6, currentReferences)
+      this.#v6RawDraft = this.#store.sourceText
       this.#v6RawReferenceFingerprint = this.#v6ReferenceFingerprint()
     }
     if (this.#pickerMode === "reference") this.#updateReferencePicker()
@@ -906,6 +896,7 @@ export class ReferencePromptController {
     this.#workspaceRoot = undefined
     this.#definitionsRoot = undefined
     this.#pickerElement = undefined
+    this.#store.destroy()
   }
 
   get #editorRoots(): readonly HTMLElement[] {
@@ -1044,8 +1035,8 @@ export class ReferencePromptController {
 
   #ensureV6RawSession(): void {
     if (this.#documentV6.view !== "raw" || this.#v6RawDraft !== undefined) return
-    this.#v6RawDraft = renderAuthoringPromptV6(this.#documentV6, this.#references())
-    this.#v6RawBaseFingerprint = serializePromptDocumentV6(this.#documentV6)
+    this.#v6RawDraft = this.#store.sourceText
+    this.#v6RawBaseFingerprint = this.#store.serialize()
     this.#v6RawReferenceFingerprint = this.#v6ReferenceFingerprint()
   }
 
@@ -1055,16 +1046,12 @@ export class ReferencePromptController {
       this.#setHint("References changed while Raw Import was open. Reopen Raw and apply again.")
       return false
     }
-    if (this.#v6RawBaseFingerprint !== serializePromptDocumentV6(this.#documentV6)) {
+    if (this.#v6RawBaseFingerprint !== this.#store.serialize()) {
       this.#setHint("Prompt changed while Raw Import was open. Reopen Raw and apply again.")
       return false
     }
     try {
-      const next = parseAuthoringPromptV6(
-        this.#v6RawDraft ?? "",
-        this.#references(),
-        this.#documentV6,
-      )
+      const next = this.#store.parseAuthoring(this.#v6RawDraft ?? "", this.#documentV6)
       this.#recordGraphChange(() => {
         this.#documentV6 = next
         this.#bodyEpoch += 1
@@ -1376,11 +1363,8 @@ export class ReferencePromptController {
       rawPlaceholder: localize(PROMPT_MESSAGES.rawPlaceholder, this.#locale),
       sectionEntryPlaceholder: localize(PROMPT_MESSAGES.addSectionPlaceholder, this.#locale),
       sectionEntryAria: localize(PROMPT_MESSAGES.addSectionAria, this.#locale),
-      sourceText:
-        document.view === "raw"
-          ? (this.#v6RawDraft ?? "")
-          : renderAuthoringPromptV6(document, this.#references()),
-      compiledText: compilePromptDocumentV6(document, this.#references()),
+      sourceText: document.view === "raw" ? (this.#v6RawDraft ?? "") : this.#store.sourceText,
+      compiledText: this.#store.compiledText,
       canClear: document.sections.length > 0,
       hint: this.#hintText,
       nativeHosts: {
@@ -1452,7 +1436,7 @@ export class ReferencePromptController {
     }
     try {
       this.#recordGraphChange(() => {
-        this.#documentV6 = renamePromptDefinitionV6(this.#documentV6!, definitionId, tag)
+        this.#store.renameDefinition(definitionId, tag)
         this.#invalidateV6Snapshots()
       })
     } catch (error) {
@@ -1500,7 +1484,7 @@ export class ReferencePromptController {
       return
     try {
       this.#recordGraphChange(() => {
-        this.#documentV6 = removePromptDefinitionV6(this.#documentV6!, definitionId)
+        this.#store.removeDefinition(definitionId)
         this.#bodyEpoch += 1
         this.#bodyRevisions.delete(`definition:${definitionId}`)
         this.#invalidateV6Snapshots()
@@ -1600,9 +1584,7 @@ export class ReferencePromptController {
 
   async #copyPrompt(compiled: boolean): Promise<void> {
     this.#flushBodyEditors()
-    const prompt = compiled
-      ? compilePromptDocumentV6(this.#documentV6, this.#references())
-      : renderAuthoringPromptV6(this.#documentV6, this.#references())
+    const prompt = compiled ? this.#store.compiledText : this.#store.sourceText
     if (!prompt) return
     try {
       const writeText = globalThis.navigator?.clipboard?.writeText

@@ -1,66 +1,410 @@
 {
   "Alyac_ReferenceLoader": {
     "display_name": "Reference Loader",
-    "description": "작성용 Prompt와 선택적 H3 Timeline Guide를 포함하여 이미지, 비디오, 오디오 참조를 불러옵니다."
-  },
-  "Alyac_LoadReferenceImage": {
-    "display_name": "참조 이미지 불러오기",
-    "description": "정확히 하나의 참조 이미지를 불러옵니다.",
+    "description": "작성용 프롬프트와 선택적 H3 Timeline Guide를 포함하여 이미지, 비디오, 오디오 참조를 불러옵니다.",
     "inputs": {
-      "image": { "name": "이미지", "tooltip": "정확히 하나의 참조 이미지를 관리하는 상태입니다." },
+      "loader_state": {
+        "name": "로더 상태",
+        "tooltip": "사용자 지정 편집기를 위한 내부 Reference Loader 상태입니다."
+      },
+      "h3_timeline": {
+        "name": "타임라인",
+        "tooltip": "UI 전용 H3 Timeline 편집기입니다. 정식 타임라인 상태는 loader_state에 유지됩니다."
+      },
+      "prompt_definitions": {
+        "name": "프롬프트 정의",
+        "tooltip": "UI 전용 Subjects 및 Shots 편집기입니다. 정식 직렬화 상태는 prompt에 유지됩니다."
+      },
+      "prompt": {
+        "name": "프롬프트",
+        "tooltip": "안정적인 미디어 멘션을 포함하는 구조화된 프롬프트입니다. 출력 프롬프트에서는 <Picture N>, <Video N>, <Audio N> 태그로 변환됩니다."
+      },
+      "h3_total_frames": {
+        "name": "프레임",
+        "tooltip": "H3 출력에서 생성할 총 프레임 수입니다. Wrapper가 이 값을 기본 H3 length 입력으로 전달합니다."
+      },
+      "h3_fps": {
+        "name": "FPS",
+        "tooltip": "H3 출력 타임라인의 프레임 레이트입니다. 현재 기본 MiniMax H3 실행은 24 FPS가 필요합니다."
+      },
       "limit_image_pixels": {
         "name": "이미지 픽셀 제한",
-        "tooltip": "디코딩된 이미지 해상도를 제한합니다."
+        "tooltip": "max_image_pixels를 초과하는 IMAGE 출력을 축소합니다. 원본 및 편집 파일은 변경하지 않습니다."
       },
       "max_image_pixels": {
         "name": "최대 이미지 픽셀 (MPixel)",
-        "tooltip": "디코딩된 이미지의 최대 해상도입니다."
+        "tooltip": "제한이 활성화된 경우 IMAGE 출력의 최대 해상도입니다. 더 작은 이미지는 확대하지 않습니다."
       },
-      "composite_alpha": { "name": "알파 합성", "tooltip": "투명 픽셀을 합성하는 방법입니다." },
+      "composite_alpha": {
+        "name": "알파 합성",
+        "tooltip": "알파가 있는 IMAGE 출력을 alpha_background에 합성하여 RGB로 출력합니다."
+      },
       "alpha_background": {
         "name": "알파 배경",
-        "tooltip": "알파를 합성할 때 사용하는 대체 색상입니다."
+        "tooltip": "composite_alpha가 Opaque일 때만 사용하는 대체 색상입니다."
       },
       "preview_pixels": {
         "name": "미리보기 픽셀 (MPixel)",
-        "tooltip": "최대 미리보기 해상도이며 실행 미디어에는 영향을 주지 않습니다."
+        "tooltip": "미리보기의 최대 해상도이며 실행 미디어에는 영향을 주지 않습니다."
+      },
+      "prompt_schema_preset": {
+        "name": "프롬프트 스키마 프리셋",
+        "tooltip": "프롬프트 기본 섹션과 슬래시 별칭을 위한 UI 전용 프리셋입니다. 기존 섹션과 컴파일된 출력은 변경되지 않습니다."
+      },
+      "grid_columns": {
+        "name": "그리드 열 수",
+        "tooltip": "각 Loader 채널에서 사용할 카드 열 수입니다."
+      },
+      "show_captions": {
+        "name": "캡션 표시",
+        "tooltip": "Loader 카드에 캡션 필드를 표시합니다. 숨겨도 Edit에서 캡션을 사용할 수 있습니다."
+      },
+      "horizontal_cards": {
+        "name": "가로 카드",
+        "tooltip": "미디어 카드를 가로 방향으로 사용합니다. 비활성화하면 기존 세로 카드 레이아웃을 사용합니다."
+      },
+      "card_aspect": {
+        "name": "카드 종횡비",
+        "tooltip": "Loader 그리드의 이미지 및 비디오 카드에 사용할 종횡비입니다."
+      },
+      "preview_fit": {
+        "name": "미리보기 맞춤",
+        "tooltip": "이미지 및 비디오 미리보기에 사용할 맞춤 방식입니다. 실행 미디어는 변경되지 않습니다."
+      },
+      "waveform_pairs": {
+        "name": "파형 쌍 수",
+        "tooltip": "오디오 파형에 요청할 최소/최대 진폭 쌍의 수입니다."
+      }
+    },
+    "outputs": {
+      "0": {
+        "name": "참조 번들",
+        "tooltip": "Reference Loader 출력 및 통합 노드에서 사용하는 미디어, 정렬된 캡션, 매니페스트, 구조화된 프롬프트 스냅샷 번들입니다."
+      }
+    }
+  },
+  "Alyac_LoadReferenceImage": {
+    "display_name": "참조 이미지 불러오기",
+    "description": "관리되는 참조 이미지 하나를 불러오고 비파괴적으로 편집합니다. 저해상도 미리보기, 선택적 출력 픽셀 제한, 알파 처리를 지원하며 애니메이션 소스는 첫 프레임을 사용합니다.",
+    "inputs": {
+      "image_state": {
+        "name": "이미지",
+        "tooltip": "정확히 하나의 참조 이미지를 관리하는 상태입니다."
+      },
+      "limit_image_pixels": {
+        "name": "이미지 픽셀 제한",
+        "tooltip": "max_image_pixels를 초과하는 IMAGE 출력을 축소합니다. 원본 및 편집 파일은 변경하지 않습니다."
+      },
+      "max_image_pixels": {
+        "name": "최대 이미지 픽셀 (MPixel)",
+        "tooltip": "제한이 활성화된 경우 IMAGE 출력의 최대 해상도입니다. 더 작은 이미지는 확대하지 않습니다."
+      },
+      "composite_alpha": {
+        "name": "알파 합성",
+        "tooltip": "알파가 있는 IMAGE 출력을 alpha_background에 합성하여 RGB로 출력합니다."
+      },
+      "alpha_background": {
+        "name": "알파 배경",
+        "tooltip": "composite_alpha가 Opaque일 때만 사용하는 대체 색상입니다."
+      },
+      "preview_pixels": {
+        "name": "미리보기 픽셀 (MPixel)",
+        "tooltip": "미리보기의 최대 해상도이며 실행 미디어에는 영향을 주지 않습니다."
+      }
+    },
+    "outputs": {
+      "0": {
+        "name": "이미지",
+        "tooltip": "ComfyUI의 Load Image 계약에 맞는 RGB 이미지 출력입니다."
+      },
+      "1": {
+        "name": "마스크",
+        "tooltip": "이미지 알파의 반전 마스크이며, 출력이 불투명하면 0 마스크입니다."
       }
     }
   },
   "Alyac_ReferenceLoaderRawOutputs": {
     "display_name": "[Reference Loader] 미디어 출력",
-    "description": "Reference Loader bundle에서 활성화된 미디어 출력을 노출합니다."
+    "description": "Reference Loader 번들을 정렬된 이미지, 오디오, 비디오, 캡션, 매니페스트 및 null을 허용하는 첫 번째 이미지 출력으로 분해합니다.",
+    "inputs": {
+      "references": {
+        "name": "참조 번들",
+        "tooltip": "Reference Loader가 생성한 참조 번들입니다."
+      }
+    },
+    "outputs": {
+      "0": { "name": "이미지" },
+      "1": { "name": "이미지 캡션" },
+      "2": { "name": "오디오" },
+      "3": { "name": "오디오 캡션" },
+      "4": { "name": "비디오" },
+      "5": { "name": "비디오 캡션" },
+      "6": { "name": "매니페스트 JSON" },
+      "7": {
+        "name": "첫 번째 이미지",
+        "tooltip": "활성화된 첫 번째 이미지이며, 활성화된 이미지가 없으면 None입니다."
+      }
+    }
   },
   "Alyac_ReferenceLoaderRawPrompt": {
-    "display_name": "[Reference Loader] Raw Prompt",
-    "description": "Reference Loader bundle의 컴파일된 Prompt를 노출합니다."
+    "display_name": "[Reference Loader] 원본 프롬프트",
+    "description": "Reference Loader 번들에 저장된 컴파일된 원본 프롬프트를 추출합니다.",
+    "inputs": {
+      "references": {
+        "name": "참조 번들",
+        "tooltip": "Reference Loader가 생성한 참조 번들입니다."
+      }
+    },
+    "outputs": {
+      "0": {
+        "name": "원본 프롬프트",
+        "tooltip": "미디어 태그가 해석된 컴파일된 프롬프트입니다."
+      }
+    }
   },
   "Alyac_ReferenceLoaderStartEndFrames": {
     "display_name": "[Reference Loader] 시작/끝 프레임",
-    "description": "Reference Loader bundle에서 활성화된 첫 번째와 마지막 이미지 프레임을 노출합니다."
+    "description": "활성화된 Reference Loader 이미지를 0개, 1개 또는 2개 받아 I2V, L2V, FL2V, FL2V_LOOP 및 T2V workflow용 null 허용 start_image와 end_image 출력으로 구성합니다.",
+    "inputs": {
+      "references": {
+        "name": "참조 번들",
+        "tooltip": "Reference Loader가 생성한 참조 번들입니다."
+      },
+      "mode": {
+        "name": "모드",
+        "tooltip": "어떤 프레임 출력을 채울지 선택합니다."
+      },
+      "enum_string": {
+        "name": "모드 문자열 재정의",
+        "tooltip": "모드를 재정의하는 선택적 문자열 소켓입니다. I2V, L2V, FL2V, FL2V_LOOP 또는 T2V를 사용하며, 비워 두면 Combo 값을 사용합니다."
+      }
+    },
+    "outputs": {
+      "0": {
+        "name": "시작 이미지",
+        "tooltip": "활성화된 첫 번째 이미지이며, 활성화된 이미지가 없으면 None입니다."
+      },
+      "1": {
+        "name": "끝 이미지",
+        "tooltip": "모드로 선택된 끝 이미지이며, 선택한 모드에 사용할 끝 프레임이 없으면 None입니다."
+      }
+    }
   },
   "Alyac_ReferenceLoaderOptionsOverride": {
     "display_name": "[Reference Loader] 옵션 재정의",
-    "description": "선택한 Reference Loader 실행 옵션을 재정의합니다."
+    "description": "모든 참조와 캡션을 유지하면서 백엔드 전용 픽셀 제한 및 알파 합성 설정으로 Reference Loader IMAGE 출력을 다시 구성합니다.",
+    "inputs": {
+      "references": {
+        "name": "참조 번들",
+        "tooltip": "Reference Loader가 생성한 참조 번들입니다."
+      },
+      "limit_image_pixels": {
+        "name": "이미지 픽셀 제한"
+      },
+      "max_image_pixels": {
+        "name": "최대 이미지 픽셀 (MPixel)"
+      },
+      "composite_alpha": {
+        "name": "알파 합성"
+      },
+      "alpha_background": {
+        "name": "알파 배경",
+        "tooltip": "composite_alpha가 Opaque일 때만 사용하는 대체 색상입니다."
+      }
+    },
+    "outputs": {
+      "0": {
+        "name": "참조 번들",
+        "tooltip": "픽셀 제한 및 알파 합성 옵션이 적용된 Reference Loader 번들입니다."
+      }
+    }
+  },
+  "Alyac_ReferencePromptCache": {
+    "display_name": "[Reference Loader] 참조 프롬프트 캐시",
+    "description": "Reference Loader fingerprint와 선택적 invalidate key가 변경되지 않은 동안 캐시된 프롬프트를 사용합니다. 캐시 누락 또는 강제 새로고침일 때만 live_prompt 입력을 평가합니다.",
+    "inputs": {
+      "references": {
+        "name": "참조 번들",
+        "tooltip": "Reference Loader가 생성한 참조 번들입니다."
+      },
+      "cached_prompt": {
+        "name": "캐시된 프롬프트",
+        "tooltip": "편집 가능한 workflow 저장 프롬프트입니다. 캐시된 fingerprint가 유효한 동안 사용됩니다."
+      },
+      "force_refresh": {
+        "name": "강제 새로고침",
+        "tooltip": "캐시된 fingerprint가 일치해도 live_prompt를 평가합니다."
+      },
+      "live_prompt": {
+        "name": "실시간 프롬프트",
+        "tooltip": "LLM이 생성한 프롬프트입니다. 캐시가 유효한 동안에는 건너뜁니다."
+      },
+      "invalidate_key": {
+        "name": "무효화 키",
+        "tooltip": "변경되면 캐시된 프롬프트를 무효화하는 선택적 문자열입니다."
+      },
+      "cached_ref_hash": {
+        "name": "캐시된 참조 fingerprint",
+        "tooltip": "cached_prompt에 사용된 workflow 저장 Reference Loader fingerprint입니다."
+      },
+      "cached_invalidate_key": {
+        "name": "캐시된 무효화 키 fingerprint",
+        "tooltip": "invalidate_key의 workflow 저장 SHA-256 fingerprint입니다."
+      }
+    },
+    "outputs": {
+      "0": {
+        "name": "프롬프트",
+        "tooltip": "캐시된 프롬프트 또는 새로 평가된 live_prompt입니다."
+      }
+    }
+  },
+  "Alyac_PromptLiveCache": {
+    "display_name": "실시간 프롬프트 캐시",
+    "description": "필수 invalidate_key가 변경되지 않은 동안 cached_prompt를 사용합니다. 캐시 누락 또는 강제 새로고침일 때만 live_prompt 입력을 평가합니다.",
+    "inputs": {
+      "invalidate_key": {
+        "name": "무효화 키",
+        "tooltip": "완전한 캐시 식별자입니다. 변경되면 live_prompt를 다시 평가합니다."
+      },
+      "cached_prompt": {
+        "name": "캐시된 프롬프트",
+        "tooltip": "편집 가능한 workflow 저장 프롬프트이며 invalidate_key가 유효한 동안 사용됩니다."
+      },
+      "force_refresh": {
+        "name": "강제 새로고침",
+        "tooltip": "invalidate_key가 일치해도 live_prompt를 평가합니다."
+      },
+      "live_prompt": {
+        "name": "실시간 프롬프트",
+        "tooltip": "상위 생성기가 만든 프롬프트입니다. 캐시가 유효한 동안에는 건너뜁니다."
+      },
+      "cached_invalidate_key": {
+        "name": "캐시된 무효화 키 fingerprint",
+        "tooltip": "invalidate_key의 workflow 저장 SHA-256 fingerprint입니다."
+      }
+    },
+    "outputs": {
+      "0": {
+        "name": "프롬프트",
+        "tooltip": "캐시된 프롬프트 또는 새로 평가된 live_prompt입니다."
+      }
+    }
+  },
+  "Alyac_ReferenceLoaderExportPromptForLLM": {
+    "display_name": "[Reference Loader] LLM용 프롬프트 내보내기",
+    "description": "활성 참조 캡션과 구조화된 Reference Loader 생성 지시사항을 LLM용 엄격한 YAML 문자열로 내보냅니다.",
+    "inputs": {
+      "references": {
+        "name": "참조 번들",
+        "tooltip": "Reference Loader가 생성한 참조 번들입니다."
+      },
+      "seconds": {
+        "name": "길이 (초)",
+        "tooltip": "대상 비디오 길이(초)입니다."
+      },
+      "style": {
+        "name": "스타일",
+        "tooltip": "LLM을 위한 선택적 MiniMax H3 스타일 컨텍스트입니다. None은 스타일 매핑을 생략하고 프롬프트 또는 요청에서 스타일을 선택하도록 합니다."
+      },
+      "additional_yaml": {
+        "name": "추가 YAML",
+        "tooltip": "참조보다 먼저 병합하는 선택적 검증 YAML 매핑입니다. 생성되는 최상위 키는 예약되어 있습니다."
+      },
+      "response_format": {
+        "name": "응답 형식",
+        "tooltip": "응답 항목을 일반 텍스트 또는 JSON 객체로 해석합니다."
+      },
+      "response_seq": {
+        "name": "응답 시퀀스",
+        "tooltip": "Llama.cpp Sequential Generate에서 전달되는 선택적 list[dict] LLAMA_SEQUENTIAL_RESPONSE 객체입니다."
+      },
+      "response": {
+        "name": "응답",
+        "tooltip": "선택적 list[str] 응답입니다. 이미지, 오디오, 비디오 미디어 순서를 따라야 합니다."
+      }
+    },
+    "outputs": {
+      "0": {
+        "name": "프롬프트",
+        "tooltip": "활성 참조와 생성 지시사항을 포함하는 엄격한 YAML입니다."
+      },
+      "1": {
+        "name": "참조 YAML",
+        "tooltip": "생성된 references 매핑만 포함하는 엄격한 YAML입니다."
+      },
+      "2": {
+        "name": "생성 지시사항 YAML",
+        "tooltip": "생성된 generation_directives 매핑만 포함하는 엄격한 YAML입니다."
+      }
+    }
   },
   "Alyac_ReferenceLoaderLLMDescriptionInputs": {
     "display_name": "[Reference Loader] LLM 설명 입력",
-    "description": "LLM 설명 workflow를 위해 이미지, 오디오, 비디오 입력을 순서대로 만듭니다."
-  },
-  "Alyac_ReferenceLoaderExportPromptForLLM": {
-    "display_name": "[Reference Loader] LLM용 Prompt 내보내기",
-    "description": "LLM workflow를 위해 Reference Loader Prompt와 미디어 manifest를 내보냅니다."
-  },
-  "Alyac_ReferencePromptCache": {
-    "display_name": "[Reference Loader] Reference Prompt Cache",
-    "description": "workflow에 저장된 Reference Loader fingerprint를 사용하여 Prompt를 캐시합니다."
-  },
-  "Alyac_PromptLiveCache": {
-    "display_name": "Prompt Live Cache",
-    "description": "invalidate key가 유효한 동안 편집 가능한 workflow 저장 Prompt를 캐시합니다."
+    "description": "순차 멀티모달 LLM 캡션 노드용 Reference Loader 미디어와 선택적 프롬프트 재정의를 준비합니다.",
+    "inputs": {
+      "references": {
+        "name": "참조 번들",
+        "tooltip": "Reference Loader가 생성한 참조 번들입니다."
+      },
+      "response_format": {
+        "name": "응답 형식",
+        "tooltip": "일반 텍스트 설명에는 text를, 하나의 JSON 객체에는 json을 선택합니다. 선택한 응답 계약이 시스템 프롬프트에 추가됩니다."
+      },
+      "system_prompt": {
+        "name": "시스템 프롬프트",
+        "tooltip": "선택적 재정의입니다. 비워 두면 기본 영어값을 사용하며 선택한 응답 형식 지침이 자동으로 추가됩니다."
+      },
+      "image_prompt": {
+        "name": "이미지 프롬프트",
+        "tooltip": "선택적 재정의입니다. 비워 두면 기본 영어 이미지 프롬프트를 사용합니다."
+      },
+      "audio_prompt": {
+        "name": "오디오 프롬프트",
+        "tooltip": "선택적 재정의입니다. 비워 두면 기본 영어 오디오 프롬프트를 사용합니다."
+      },
+      "video_prompt": {
+        "name": "비디오 프롬프트",
+        "tooltip": "선택적 재정의입니다. 비워 두면 기본 영어 비디오 프롬프트를 사용합니다."
+      },
+      "json_field_guidance": {
+        "name": "JSON 필드 지침",
+        "tooltip": "json 응답에만 사용하는 선택적 재정의입니다. 비워 두면 기본 다중 필드 지침을 사용합니다."
+      }
+    },
+    "outputs": {
+      "0": { "name": "이미지" },
+      "1": { "name": "오디오" },
+      "2": { "name": "비디오" },
+      "3": {
+        "name": "시스템 프롬프트",
+        "tooltip": "선택한 응답 형식 계약이 포함된 공통 시스템 프롬프트입니다."
+      },
+      "4": {
+        "name": "프롬프트",
+        "tooltip": "이미지, 오디오, 비디오 미디어 순서로 정렬된 프롬프트입니다."
+      },
+      "5": {
+        "name": "요청 매니페스트 JSON",
+        "tooltip": "안정적인 미디어 ID와 순차 생성 순서를 포함합니다."
+      }
+    }
   },
   "Alyac_MiniMaxH3ReferenceToVideoWrapper": {
-    "display_name": "[Reference Loader] MiniMax H3 Wrapper",
-    "description": "비디오 생성용 Reference Loader bundle을 MiniMax H3 형식으로 감쌉니다."
+    "display_name": "[Reference Loader] MiniMax H3 래퍼",
+    "description": "Reference Loader 번들을 ComfyUI의 기본 MiniMax H3 Reference to Video 구현에 전달합니다. 참조 비디오는 24fps로 샘플링됩니다.",
+    "inputs": {
+      "clip": { "name": "clip" },
+      "vae": { "name": "vae" },
+      "audio_vae": { "name": "audio_vae" },
+      "references": {
+        "name": "참조 번들",
+        "tooltip": "Reference Loader가 생성한 참조 번들입니다."
+      },
+      "prompt": { "name": "프롬프트" },
+      "width": { "name": "너비" },
+      "height": { "name": "높이" },
+      "ref_image_size": { "name": "참조 이미지 크기" }
+    }
   }
 }

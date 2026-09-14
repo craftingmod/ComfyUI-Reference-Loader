@@ -110,7 +110,7 @@ class LoadReferenceImageNode(io.ComfyNode):
       inputs=[
         io.String.Input(
           "image_state",
-          display_name="image",
+          display_name="image_state",
           default=EMPTY_LOADER_STATE_JSON,
           multiline=True,
           dynamic_prompts=False,

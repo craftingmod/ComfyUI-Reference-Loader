@@ -63,7 +63,7 @@ class ReferenceLoaderOptionsOverrideNode(io.ComfyNode):
         ),
         io.Float.Input(
           "max_image_pixels",
-          display_name="max_image_pixels (MPixel)",
+          display_name="max_image_pixels",
           default=2.0,
           min=0.25,
           max=40.0,

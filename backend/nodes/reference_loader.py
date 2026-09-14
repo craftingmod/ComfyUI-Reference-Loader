@@ -187,7 +187,7 @@ class ReferenceLoaderNode(io.ComfyNode):
       inputs=[
         io.String.Input(
           "loader_state",
-          display_name="loader state",
+          display_name="loader_state",
           default=EMPTY_LOADER_STATE_JSON,
           multiline=True,
           dynamic_prompts=False,
@@ -197,7 +197,7 @@ class ReferenceLoaderNode(io.ComfyNode):
         ),
         io.String.Input(
           "h3_timeline",
-          display_name="Timeline",
+          display_name="timeline",
           default="",
           multiline=False,
           dynamic_prompts=False,
@@ -209,7 +209,7 @@ class ReferenceLoaderNode(io.ComfyNode):
         ),
         io.String.Input(
           "prompt_definitions",
-          display_name="prompt definitions",
+          display_name="prompt_definitions",
           default="",
           multiline=False,
           dynamic_prompts=False,
@@ -237,7 +237,7 @@ class ReferenceLoaderNode(io.ComfyNode):
         ),
         io.Int.Input(
           "h3_total_frames",
-          display_name="Frames",
+          display_name="total_frames",
           default=H3_OUTPUT_DEFAULT_TOTAL_FRAMES,
           min=H3_OUTPUT_MIN_TOTAL_FRAMES,
           max=H3_OUTPUT_MAX_TOTAL_FRAMES,
@@ -250,7 +250,7 @@ class ReferenceLoaderNode(io.ComfyNode):
         ),
         io.Int.Input(
           "h3_fps",
-          display_name="FPS",
+          display_name="fps",
           default=H3_OUTPUT_DEFAULT_FPS,
           min=H3_OUTPUT_MIN_FPS,
           max=H3_OUTPUT_MAX_FPS,

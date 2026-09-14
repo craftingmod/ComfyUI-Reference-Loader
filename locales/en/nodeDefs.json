@@ -1,31 +1,39 @@
 {
   "Alyac_ReferenceLoader": {
     "display_name": "Reference Loader",
-    "description": "Loads image, video, and audio references with an authoring Prompt and optional H3 Timeline Guides."
+    "description": "Loads image, video, and audio references with an authoring Prompt and optional H3 Timeline Guides.",
+    "inputs": {
+      "h3_timeline": { "name": "timeline" },
+      "h3_total_frames": { "name": "total_frames" },
+      "h3_fps": { "name": "fps" }
+    }
   },
   "Alyac_LoadReferenceImage": {
     "display_name": "Load Reference Image",
     "description": "Loads exactly one reference image.",
     "inputs": {
-      "image": { "name": "Image", "tooltip": "Managed state for exactly one reference image." },
+      "image_state": {
+        "name": "image_state",
+        "tooltip": "Managed state for exactly one reference image."
+      },
       "limit_image_pixels": {
-        "name": "Limit image pixels",
+        "name": "limit_image_pixels",
         "tooltip": "Limit the decoded image resolution."
       },
       "max_image_pixels": {
-        "name": "Max image pixels (MPixel)",
+        "name": "max_image_pixels",
         "tooltip": "Maximum decoded image resolution."
       },
       "composite_alpha": {
-        "name": "Composite alpha",
+        "name": "composite_alpha",
         "tooltip": "How transparent pixels are composited."
       },
       "alpha_background": {
-        "name": "Alpha background",
+        "name": "alpha_background",
         "tooltip": "Fallback color used when compositing alpha."
       },
       "preview_pixels": {
-        "name": "Preview pixels (MPixel)",
+        "name": "preview_pixels",
         "tooltip": "Maximum preview resolution; execution media is unchanged."
       }
     }
@@ -64,6 +72,16 @@
   },
   "Alyac_MiniMaxH3ReferenceToVideoWrapper": {
     "display_name": "[Reference Loader] MiniMax H3 Wrapper",
-    "description": "Wraps the Reference Loader bundle for MiniMax H3 video generation."
+    "description": "Wraps the Reference Loader bundle for MiniMax H3 video generation.",
+    "inputs": {
+      "clip": { "name": "clip" },
+      "vae": { "name": "vae" },
+      "audio_vae": { "name": "audio_vae" },
+      "references": { "name": "references" },
+      "prompt": { "name": "prompt" },
+      "width": { "name": "width" },
+      "height": { "name": "height" },
+      "ref_image_size": { "name": "ref_image_size" }
+    }
   }
 }

@@ -22,7 +22,7 @@ def reference_image_output_inputs() -> list[Any]:
     ),
     io.Float.Input(
       "max_image_pixels",
-      display_name="max_image_pixels (MPixel)",
+      display_name="max_image_pixels",
       default=2.0,
       min=0.25,
       max=40.0,
@@ -61,7 +61,7 @@ def reference_image_output_inputs() -> list[Any]:
 def reference_preview_pixels_input() -> Any:
   return io.Float.Input(
     "preview_pixels",
-    display_name="preview_pixels (MPixel)",
+    display_name="preview_pixels",
     default=1.0,
     min=0.25,
     max=16.0,

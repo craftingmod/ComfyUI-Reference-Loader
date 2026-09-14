@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
+import enNodeDefs from "../../locales/en/nodeDefs.json"
+import koNodeDefs from "../../locales/ko/nodeDefs.json"
 import type { ComfyNode } from "../src/comfyui.ts"
 import { ReferencePromptController } from "../src/reference-loader/components/prompt-editor.ts"
 import {
@@ -26,6 +28,31 @@ const node: ComfyNode = {
 }
 
 describe("Reference Loader i18n", () => {
+  test("keeps backend node definition IDs aligned and translates Korean labels", () => {
+    expect(Object.keys(koNodeDefs).sort()).toEqual(Object.keys(enNodeDefs).sort())
+    expect(enNodeDefs.Alyac_LoadReferenceImage.inputs.image_state.name).toBe("image_state")
+    expect(enNodeDefs.Alyac_LoadReferenceImage.inputs.max_image_pixels.name).toBe(
+      "max_image_pixels",
+    )
+    expect(enNodeDefs.Alyac_ReferenceLoader.inputs.h3_timeline.name).toBe("timeline")
+    expect(enNodeDefs.Alyac_ReferenceLoader.inputs.h3_total_frames.name).toBe("total_frames")
+    expect(enNodeDefs.Alyac_ReferenceLoader.inputs.h3_fps.name).toBe("fps")
+    expect(enNodeDefs.Alyac_MiniMaxH3ReferenceToVideoWrapper.inputs.ref_image_size.name).toBe(
+      "ref_image_size",
+    )
+    expect(koNodeDefs.Alyac_MiniMaxH3ReferenceToVideoWrapper.display_name).toBe(
+      "[Reference Loader] MiniMax H3 래퍼",
+    )
+    expect(koNodeDefs.Alyac_ReferenceLoaderRawPrompt.display_name).toBe(
+      "[Reference Loader] 원본 프롬프트",
+    )
+    expect(koNodeDefs.Alyac_PromptLiveCache.display_name).toBe("실시간 프롬프트 캐시")
+    expect(koNodeDefs.Alyac_MiniMaxH3ReferenceToVideoWrapper.inputs.references.name).toBe(
+      "참조 번들",
+    )
+    expect(koNodeDefs.Alyac_ReferenceLoaderRawOutputs.outputs["0"].name).toBe("이미지")
+  })
+
   test("resolves supported and unsupported locale values", () => {
     expect(resolveLocale("ko")).toBe("ko")
     expect(resolveLocale("ko-KR")).toBe("ko")

@@ -58,14 +58,14 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert prompt.options["dynamic_prompts"] is False
   h3_total_frames = schema.inputs[4]
   assert h3_total_frames.data_type == "int"
-  assert h3_total_frames.options["display_name"] == "Frames"
+  assert h3_total_frames.options["display_name"] == "total_frames"
   assert h3_total_frames.options["default"] == 124
   assert h3_total_frames.options["min"] == 1
   assert h3_total_frames.options["max"] == 3600
   assert h3_total_frames.options["socketless"] is True
   h3_fps = schema.inputs[5]
   assert h3_fps.data_type == "int"
-  assert h3_fps.options["display_name"] == "FPS"
+  assert h3_fps.options["display_name"] == "fps"
   assert h3_fps.options["default"] == 24
   assert h3_fps.options["min"] == 1
   assert h3_fps.options["max"] == 240
@@ -79,7 +79,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert limit_image_pixels.options["socketless"] is False
   max_image_pixels = schema.inputs[7]
   assert max_image_pixels.data_type == "float"
-  assert max_image_pixels.options["display_name"] == "max_image_pixels (MPixel)"
+  assert max_image_pixels.options["display_name"] == "max_image_pixels"
   assert max_image_pixels.options["default"] == 2.0
   assert max_image_pixels.options["min"] == 0.25
   assert max_image_pixels.options["max"] == 40.0
@@ -117,7 +117,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert grid_columns.options["socketless"] is True
   preview_pixels = schema.inputs[12]
   assert preview_pixels.data_type == "float"
-  assert preview_pixels.options["display_name"] == "preview_pixels (MPixel)"
+  assert preview_pixels.options["display_name"] == "preview_pixels"
   assert preview_pixels.options["default"] == 1.0
   assert preview_pixels.options["advanced"] is True
   assert preview_pixels.options["socketless"] is True

@@ -1,4 +1,6 @@
 # Exclude a variety of commonly ignored directories.
+cache-dir = ".ci-cache/ruff"
+
 exclude = [
   ".agents",
   ".bzr",

@@ -23,6 +23,7 @@ import {
   KEY_DOWN_COMMAND,
   PASTE_TAG,
   PASTE_COMMAND,
+  SKIP_DOM_SELECTION_TAG,
   type LexicalNode,
 } from "lexical"
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react"
@@ -472,7 +473,11 @@ function EditorBridge({
     () => ({
       focus: () => editor.focus(),
       flushAcceptedModel: () => {
-        editor.update(() => undefined, { discrete: true })
+        // Flush Lexical listeners without moving the browser selection.
+        editor.update(() => undefined, {
+          discrete: true,
+          tag: SKIP_DOM_SELECTION_TAG,
+        })
         submit(readParts(), composingRef.current)
       },
       cancelTransientSession: () => {

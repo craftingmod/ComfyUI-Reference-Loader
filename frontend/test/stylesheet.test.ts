@@ -416,11 +416,11 @@ describe("Reference Loader stylesheet", () => {
   })
 
   it("loads the CSS bundle next to the extension module exactly once", () => {
-    const moduleUrl = "https://example.test/extensions/comfyui-reference-loader/index.js"
+    const moduleUrl = "https://example.test/extensions/reference-media-loader/index.js"
     const stale = document.createElement("link")
     stale.id = STYLESHEET_ID
     stale.rel = "stylesheet"
-    stale.href = "https://example.test/extensions/comfyui-reference-loader/index.css"
+    stale.href = "https://example.test/extensions/reference-media-loader/index.css"
     document.head.append(stale)
 
     const first = installStylesheet(moduleUrl)
@@ -429,7 +429,7 @@ describe("Reference Loader stylesheet", () => {
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
     expect(first.href).toBe(
-      "https://example.test/extensions/comfyui-reference-loader/index.css?v=29",
+      "https://example.test/extensions/reference-media-loader/index.css?v=29",
     )
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })

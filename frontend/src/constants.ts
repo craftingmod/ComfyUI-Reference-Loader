@@ -1,4 +1,4 @@
-export const PROJECT_ID = "comfyui-reference-loader"
+export const PROJECT_ID = "reference-media-loader"
 export const PROJECT_NAME = "Reference Media Loader"
 export const SETTINGS_PREFIX = PROJECT_ID
 export const LOGGING_PREFIX = `[${SETTINGS_PREFIX}]`

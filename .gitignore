@@ -34,7 +34,8 @@ pnpm-debug.log*
 ## Migration temp
 ComfyUI-Ollama-Multimodal
 .test-tmp/
+.ci-test-tmp/
+.ci-cache/
 
 # SKILL
 .agents/skills/h3-prompt-writing
-

@@ -1,5 +1,5 @@
 {
-  "name": "comfyui-reference-loader",
+  "name": "reference-media-loader",
   "private": true,
   "description": "ComfyUI reference media loader with a compact bundle and aligned unpacked outputs",
   "keywords": [
@@ -30,11 +30,12 @@
     "skills:check": "bun scripts/sync-comfyui-skills.ts --check",
     "setup:local": "bun scripts/setup-local.ts",
     "test": "bun run test:unit",
-    "test:frontend": "bun test --preload ./frontend/test/setup.ts --path-ignore-patterns='**/*-Multimodal/**' frontend/test",
-    "test:backend": "uv run pytest tests/python tests/backend -q",
-    "test:unit": "bun run test:frontend && bun run test:backend",
-    "test:watch": "bun test --preload ./frontend/test/setup.ts --path-ignore-patterns='**/*-Multimodal/**' --watch frontend/test",
-    "test:coverage": "bun test --preload ./frontend/test/setup.ts --path-ignore-patterns='**/*-Multimodal/**' --coverage frontend/test",
+    "ci:test": "bun scripts/ci-test.ts",
+    "test:frontend": "bun test --preload ./frontend/test/setup.ts --parallel frontend/test",
+    "test:backend": "uv run pytest -n auto tests/python tests/backend -q",
+    "test:unit": "bun scripts/ci-test.ts -- --no-dots",
+    "test:watch": "bun test --preload ./frontend/test/setup.ts --watch frontend/test",
+    "test:coverage": "bun test --preload ./frontend/test/setup.ts --coverage frontend/test",
     "typecheck": "tsc --noEmit -p ./tsconfig.json && tsc --noEmit -p ./frontend/src/tsconfig.json && tsc --noEmit -p ./frontend/test/tsconfig.json",
     "version:bump": "bun scripts/bump-version.ts"
   },

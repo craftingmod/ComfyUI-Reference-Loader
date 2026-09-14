@@ -15,7 +15,7 @@ afterEach(() => {
 
 describe("template identity constants", () => {
   it("keeps machine identifiers separate from the display name", () => {
-    expect(PROJECT_ID).toBe("comfyui-reference-loader")
+    expect(PROJECT_ID).toBe("reference-media-loader")
     expect(PROJECT_NAME).toBe("Reference Media Loader")
     expect(SETTINGS_PREFIX).toBe(PROJECT_ID)
     expect(LOGGING_PREFIX).toBe(`[${PROJECT_ID}]`)

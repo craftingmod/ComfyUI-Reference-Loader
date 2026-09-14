@@ -1,5 +1,5 @@
 [project]
-name = "comfyui-reference-loader"
+name = "reference-media-loader"
 description = "ComfyUI reference media loader for diffusion models."
 version = "1.1.1"
 requires-python = ">=3.12"
@@ -20,4 +20,10 @@ requires-comfyui = ">=0.19.3"
 includes = ["dist"]
 
 [dependency-groups]
-dev = ["pillow>=12.1.1", "pytest>=9.1.1", "pyyaml>=6.0.2", "ruff>=0.16.3"]
+dev = [
+    "pillow>=12.1.1",
+    "pytest>=9.1.1",
+    "pytest-xdist>=3.8.0",
+    "pyyaml>=6.0.2",
+    "ruff>=0.16.3",
+]

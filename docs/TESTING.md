@@ -10,12 +10,32 @@ uv sync --locked --group dev
 bun run fmt:check
 bun run lint
 bun run typecheck
-bun run test:unit
+bun run ci:test
 bun run build
 bun run release:check
 bun run build:custom-node
 git diff --check
 ```
+
+`bun run ci:test` is the canonical combined frontend/backend test command. It
+uses the repository-local `.ci-cache/uv` and `.ci-cache/ruff` directories,
+disables pytest's disposable cache provider, sets the child-process temp paths
+under `.ci-test-tmp/`, gives pytest a unique per-run `--basetemp`, and removes
+that run directory after completion. Do not create task-specific cache or temp
+directories. `bun run test` and `bun run test:unit` are aliases for
+`ci:test`; `bun run test:frontend` and `bun run test:backend` remain focused
+commands. Frontend/backend output is streamed in real time and followed by a
+stage result. `ci:test` filters only the known harmless Lexical/happy-dom
+`updateEditorSync` warning; focused frontend tests leave it visible.
+Dots are enabled by default; use `bun run ci:test -- --no-dots` to disable
+Bun's dot reporter while keeping all other output live.
+
+The Lexical warning currently seen in the frontend suite is a test-runtime
+timing issue: happy-dom dispatches `selectionchange` synchronously from
+`Selection#setBaseAndExtent()` while Lexical is committing a read-only editor
+state. It is not a command dispatched from this project's `editor.read()` path.
+`PromptRichEditor` skips DOM-selection reconciliation for its model-only flush,
+while normal editing selection behavior remains unchanged.
 
 `bun run test:frontend` covers state, serialization, API mapping, DOM lifecycle, custom-widget restoration, image editing, trim playback, and the Bun build boundary. `bun run test:backend` covers the V3 schema and extension, state/manifest contracts, managed media validation, native media loading, and every Reference Loader route. Decoder-specific tests skip only when their optional development runtime is unavailable.
 

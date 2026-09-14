@@ -362,8 +362,7 @@ function EditorBridge({
       if (applyingRef.current) return
       const parts = editorState.read(readPromptEditorParts)
       submit(parts, composingRef.current)
-      if (!composingRef.current)
-        onTriggerChangeRef.current?.(editorState.read(readPromptBodyTrigger))
+      onTriggerChangeRef.current?.(editorState.read(readPromptBodyTrigger))
     })
     return unregister
   }, [editor, submit])

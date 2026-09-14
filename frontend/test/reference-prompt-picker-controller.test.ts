@@ -147,6 +147,22 @@ describe("PromptPickerController", () => {
     expect(context.aliases).toEqual(["visual_style"])
   })
 
+  test("matches incomplete Korean subject queries", () => {
+    const context = createPicker({
+      ...createEmptyPromptDocumentV6(),
+      subjects: [{ id: createPromptDefinitionId(), tag: "장소", parts: [] }],
+    })
+
+    for (const query of ["장", "ㅈ", "자"]) {
+      context.picker.updateSubjectQuery(query)
+      expect(
+        context.picker.snapshot.options.flatMap((option) =>
+          option.kind === "subject" ? [option.subject.tag] : [],
+        ),
+      ).toEqual(["장소"])
+    }
+  })
+
   test("stops late updates after destroy", () => {
     const context = createPicker()
     const beforeDestroy = context.listeners.length

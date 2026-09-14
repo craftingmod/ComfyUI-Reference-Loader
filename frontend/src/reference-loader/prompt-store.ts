@@ -1,8 +1,11 @@
 import {
+  deserializePromptDocumentWithMigration,
+  type PromptDocumentMigrationResult,
+} from "./prompt-migration.ts"
+import {
   assertPromptDocumentV6,
   compilePromptDocumentV6,
   createEmptyPromptDocumentV6,
-  deserializePromptDocumentV6,
   parseAuthoringPromptV6,
   parsePromptPartsV6,
   removePromptDefinitionV6,
@@ -12,7 +15,6 @@ import {
   type PromptDocumentV6,
   type PromptPartV6,
   type PromptReference,
-  type PromptV6ValidationResult,
 } from "./prompt-v6.ts"
 
 type ReferenceProvider = () => readonly PromptReference[]
@@ -24,7 +26,7 @@ export interface PromptStoreSnapshot {
   readonly compiledText: string
 }
 
-export interface PromptStoreRestoreResult extends PromptV6ValidationResult {
+export interface PromptStoreRestoreResult extends PromptDocumentMigrationResult {
   readonly changed: boolean
 }
 
@@ -39,6 +41,7 @@ function deepFreeze<T>(value: T): T {
 export class PromptStore {
   readonly #references: ReferenceProvider
   readonly #initialIssues: readonly string[]
+  readonly #initialRecoveredFromVersion: number | undefined
   #document: PromptDocumentV6
   #snapshot: PromptStoreSnapshot
   #listeners = new Set<() => void>()
@@ -46,7 +49,8 @@ export class PromptStore {
 
   constructor(references: ReferenceProvider, serialized: unknown) {
     this.#references = references
-    const parsed = deserializePromptDocumentV6(serialized)
+    const parsed = deserializePromptDocumentWithMigration(serialized)
+    this.#initialRecoveredFromVersion = parsed.recoveredFromVersion
     this.#initialIssues = Object.freeze(
       parsed.document
         ? [...parsed.issues]
@@ -61,6 +65,10 @@ export class PromptStore {
 
   get initialIssues(): readonly string[] {
     return this.#initialIssues
+  }
+
+  get initialRecoveredFromVersion(): number | undefined {
+    return this.#initialRecoveredFromVersion
   }
 
   get document(): PromptDocumentV6 {
@@ -98,7 +106,7 @@ export class PromptStore {
   }
 
   restore(serialized: unknown): PromptStoreRestoreResult {
-    const parsed = deserializePromptDocumentV6(serialized)
+    const parsed = deserializePromptDocumentWithMigration(serialized)
     return {
       ...parsed,
       changed: parsed.document ? this.replace(parsed.document) : false,

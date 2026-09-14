@@ -33,6 +33,7 @@ export interface PromptMutationOutcome {
 
 export interface PromptRestoreOutcome extends PromptMutationOutcome {
   readonly issues: readonly string[]
+  readonly recoveredFromVersion?: number
 }
 
 export interface PromptCreatedSubjectOutcome extends PromptMutationOutcome {
@@ -187,7 +188,11 @@ export class PromptMutationCoordinator {
     this.#rawBaseFingerprint = ""
     this.#rawReferenceFingerprint = ""
     this.#ensureRawSession()
-    return { ...this.#outcome(true, parsed.changed), issues: parsed.issues }
+    return {
+      ...this.#outcome(true, parsed.changed),
+      issues: parsed.issues,
+      recoveredFromVersion: parsed.recoveredFromVersion,
+    }
   }
 
   refreshRawReferenceSession(referenceFingerprint: string): void {

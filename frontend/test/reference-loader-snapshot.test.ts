@@ -132,7 +132,9 @@ describe("Reference Loader snapshots", () => {
     ) as Record<string, unknown>
     delete (snapshot.node_settings as Record<string, unknown>).horizontal_cards
 
-    expect(parseReferenceLoaderSnapshot(JSON.stringify(snapshot)).settings.horizontalCards).toBe(false)
+    expect(parseReferenceLoaderSnapshot(JSON.stringify(snapshot)).settings.horizontalCards).toBe(
+      false,
+    )
   })
 
   test("rejects malformed state before applying it", () => {
@@ -151,7 +153,7 @@ describe("Reference Loader snapshots", () => {
     ).toThrow("max_image_pixels must be a finite number")
   })
 
-  test("rejects a legacy Prompt snapshot instead of recovering it", () => {
+  test("preserves a legacy Prompt snapshot for Raw recovery", () => {
     const serialized = serializeReferenceLoaderSnapshot({
       loaderState: serializeLoaderState(createEmptyLoaderState()),
       promptState: serializePromptDocumentV6(createEmptyPromptDocumentV6()),
@@ -163,8 +165,7 @@ describe("Reference Loader snapshots", () => {
       sections: [{ title: "scene", parts: [{ type: "text", text: "Legacy snapshot" }] }],
     }
 
-    expect(() => parseReferenceLoaderSnapshot(JSON.stringify(snapshot))).toThrow(
-      "Prompt state is invalid",
-    )
+    const parsed = parseReferenceLoaderSnapshot(JSON.stringify(snapshot))
+    expect(JSON.parse(parsed.promptState)).toEqual(snapshot.prompt_state)
   })
 })

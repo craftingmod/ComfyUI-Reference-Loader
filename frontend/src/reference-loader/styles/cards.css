@@ -24,7 +24,7 @@
 }
 .rl-card--horizontal {
   display: grid;
-  grid-template-columns: clamp(150px, 36%, 220px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
 }

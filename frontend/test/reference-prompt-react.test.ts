@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test"
 
+import {
+  $createParagraphNode,
+  $createTextNode,
+  $getRoot,
+  getNearestEditorFromDOMNode,
+} from "lexical"
 import { flushSync } from "react-dom"
 
 import type { ComfyNode } from "../src/comfyui.ts"
@@ -1019,6 +1025,55 @@ describe("Reference Prompt React shell", () => {
     expect(inserted).toEqual([[{ type: "definition-ref", definitionId: subjectId }], 1])
 
     release()
+    mount.destroy()
+    controller.destroy()
+  })
+
+  test("updates the subject picker during Korean IME composition", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const controller = new ReferencePromptController(
+      node,
+      () => [],
+      serializePromptDocument({
+        ...createEmptyPromptDocument(),
+        subjects: [
+          { tag: "장소", parts: [] },
+          { tag: "영웅", parts: [] },
+        ],
+        sections: [{ title: "scene", parts: [] }],
+      }),
+      { locale: "ko" },
+    )
+    const mount = createPromptReact({ container: root, controller })
+    const editor = root.querySelector<HTMLElement>('[data-prompt-section-body="scene"]')!
+    const lexicalEditor = getNearestEditorFromDOMNode(editor)
+    const subjectTags = (): string[] =>
+      controller
+        .getPickerSnapshot()
+        .options.flatMap((option) => (option.kind === "subject" ? [option.subject.tag] : []))
+    const setText = (value: string): void => {
+      lexicalEditor?.update(
+        () => {
+          const paragraph = $createParagraphNode()
+          paragraph.append($createTextNode(value))
+          $getRoot().clear()
+          $getRoot().append(paragraph)
+          paragraph.selectEnd()
+        },
+        { discrete: true },
+      )
+    }
+
+    setText("#")
+    expect(subjectTags()).toEqual(["장소", "영웅"])
+    editor.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }))
+    setText("#ㅈ")
+    expect(subjectTags()).toEqual(["장소"])
+    setText("#자")
+    expect(subjectTags()).toEqual(["장소"])
+    editor.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }))
+
     mount.destroy()
     controller.destroy()
   })

@@ -93,6 +93,7 @@ describe("Reference Loader stylesheet", () => {
     expect(cards).toContain(".rl-actions-spacer")
     expect(cards).toContain(".rl-media-actions")
     expect(cards).toContain('grid-template-areas: "outputs divider order spacer media";')
+    expect(cards).toContain("grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);")
     expect(cards).toContain("@container (max-width: 300px)")
     const horizontalAudioRule = cards.match(
       /\.rl-card--horizontal\[data-channel="audio"\] \.rl-card__media\s*\{([^}]*)\}/,

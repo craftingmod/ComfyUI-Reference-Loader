@@ -169,6 +169,7 @@ export class ReferencePromptController {
   #preset: PromptPreset
   #locale: PromptLocale
   #hintText = ""
+  #recoveredFromVersion: number | undefined
   #pendingRenderHint: string | undefined
   #destroyed = false
   #shotListeners = new Set<() => void>()
@@ -216,7 +217,8 @@ export class ReferencePromptController {
       activateAlias: (alias) => this.#addOrFocusSection(alias.title),
     })
     const issues = this.#store.initialIssues
-    this.#mutations.rawDraftText
+    this.#recoveredFromVersion = this.#store.initialRecoveredFromVersion
+    void this.#mutations.rawDraftText
     this.#viewSnapshot = this.#buildViewSnapshot()
     this.#pendingRenderHint = issues.join(" ")
     this.#setHint(this.#pendingRenderHint)
@@ -551,10 +553,15 @@ export class ReferencePromptController {
   }
 
   toggleView(): void {
-    this.#finishMutation(this.#mutations.toggleView(), {
+    const wasRaw = this.#documentV6.view === "raw"
+    const accepted = this.#finishMutation(this.#mutations.toggleView(), {
       closePicker: true,
       render: true,
     })
+    if (accepted && wasRaw && this.#documentV6.view === "structured") {
+      this.#recoveredFromVersion = undefined
+      this.#setHint()
+    }
   }
 
   copySource(): Promise<void> {
@@ -657,6 +664,7 @@ export class ReferencePromptController {
       this.#setHint([...parsed.issues, "Only Prompt state version 6 can be restored."].join(" "))
       return
     }
+    this.#recoveredFromVersion = parsed.recoveredFromVersion
     this.#invalidateV6Snapshots()
     this.#closePicker()
     this.#renderEditor()
@@ -852,7 +860,13 @@ export class ReferencePromptController {
       (count, root) => count + root.querySelectorAll(".rl-prompt-mention.is-stale").length,
       0,
     )
-    this.#hintText = issue || (stale ? `${stale} unavailable reference mention.` : "")
+    const recovery = this.#recoveredFromVersion
+      ? localize(PROMPT_MESSAGES.legacyRecovered, this.#locale).replace(
+          "{version}",
+          String(this.#recoveredFromVersion),
+        )
+      : ""
+    this.#hintText = issue || recovery || (stale ? `${stale} unavailable reference mention.` : "")
     this.#publishView()
   }
 

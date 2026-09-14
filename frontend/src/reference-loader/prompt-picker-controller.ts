@@ -206,14 +206,16 @@ export class PromptPickerController {
     this.#mode = "subject"
     this.#referencesOptions = []
     this.#aliases = []
-    const normalized = query.trim().toLocaleLowerCase()
+    const normalized = query.trim().normalize("NFKD").toLocaleLowerCase()
     const document = this.#document()
     this.#subjects = document.subjects.filter((subject, index) =>
       [subject.tag, `subject${index + 1}`, `<Subject ${index + 1}>`].some((value) =>
-        value.toLocaleLowerCase().includes(normalized),
+        value.normalize("NFKD").toLocaleLowerCase().includes(normalized),
       ),
     )
-    this.#shots = document.shots.filter((shot) => shot.tag.toLocaleLowerCase().includes(normalized))
+    this.#shots = document.shots.filter((shot) =>
+      shot.tag.normalize("NFKD").toLocaleLowerCase().includes(normalized),
+    )
     const label = normalizeSubjectLabel(query)
     const editor = body ?? (target ? this.#resolveEditorElement(target) : undefined)
     const creationAllowed =
@@ -262,6 +264,7 @@ export class PromptPickerController {
 
   handleKeydown(event: KeyboardEvent): boolean {
     if (this.#mode === undefined) return false
+    if (event.isComposing) return false
     const count = this.#optionCount()
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault()

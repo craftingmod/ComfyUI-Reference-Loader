@@ -68,7 +68,7 @@ afterEach(() => {
 })
 
 describe("Reference Prompt v6 AST", () => {
-  test("starts new Prompt state in v6 and rejects existing v5 state", () => {
+  test("starts new Prompt state in v6 and recovers existing v5 state as Raw", () => {
     const controller = new ReferencePromptController(node, () => [], undefined)
     expect(JSON.parse(controller.serialize()).version).toBe(6)
 
@@ -82,7 +82,67 @@ describe("Reference Prompt v6 AST", () => {
       }),
     )
     expect(JSON.parse(controller.serialize()).version).toBe(6)
-    expect(controller.getViewSnapshot().hint).toContain("Only Prompt state version 6")
+    expect(controller.document.view).toBe("raw")
+    expect(controller.getViewSnapshot().hint).toContain("Legacy Prompt v5 was recovered as Raw")
+    controller.destroy()
+  })
+
+  test("migrates a legacy Prompt through Raw without losing definitions or mentions", () => {
+    const root = document.createElement("div")
+    document.body.append(root)
+    const legacy = JSON.stringify({
+      version: 5,
+      view: "structured",
+      subjects: [{ tag: "hero", parts: [{ type: "text", text: "red coat" }] }],
+      shots: [],
+      sections: [
+        {
+          title: "scene",
+          parts: [
+            { type: "text", text: "Meet #hero and " },
+            { type: "mention", referenceId: "image-a", mediaKind: "image", label: "image1" },
+            { type: "text", text: "." },
+          ],
+        },
+      ],
+    })
+    const controller = new ReferencePromptController(
+      node,
+      () => [
+        {
+          referenceId: "image-a",
+          itemId: "image-a",
+          mediaKind: "image",
+          ordinal: 1,
+          tag: "<Picture 1>",
+          label: "image1",
+          filename: "hero.png",
+        },
+      ],
+      legacy,
+      { locale: "ko" },
+    )
+    const mount = createPromptReact({ container: root, controller })
+    const raw = root.querySelector<HTMLTextAreaElement>("[data-prompt-raw-editor]")
+    expect(raw?.value).toBe("scene:\nMeet #hero and @image1.")
+    expect(controller.getViewSnapshot().hint).toContain("이전 Prompt v5")
+
+    flushSync(() =>
+      root.querySelector<HTMLButtonElement>('[data-prompt-action="toggle-view"]')?.click(),
+    )
+    expect(controller.document.view).toBe("structured")
+    expect(controller.document.subjects[0]?.parts).toEqual([{ type: "text", text: "red coat" }])
+    expect(controller.document.sections[0]?.parts).toEqual([
+      { type: "text", text: "Meet " },
+      { type: "definition-ref", definitionId: controller.document.subjects[0]!.id },
+      { type: "text", text: " and " },
+      { type: "mention", referenceId: "image-a", mediaKind: "image", label: "image1" },
+      { type: "text", text: "." },
+    ])
+    expect(JSON.parse(controller.serialize()).version).toBe(6)
+    expect(controller.getViewSnapshot().hint).toBe("")
+
+    mount.destroy()
     controller.destroy()
   })
 

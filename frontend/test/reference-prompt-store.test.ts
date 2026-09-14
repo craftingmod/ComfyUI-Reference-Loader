@@ -45,7 +45,7 @@ describe("PromptStore", () => {
     store.destroy()
   })
 
-  test("preserves v6 restore rejection and definition commands", () => {
+  test("recovers legacy restore and preserves definition commands", () => {
     const subjectId = createPromptDefinitionId()
     const store = new PromptStore(
       () => [],
@@ -62,9 +62,11 @@ describe("PromptStore", () => {
 
     const beforeInvalidRestore = store.serialize()
     const result = store.restore('{"version":5}')
-    expect(result.document).toBeUndefined()
-    expect(result.changed).toBe(false)
-    expect(store.serialize()).toBe(beforeInvalidRestore)
+    expect(result.document?.version).toBe(6)
+    expect(result.document?.view).toBe("raw")
+    expect(result.recoveredFromVersion).toBe(5)
+    expect(result.changed).toBe(true)
+    expect(store.serialize()).not.toBe(beforeInvalidRestore)
 
     const restored = store.restore(
       serializePromptDocumentV6({

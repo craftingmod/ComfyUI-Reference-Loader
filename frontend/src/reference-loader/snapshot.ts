@@ -1,4 +1,5 @@
 import type { ComfyNode } from "../comfyui.ts"
+import { deserializePromptDocumentWithMigration } from "./prompt-migration.ts"
 import { deserializePromptDocumentV6 } from "./prompt-v6.ts"
 import { deserializeLoaderState, serializeLoaderState } from "./serialization.ts"
 
@@ -128,14 +129,16 @@ export function parseReferenceLoaderSnapshot(value: string): ParsedReferenceLoad
   const loader = deserializeLoaderState(raw.loader_state)
   if (loader.issues.length > 0)
     throw new Error(`Snapshot Loader state is invalid: ${loader.issues.join(" ")}`)
-  const prompt = deserializePromptDocumentV6(JSON.stringify(raw.prompt_state))
+  const prompt = deserializePromptDocumentWithMigration(JSON.stringify(raw.prompt_state))
   if (prompt.issues.length > 0 || !prompt.document)
     throw new Error(`Snapshot Prompt state is invalid: ${prompt.issues.join(" ")}`)
   const settings = parseSettings(raw.node_settings)
   const loaderState = serializeLoaderState(loader.state)
   return {
     loaderState,
-    promptState: JSON.stringify(prompt.document),
+    promptState: prompt.recoveredFromVersion
+      ? JSON.stringify(raw.prompt_state)
+      : JSON.stringify(prompt.document),
     settings,
   }
 }

@@ -11,6 +11,7 @@ import type {
   PromptSectionsSnapshot,
 } from "./components/prompt-editor.ts"
 import type { PromptReferenceVisual } from "./components/prompt-reference-node.tsx"
+import { t } from "./i18n.ts"
 import { PROMPT_MESSAGES, localize } from "./prompt-i18n.ts"
 import type { PromptPickerOption, PromptPickerSnapshot } from "./prompt-picker-controller.ts"
 import type { PromptAlias, PromptLocale, PromptPreset } from "./prompt-presets.ts"
@@ -134,17 +135,10 @@ export function projectPromptSections(options: {
       parts: section.parts,
       bodySnapshot: options.bodySnapshot({ type: "section", id: section.id })!,
       placeholder,
-      dragTitle:
-        options.locale === "ko"
-          ? `${section.title} 섹션 순서 이동`
-          : `Reorder ${section.title} section`,
-      dragAria:
-        options.locale === "ko"
-          ? `${section.title} 섹션 순서 이동. Alt와 위아래 화살표도 사용할 수 있습니다.`
-          : `Reorder ${section.title} section. You can also use Alt plus Up or Down.`,
-      removeTitle: options.locale === "ko" ? `${section.title} 제거` : `Remove ${section.title}`,
-      removeAria:
-        options.locale === "ko" ? `${section.title} 섹션 제거` : `Remove ${section.title} section`,
+      dragTitle: t(options.locale, "reorderSection", { title: section.title }),
+      dragAria: t(options.locale, "reorderSectionAria", { title: section.title }),
+      removeTitle: t(options.locale, "removeSection", { title: section.title }),
+      removeAria: t(options.locale, "removeSectionAria", { title: section.title }),
     }
   })
   return { view: options.document.view, sections, mounted: options.mounted }

@@ -349,7 +349,16 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
               </select>
             </Field>
             {(["x", "y", "width", "height"] as const).map((name) => (
-              <Field key={name} label={name[0].toUpperCase() + name.slice(1)}>
+              <Field
+                key={name}
+                label={
+                  name === "width"
+                    ? t("width")
+                    : name === "height"
+                      ? t("height")
+                      : name.toUpperCase()
+                }
+              >
                 <input
                   ref={field(name)}
                   data-field={name}

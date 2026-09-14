@@ -15,11 +15,12 @@ import {
 import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
-import { translateRaw, useI18n } from "../i18n.ts"
+import { translateGuideBadge, translateRaw, useI18n } from "../i18n.ts"
 import { Button } from "../ui/button.tsx"
 import { StatusMessage } from "../ui/status-message.tsx"
 import {
   projectLoaderChannels,
+  type GuideBadge,
   type LoaderCardView,
   type LoaderChannelView,
   type LoaderViewChannel,
@@ -34,10 +35,32 @@ const MEDIA_EXTENSIONS = {
   video: new Set(["mp4", "mkv", "webm", "mov", "avi"]),
 } as const
 
-function guideBadgeLabel(label: string, locale: Parameters<typeof translateRaw>[0]): string {
-  if (label.startsWith("Ref #")) return `${locale === "ko" ? "참조" : "Ref"}${label.slice(3)}`
-  if (label.startsWith("Guide #")) return `${locale === "ko" ? "Guide" : "Guide"}${label.slice(5)}`
-  return translateRaw(locale, label)
+function guideBadgeClass(badge: GuideBadge): string {
+  switch (badge.kind) {
+    case "reference":
+      return "is-reference"
+    case "guide":
+      return "is-guide"
+    case "off":
+    case "paused":
+      return "is-paused"
+    case "frame":
+    case "start":
+    case "end":
+      return "is-order"
+  }
+}
+
+function guideBadgeKey(badge: GuideBadge): string {
+  switch (badge.kind) {
+    case "reference":
+    case "guide":
+      return `${badge.kind}:${badge.index}`
+    case "frame":
+      return `${badge.kind}:${badge.frameIndex}`
+    default:
+      return badge.kind
+  }
 }
 
 export interface LoaderReactActions extends H3WorkspaceActions {
@@ -637,14 +660,14 @@ function MediaCard({
         <LoadingState card={card} />
       </div>
       <div className="rl-card__body">
-        {card.guideLabels.length > 0 ? (
+        {card.guideBadges.length > 0 ? (
           <div className="rl-h3-card-badges" aria-label={t("guideRoles")}>
-            {card.guideLabels.map((label) => (
+            {card.guideBadges.map((badge) => (
               <span
-                key={label}
-                className={`rl-h3-card-badge${label.startsWith("Ref #") ? " is-reference" : label.startsWith("Guide #") ? " is-guide" : label === "Guide off" || label === "Paused" ? " is-paused" : label === "Start" || label === "End" || /^\d+f$/.test(label) ? " is-order" : " is-guide"}`}
+                key={guideBadgeKey(badge)}
+                className={`rl-h3-card-badge ${guideBadgeClass(badge)}`}
               >
-                {guideBadgeLabel(label, locale)}
+                {translateGuideBadge(locale, badge)}
               </span>
             ))}
           </div>

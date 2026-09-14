@@ -66,6 +66,15 @@ export interface H3WorkspaceView {
   readonly shots: readonly { tag: string; frameIndex: number }[]
 }
 
+export type GuideBadge =
+  | { readonly kind: "reference"; readonly index: number }
+  | { readonly kind: "guide"; readonly index: number }
+  | { readonly kind: "frame"; readonly frameIndex: number }
+  | { readonly kind: "start" }
+  | { readonly kind: "end" }
+  | { readonly kind: "off" }
+  | { readonly kind: "paused" }
+
 export interface LoaderViewSnapshot {
   readonly state: LoaderState
   readonly display: LoaderDisplayState
@@ -123,7 +132,7 @@ export interface LoaderCardView {
   readonly guideConfigured: boolean
   readonly guideEnabled: boolean
   readonly guideIndex: number | undefined
-  readonly guideLabels: readonly string[]
+  readonly guideBadges: readonly GuideBadge[]
 }
 
 export interface LoaderChannelView {
@@ -262,13 +271,14 @@ function cardView(
   const guideEnabled = Boolean(
     guideMediaId && mediaGuideEnabled(snapshot.state.h3Timeline, guideMediaId, guideChannel),
   )
-  const guideLabels: string[] = outputIndex === undefined ? [] : [`Ref #${outputIndex}`]
+  const guideBadges: GuideBadge[] =
+    outputIndex === undefined ? [] : [{ kind: "reference", index: outputIndex }]
   const guideIndex = guideEnabled ? guideIndexFor(snapshot, channel, orderIndex) : undefined
-  if (guideIndex !== undefined) guideLabels.push(`Guide #${guideIndex}`)
+  if (guideIndex !== undefined) guideBadges.push({ kind: "guide", index: guideIndex })
   if (guideAvailable && guideMediaId && guideEnabled) {
     if (guideChannel === "visual" && snapshot.state.h3Timeline.startImageId === guideMediaId)
-      guideLabels.push("Start")
-    guideLabels.push(
+      guideBadges.push({ kind: "start" })
+    guideBadges.push(
       ...snapshot.state.h3Timeline.guides
         .filter((guide) =>
           guideChannel === "visual"
@@ -276,13 +286,14 @@ function cardView(
             : guide.audioId === guideMediaId,
         )
         .sort((left, right) => left.frameIndex - right.frameIndex)
-        .map((guide) => `${guide.frameIndex}f`),
+        .map<GuideBadge>((guide) => ({ kind: "frame", frameIndex: guide.frameIndex })),
     )
     if (guideChannel === "visual" && snapshot.state.h3Timeline.endImageId === guideMediaId)
-      guideLabels.push("End")
+      guideBadges.push({ kind: "end" })
   }
-  if (guideConfigured && !guideEnabled) guideLabels.push("Guide off")
-  else if (!snapshot.state.h3Timeline.enabled && guideLabels.length > 0) guideLabels.push("Paused")
+  if (guideConfigured && !guideEnabled) guideBadges.push({ kind: "off" })
+  else if (!snapshot.state.h3Timeline.enabled && guideBadges.length > 0)
+    guideBadges.push({ kind: "paused" })
   return {
     id,
     kind: item.kind,
@@ -314,7 +325,7 @@ function cardView(
     guideConfigured,
     guideEnabled,
     guideIndex,
-    guideLabels,
+    guideBadges,
   }
 }
 

@@ -3,6 +3,7 @@ import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
 import { LocalHistory } from "../history.ts"
+import { localeStore, t } from "../i18n.ts"
 import type { NormalizedCrop } from "../types.ts"
 import {
   FULL_STAGE_FRAME,
@@ -136,10 +137,11 @@ function canvasFile(canvas: HTMLCanvasElement, filename: string): Promise<File> 
 export function openImageEditor(options: ImageEditorOptions): Promise<ImageEditorResult | null> {
   return new Promise((resolve) => {
     const dialog = document.createElement("dialog")
-    const captionLabel = options.captionLabel ?? "Caption"
+    const initialLocale = localeStore.getSnapshot()
+    const captionLabel = options.captionLabel ?? t(initialLocale, "caption")
     const captionPlaceholder = options.captionPlaceholder ?? captionLabel
     dialog.className = "rl-modal rl-image-editor"
-    dialog.setAttribute("aria-label", "Image reference editor")
+    dialog.setAttribute("aria-label", t(initialLocale, "imageEditor"))
     // At most ~20 MiB of 512px RGBA mask snapshots, plus lightweight recipe references.
     const history = new LocalHistory(createInitialImageDraft(options.item), 20)
     let refs: ImageEditorReactRefs | undefined
@@ -252,6 +254,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     }
 
     const render = (restoreCanvas = true): void => {
+      const locale = localeStore.getSnapshot()
       const draft =
         gesture.kind === "pan" || gesture.kind === "move-crop" || gesture.kind === "resize-crop"
           ? gesture.draft
@@ -342,18 +345,18 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         removeBackground.setAttribute("aria-pressed", String(draft.removeBackground))
         removeBackground.setAttribute("aria-busy", String(backgroundPreviewLoading))
         removeBackground.textContent = backgroundPreviewLoading
-          ? "Cancel rembg preview"
+          ? t(locale, "cancelRembgPreview")
           : draft.removeBackground && backgroundPreviewUrl
-            ? "Background removed (previewed)"
-            : "Remove background (rembg)"
+            ? t(locale, "backgroundRemovedPreview")
+            : t(locale, "removeBackground")
       }
       const backgroundStatus = refs?.backgroundStatus
       if (backgroundStatus) {
         backgroundStatus.textContent = backgroundPreviewLoading
-          ? "Generating a full-resolution foreground preview…"
+          ? t(locale, "generatingForegroundPreview")
           : draft.removeBackground && backgroundPreviewUrl
-            ? "Preview ready. Apply will reuse this cached rembg result."
-            : "Optional server dependency. Click to generate a preview; the first run may download a model."
+            ? t(locale, "backgroundPreviewReady")
+            : t(locale, "backgroundStatus")
       }
       const transform = `translate(${draft.panX}px, ${draft.panY}px) scale(${draft.zoom}) scaleX(${draft.flipX ? -1 : 1}) scaleY(${draft.flipY ? -1 : 1})`
       if (stage) {
@@ -401,12 +404,12 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         cropOverlay.setAttribute(
           "aria-label",
           clippedSelection
-            ? "Clipped crop viewport; drag to pan the image or use a visible corner to resize the crop"
+            ? t(locale, "clippedCropViewport")
             : viewportFillCrop
-              ? "Full-viewport crop; drag to pan the image or use a corner to resize the crop"
+              ? t(locale, "fullViewportCrop")
               : cropFocused
-                ? "Selected crop viewport; drag inside to move it, use a corner to resize it, or click outside to pan"
-                : "Unselected crop viewport; click to select it or drag to pan the image",
+                ? t(locale, "selectedCropViewport")
+                : t(locale, "unselectedCropViewport"),
         )
         cropOverlay.style.left = cssPercentage(cropFrame.x)
         cropOverlay.style.top = cssPercentage(cropFrame.y)
@@ -428,6 +431,12 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         apply.disabled =
           draft.removeBackground && (!backgroundPreviewUrl || backgroundPreviewLoading)
     }
+
+    const releaseLocale = localeStore.subscribe(() => {
+      const locale = localeStore.getSnapshot()
+      dialog.setAttribute("aria-label", t(locale, "imageEditor"))
+      render(false)
+    })
 
     const setAltMaskTool = (active: boolean): void => {
       if (altMaskTool === active) return
@@ -452,6 +461,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       settled = true
       backgroundPreviewController?.abort()
       metadataController.abort()
+      releaseLocale()
       if (wheelMergeTimer !== undefined) clearTimeout(wheelMergeTimer)
       globalThis.removeEventListener("keydown", onMaskModifierKeyDown, true)
       globalThis.removeEventListener("keyup", onMaskModifierKeyUp, true)

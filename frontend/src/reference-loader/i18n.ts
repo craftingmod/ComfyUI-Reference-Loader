@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react"
 import enMessages from "../../../locales/en/main.json"
 import koMessages from "../../../locales/ko/main.json"
 import type { ComfyLocaleAppLike } from "../comfyui.ts"
+import type { GuideBadge } from "./view-model.ts"
 
 export type Locale = "en" | "ko"
 export type MessageKey = keyof typeof enMessages.referenceLoader
@@ -56,6 +57,25 @@ export function formatUiMessage(message: UiMessage, locale: Locale): string {
 export function translateRaw(locale: Locale, value: string): string {
   const entry = Object.entries(enMessages.referenceLoader).find(([, message]) => message === value)
   return entry ? t(locale, entry[0] as MessageKey) : value
+}
+
+export function translateGuideBadge(locale: Locale, badge: GuideBadge): string {
+  switch (badge.kind) {
+    case "reference":
+      return `${t(locale, "referenceShort")} #${badge.index}`
+    case "guide":
+      return t(locale, "guideIndex", { index: badge.index })
+    case "frame":
+      return `${badge.frameIndex}f`
+    case "start":
+      return t(locale, "start")
+    case "end":
+      return t(locale, "end")
+    case "off":
+      return t(locale, "guideOff")
+    case "paused":
+      return t(locale, "pausedBadge")
+  }
 }
 
 export function localized(key: MessageKey): { en: string; ko: string } {

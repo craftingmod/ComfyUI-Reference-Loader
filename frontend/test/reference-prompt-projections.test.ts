@@ -99,6 +99,30 @@ describe("prompt projections", () => {
     })
   })
 
+  test("localizes section action labels without branching on the locale", () => {
+    const document = createDocument()
+    const common = {
+      document,
+      references,
+      preset,
+      mounted: true,
+      bodySnapshot,
+    }
+
+    expect(projectPromptSections({ ...common, locale: "en" }).sections[0]).toMatchObject({
+      dragTitle: "Reorder scene section",
+      dragAria: "Reorder scene section. You can also use Alt plus Up or Down.",
+      removeTitle: "Remove scene",
+      removeAria: "Remove scene section",
+    })
+    expect(projectPromptSections({ ...common, locale: "ko" }).sections[0]).toMatchObject({
+      dragTitle: "scene 주제 순서 변경",
+      dragAria: "scene 주제 순서 변경. Alt와 위아래 화살표도 사용할 수 있습니다.",
+      removeTitle: "scene 제거",
+      removeAria: "scene 주제 제거",
+    })
+  })
+
   test("projects labels and visuals without a DOM or controller", () => {
     const document = createDocument()
     const mention = document.sections[0]!.parts[1]!

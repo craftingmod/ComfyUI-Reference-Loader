@@ -32,6 +32,7 @@ import {
 } from "../src/reference-loader/editors/image-editor-model.ts"
 import { openImageEditor } from "../src/reference-loader/editors/image-editor.ts"
 import { openTrimEditor } from "../src/reference-loader/editors/trim-editor.ts"
+import { localeStore } from "../src/reference-loader/i18n.ts"
 import type { ImageItem } from "../src/reference-loader/types.ts"
 
 function activateCropMode(): void {
@@ -98,6 +99,54 @@ describe("audio preview timing", () => {
 })
 
 describe("image editor revision semantics", () => {
+  test("localizes crop dimensions and rembg controls with the active locale", async () => {
+    const item: ImageItem = {
+      id: "localized-editor",
+      kind: "image",
+      source: {
+        path: "reference_loader/sources/localized.png",
+        mime: "image/png",
+        sha256: "e".repeat(64),
+      },
+      originalSource: {
+        path: "reference_loader/sources/localized.png",
+        mime: "image/png",
+        sha256: "e".repeat(64),
+      },
+      caption: "",
+      imageEnabled: true,
+    }
+
+    localeStore.set("en")
+    const resultPromise = openImageEditor({ item })
+    const dialog = document.querySelector<HTMLDialogElement>(".rl-image-editor")
+    const removeBackground = dialog?.querySelector<HTMLButtonElement>(
+      '[data-action="remove-background"]',
+    )
+    const backgroundStatus = dialog?.querySelector<HTMLElement>("[data-background-status]")
+    try {
+      expect(dialog?.textContent).toContain("Width")
+      expect(dialog?.textContent).toContain("Height")
+      expect(removeBackground?.textContent).toBe("Remove background (rembg)")
+      expect(backgroundStatus?.textContent).toBe(
+        "Optional server dependency. Click to generate a preview; the first run may download a model.",
+      )
+
+      localeStore.set("ko")
+      await Promise.resolve()
+      expect(dialog?.textContent).toContain("너비")
+      expect(dialog?.textContent).toContain("높이")
+      expect(removeBackground?.textContent).toBe("배경 제거 (rembg)")
+      expect(backgroundStatus?.textContent).toBe(
+        "선택적 서버 의존성입니다. 클릭하면 미리보기를 생성하며 첫 실행에서 모델을 다운로드할 수 있습니다.",
+      )
+    } finally {
+      dialog?.querySelector<HTMLButtonElement>('[data-action="cancel"]')?.click()
+      await resultPromise
+      localeStore.set("en")
+    }
+  })
+
   test("keeps the persisted edit recipe at the model boundary", () => {
     const source = {
       path: "reference_loader/sources/original.png",

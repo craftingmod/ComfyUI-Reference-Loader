@@ -10,6 +10,7 @@ import {
   resolveLocale,
   localeStore,
   t,
+  translateGuideBadge,
   translateRaw,
   uiMessage,
 } from "../src/reference-loader/i18n.ts"
@@ -41,6 +42,12 @@ describe("Reference Loader i18n", () => {
     expect(formatUiMessage({ kind: "raw", value: "server detail" }, "ko")).toBe("server detail")
     expect(translateRaw("ko", "Snapshot saved.")).toBe("스냅샷을 저장했습니다.")
     expect(translateRaw("ko", "file.png: server detail")).toBe("file.png: server detail")
+    expect(translateGuideBadge("en", { kind: "reference", index: 1 })).toBe("Ref #1")
+    expect(translateGuideBadge("ko", { kind: "reference", index: 1 })).toBe("참조 #1")
+    expect(translateGuideBadge("en", { kind: "guide", index: 1 })).toBe("Guide #1")
+    expect(translateGuideBadge("ko", { kind: "guide", index: 1 })).toBe("가이드 #1")
+    expect(translateGuideBadge("ko", { kind: "off" })).toBe("가이드 꺼짐")
+    expect(translateGuideBadge("ko", { kind: "paused" })).toBe("일시정지")
   })
 
   test("notifies only when LocaleStore changes and supports disposal", () => {

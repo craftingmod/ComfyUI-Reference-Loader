@@ -8,6 +8,8 @@ import {
 
 const FPS = H3_TIMELINE_NATIVE_FPS
 
+export type H3TimelineSnapMode = "off" | "half-second"
+
 function safeFps(value: number): number {
   return Number.isFinite(value) && value > 0 ? value : FPS
 }
@@ -32,6 +34,17 @@ export function timelineFrameInputToNative(value: string, fps = FPS): string {
 
 export function timelineSeconds(frame: number, fps = FPS): string {
   return (frame / safeFps(fps)).toFixed(3)
+}
+
+export function snapTimelineFrame(
+  frame: number,
+  fps = FPS,
+  mode: H3TimelineSnapMode = "off",
+): number {
+  if (mode !== "half-second" || !Number.isFinite(frame)) return frame
+  const displayFps = safeFps(fps)
+  const seconds = Math.round(frame / displayFps / 0.5) * 0.5
+  return Math.max(0, Math.round(seconds * displayFps))
 }
 
 export interface TimelineMark {

@@ -7,6 +7,7 @@ import { ReferenceLoaderApi } from "../src/reference-loader/api.ts"
 import {
   draggedFrame,
   nativeToTimelineFrame,
+  snapTimelineFrame,
   timelineFrameInputToNative,
   timelineMarks,
   timelineExtent,
@@ -179,8 +180,9 @@ describe("Guide timeline", () => {
     expect(heading.querySelector(".rl-h3-workspace__summary")).toBeNull()
     expect(header.querySelector(".rl-h3-workspace__tools")).not.toBeNull()
     expect(tools.children[0]?.hasAttribute("hidden")).toBe(true)
-    expect(tools.children[1]).toBe(status)
-    expect(tools.children).toHaveLength(2)
+    expect(tools.children[1]?.hasAttribute("hidden")).toBe(true)
+    expect(tools.children[2]).toBe(status)
+    expect(tools.children).toHaveLength(3)
     expect(root.querySelector(".rl-h3-workspace > .rl-h3-workspace__tools")).toBeNull()
     expect(root.querySelector('[aria-label="Timeline zoom"]')).toBeNull()
     expect(
@@ -192,6 +194,16 @@ describe("Guide timeline", () => {
         (button) => button.textContent,
       ),
     ).toEqual(["Timeline", "List"])
+    expect(
+      [
+        ...header.querySelectorAll<HTMLButtonElement>('[aria-label="Timeline snap mode"] button'),
+      ].map((button) => button.textContent),
+    ).toEqual(["Off", "0.5s"])
+    expect(
+      header
+        .querySelector<HTMLButtonElement>('[aria-label="Timeline snap mode"] button')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true")
     expect(status.textContent).toBe("ON")
     expect(status.getAttribute("aria-pressed")).toBe("true")
 
@@ -205,8 +217,16 @@ describe("Guide timeline", () => {
       "Media (Image/Video/Audio) · 3 media ~ 240 frames · 24 FPS",
     )
     expect(tools.children[0]?.hasAttribute("hidden")).toBe(false)
-    expect(tools.children[1]).toBe(status)
-    expect(tools.children).toHaveLength(2)
+    expect(tools.children[1]?.hasAttribute("hidden")).toBe(false)
+    expect(tools.children[2]).toBe(status)
+    expect(tools.children).toHaveLength(3)
+
+    flushSync(() => {
+      header
+        .querySelector<HTMLButtonElement>('[aria-label="Timeline snap mode"] button:nth-child(2)')
+        ?.click()
+    })
+    expect(root.querySelector('[data-h3-snap-mode="half-second"]')).not.toBeNull()
 
     collapse.click()
     expect(
@@ -220,6 +240,13 @@ describe("Guide timeline", () => {
     expect(controller.getViewSnapshot().h3?.timeline.enabled).toBe(false)
     expect(status.textContent).toBe("OFF")
     expect(status.getAttribute("aria-pressed")).toBe("false")
+  })
+
+  test("rounds Timeline interaction frames to the nearest half-second", () => {
+    expect(snapTimelineFrame(49, 24, "off")).toBe(49)
+    expect(snapTimelineFrame(49, 24, "half-second")).toBe(48)
+    expect(snapTimelineFrame(55, 24, "half-second")).toBe(60)
+    expect(snapTimelineFrame(31, 30, "half-second")).toBe(30)
   })
 
   test("does not render a terminal ruler tick outside the Timeline track", () => {

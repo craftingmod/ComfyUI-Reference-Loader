@@ -34,6 +34,7 @@
 .rl-h3-workspace__header,
 .rl-h3-workspace__footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   min-width: 0;
   padding: 0 0 7px;
@@ -106,7 +107,7 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-left: auto;
   padding: 0;
   color: var(--rl-muted);
@@ -162,6 +163,20 @@
 .rl-h3-workspace__view-group button:focus-visible {
   position: relative;
   z-index: 2;
+}
+
+.rl-h3-workspace__snap-control {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+}
+
+.rl-h3-workspace__snap-label {
+  color: var(--rl-muted);
+  font-size: 10px;
+  white-space: nowrap;
+
 }
 
 .rl-h3-workspace__body {

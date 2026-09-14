@@ -34,6 +34,7 @@ import {
   timelineFrameInputToNative,
   timelineMarks,
   timelineToNativeFrame,
+  type H3TimelineSnapMode,
 } from "./h3-timeline.ts"
 export interface H3WorkspaceActions extends H3TimelineReactActions {
   h3Toggle(): void
@@ -478,6 +479,7 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
   const { locale, t } = useI18n()
   const h3 = snapshot.h3
   const [mode, setMode] = useState<"timeline" | "list">("timeline")
+  const [snapMode, setSnapMode] = useState<H3TimelineSnapMode>("off")
   const pageId = useId()
 
   if (!h3) return null
@@ -527,6 +529,23 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
             </small>
           </Button>
           <div className="rl-h3-workspace__tools">
+            <span
+              className="rl-h3-workspace__snap-control"
+              data-h3-snap-mode={snapMode}
+              hidden={h3.collapsed}
+            >
+              <span className="rl-h3-workspace__snap-label">{t("snap")}</span>
+              <ToggleGroup
+                className="rl-h3-workspace__view-group rl-h3-workspace__snap-group"
+                value={snapMode}
+                items={[
+                  { value: "off", label: t("snapOff") },
+                  { value: "half-second", label: t("snapHalfSecond") },
+                ]}
+                onValueChange={setSnapMode}
+                ariaLabel={t("snapMode")}
+              />
+            </span>
             <span hidden={h3.collapsed}>
               <ToggleGroup
                 value={mode}
@@ -566,6 +585,7 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
                 fps={fps}
                 frameCount={frameCount}
                 zoom={1}
+                snapMode={snapMode}
               />
             ) : (
               <GuideList snapshot={snapshot} h3={h3} actions={actions} fps={fps} />

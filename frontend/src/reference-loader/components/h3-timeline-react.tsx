@@ -24,10 +24,12 @@ import type { H3WorkspaceView, LoaderViewChannel } from "../view-model.ts"
 import {
   draggedFrame,
   nativeToTimelineFrame,
+  snapTimelineFrame,
   timelineExtent,
   timelineMarks,
   timelineSeconds,
   timelineToNativeFrame,
+  type H3TimelineSnapMode,
   type TimelineMark,
 } from "./h3-timeline.ts"
 import { SHOT_COLOR } from "./prompt-dom.ts"
@@ -60,6 +62,7 @@ export interface H3TimelineReactProps {
   fps: number
   frameCount: number
   zoom: number
+  snapMode?: H3TimelineSnapMode
 }
 
 type TimelineChannel = "visual" | "audio" | "shot"
@@ -418,6 +421,7 @@ export function H3TimelineReact({
   fps,
   frameCount,
   zoom,
+  snapMode = "off",
 }: H3TimelineReactProps) {
   const { locale, t } = useI18n()
   const scroller = useRef<HTMLDivElement>(null)
@@ -439,6 +443,11 @@ export function H3TimelineReact({
     [fps, h3.shots, h3.timeline, runtime, state],
   )
   const extent = useMemo(() => timelineExtent(marks, frameCount, fps), [frameCount, fps, marks])
+  const snapFrame = useCallback(
+    (frame: number): number =>
+      Math.max(0, Math.min(extent - 1, snapTimelineFrame(frame, fps, snapMode))),
+    [extent, fps, snapMode],
+  )
 
   useLayoutEffect(() => {
     const element = scroller.current
@@ -519,7 +528,7 @@ export function H3TimelineReact({
       const track = trackRefs.current.get(gesture.channel)
       const currentRect = track?.getBoundingClientRect() ?? gesture.startRect
       const deltaX = event.clientX - gesture.clientX + gesture.startRect.left - currentRect.left
-      const next = draggedFrame(gesture.frame, deltaX, gesture.startRect.width, extent)
+      const next = snapFrame(draggedFrame(gesture.frame, deltaX, gesture.startRect.width, extent))
       gesture.moved = true
       gesture.next = next
       setPreview({ id: gesture.id, frame: next })
@@ -560,7 +569,7 @@ export function H3TimelineReact({
       document.removeEventListener("keydown", onKeyDown, true)
       globalThis.removeEventListener("blur", onBlur)
     }
-  }, [extent, finishGesture, gestureActive])
+  }, [extent, finishGesture, gestureActive, snapFrame])
 
   const startGesture = (mark: TimelineMark, event: PointerEvent<HTMLButtonElement>): void => {
     if (event.button !== 0 || event.isPrimary === false || mark.placement.kind === "end") return
@@ -607,10 +616,7 @@ export function H3TimelineReact({
   const frameForDrop = (channel: "visual" | "audio", event: DragEvent<HTMLDivElement>): number => {
     const rect = trackRefs.current.get(channel)?.getBoundingClientRect()
     if (!rect || !(rect.width > 0)) return 0
-    return Math.max(
-      0,
-      Math.min(extent - 1, Math.round(((event.clientX - rect.left) / rect.width) * extent)),
-    )
+    return snapFrame(Math.round(((event.clientX - rect.left) / rect.width) * extent))
   }
 
   const laneDragOver = (channel: "visual" | "audio", event: DragEvent<HTMLDivElement>): void => {

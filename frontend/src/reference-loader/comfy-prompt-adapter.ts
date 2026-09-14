@@ -7,6 +7,7 @@ import {
 import { createPromptDefinitionsReact } from "./components/prompt-definitions-react.tsx"
 import { ReferencePromptController } from "./components/prompt-editor.ts"
 import { createPromptReact } from "./components/prompt-react.tsx"
+import { localeStore } from "./i18n.ts"
 
 export const REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE = "REFERENCE_PROMPT_DEFINITIONS"
 export const REFERENCE_PROMPT_WIDGET_TYPE = "REFERENCE_PROMPT"
@@ -107,6 +108,9 @@ export class ComfyPromptAdapter {
       if (binding) this.#lifecycle.setPromptPresetBinding(node, binding)
     }, 0)
     let releasePromptLifecycle: () => void = () => undefined
+    const releaseLocale = localeStore.subscribe(() => {
+      controller.setLocale(localeStore.getSnapshot())
+    })
     const originalWidgetRemove = widget.onRemove
     widget.onRemove = () => {
       if (removed) return
@@ -119,6 +123,7 @@ export class ComfyPromptAdapter {
       globalThis.clearTimeout(presetBindingTimer)
       releaseRenderedRoot()
       releaseQueueBinding()
+      releaseLocale()
     })
     this.#lifecycle.setPromptReactMount(node, reactMount)
     if (definitionsRoot) {

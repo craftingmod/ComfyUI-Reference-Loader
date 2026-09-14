@@ -10,6 +10,7 @@ import {
 import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
+import { useI18n } from "../i18n.ts"
 import { Button } from "../ui/button.tsx"
 import { normalizeDefinitionTagInput, subjectColor } from "./prompt-dom.ts"
 import {
@@ -92,6 +93,7 @@ function PromptDefinitionCard({
   draft: boolean
   actions: PromptDefinitionsReactActions
 }): ReactNode {
+  const { t } = useI18n()
   const [tagValue, setTagValue] = useState(`#${definition.tag}`)
   const tagInput = useRef<HTMLInputElement>(null)
   const commitTag = (value = tagValue): void => {
@@ -133,8 +135,8 @@ function PromptDefinitionCard({
           className="rl-prompt-definition__drag"
           data-prompt-definition-drag-handle=""
           draggable={!draft}
-          title={`Reorder ${definition.kind}`}
-          aria-label={`Reorder ${definition.kind} ${definition.tag}`}
+          title={t("reorder")}
+          aria-label={`${t("reorder")} ${definition.kind} ${definition.tag}`}
           onDragStart={(event) =>
             actions.startDefinitionDrag(definition.kind, definition.identity, event.nativeEvent)
           }
@@ -180,8 +182,8 @@ function PromptDefinitionCard({
                 data-prompt-definition-kind="shot"
                 data-prompt-definition-identity={definition.identity}
                 data-prompt-definition-tag={definition.tag}
-                aria-label={`Edit Guides at Shot #${definition.tag}`}
-                title={`Edit Guides at Shot #${definition.tag} · ${definition.frameIndex}f`}
+                aria-label={t("editShotGuides", { tag: definition.tag })}
+                title={`${t("editShotGuides", { tag: definition.tag })} · ${definition.frameIndex}f`}
                 disabled={draft}
                 onClick={(event) => {
                   event.stopPropagation()
@@ -207,8 +209,8 @@ function PromptDefinitionCard({
             data-prompt-definition-kind={definition.kind}
             data-prompt-definition-identity={definition.identity}
             disabled={draft}
-            title="Reorder"
-            aria-label={`Move ${definition.kind} up`}
+            title={t("reorder")}
+            aria-label={t("moveUp", { kind: definition.kind })}
             onClick={() => actions.reorderDefinition(definition.kind, definition.identity, -1)}
           >
             ↑
@@ -219,8 +221,8 @@ function PromptDefinitionCard({
             data-prompt-definition-kind={definition.kind}
             data-prompt-definition-identity={definition.identity}
             disabled={draft}
-            title="Reorder"
-            aria-label={`Move ${definition.kind} down`}
+            title={t("reorder")}
+            aria-label={t("moveDown", { kind: definition.kind })}
             onClick={() => actions.reorderDefinition(definition.kind, definition.identity, 1)}
           >
             ↓
@@ -231,8 +233,8 @@ function PromptDefinitionCard({
             data-prompt-definition-kind={definition.kind}
             data-prompt-definition-identity={definition.identity}
             disabled={draft}
-            title={`Delete ${definition.kind}`}
-            aria-label={`Delete ${definition.kind} ${definition.tag}`}
+            title={`${t("delete")} ${definition.kind}`}
+            aria-label={`${t("delete")} ${definition.kind} ${definition.tag}`}
             onClick={() => actions.removeDefinition(definition.kind, definition.identity)}
           >
             ×
@@ -260,6 +262,7 @@ export function PromptDefinitionsReactRoot({
   controller: ReferencePromptController
   actions: PromptDefinitionsReactActions
 }): ReactNode {
+  const { t } = useI18n()
   const subscribe = useCallback(
     (listener: () => void): (() => void) => controller.subscribeDefinitions(listener),
     [controller],
@@ -278,8 +281,8 @@ export function PromptDefinitionsReactRoot({
     >
       <header className="rl-prompt-toolbar">
         <div className="rl-prompt-toolbar__copy">
-          <strong>Subjects &amp; Shots</strong>
-          <small>Definitions keep #tags; indexes are generated only in compiled output.</small>
+          <strong>{t("subjectsShots")}</strong>
+          <small>{t("subjectsShotsDescription")}</small>
         </div>
         <div className="rl-prompt-toolbar__actions">
           <Button
@@ -288,7 +291,7 @@ export function PromptDefinitionsReactRoot({
             disabled={snapshot.draft}
             onClick={() => actions.addDefinition("subject")}
           >
-            + Subject
+            + {t("subject")}
           </Button>
           <Button
             type="button"
@@ -296,14 +299,14 @@ export function PromptDefinitionsReactRoot({
             disabled={snapshot.draft}
             onClick={() => actions.addDefinition("shot")}
           >
-            + Shot
+            + {t("shot")}
           </Button>
         </div>
       </header>
       <section className="rl-channel" data-prompt-definition-category="subject">
         <header>
           <div>
-            <strong>Subjects</strong>
+            <strong>{t("subjects")}</strong>
             <span>{snapshot.subjects.length}</span>
           </div>
         </header>
@@ -321,7 +324,7 @@ export function PromptDefinitionsReactRoot({
       <section className="rl-channel" data-prompt-definition-category="shot">
         <header>
           <div>
-            <strong>Shots</strong>
+            <strong>{t("shots")}</strong>
             <span>{snapshot.shots.length}</span>
           </div>
         </header>

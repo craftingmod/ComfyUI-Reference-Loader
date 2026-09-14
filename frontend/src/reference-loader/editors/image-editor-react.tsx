@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, type ChangeEvent, type InputEvent, type ReactNode } from "react"
 
+import { useI18n } from "../i18n.ts"
 import { Button } from "../ui/button.tsx"
 import { EditorFooter } from "../ui/editor-footer.tsx"
 import { Field } from "../ui/field.tsx"
@@ -63,6 +64,7 @@ function assignRef<T extends HTMLElement>(ref: { current: T | null }, element: T
 }
 
 export function ImageEditorDialog({ options }: { options: ImageEditorReactOptions }): ReactNode {
+  const { t } = useI18n()
   const image = useRef<HTMLImageElement>(null)
   const stage = useRef<HTMLElement>(null)
   const visual = useRef<HTMLElement>(null)
@@ -178,10 +180,10 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
   const draft = options.initialDraft
   const mediaColumnClass = `rl-editor-media-column${options.showCaption ? "" : " is-captionless"}`
   const cropHandleDefinitions: Array<readonly [string, string]> = [
-    ["north-west", "Resize crop from top left"],
-    ["north-east", "Resize crop from top right"],
-    ["south-west", "Resize crop from bottom left"],
-    ["south-east", "Resize crop from bottom right"],
+    ["north-west", t("resizeCropTopLeft")],
+    ["north-east", t("resizeCropTopRight")],
+    ["south-west", t("resizeCropBottomLeft")],
+    ["south-east", t("resizeCropBottomRight")],
   ]
   const action =
     (name: string): (() => void) =>
@@ -204,13 +206,18 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
     <form method="dialog" className="rl-modal__panel">
       <header>
         <div>
-          <strong>Image editor</strong>
-          <small>Crop, mask, flip, and background changes are non-destructive.</small>
+          <strong>{t("imageEditor")}</strong>
+          <small>{t("imageEditorSubtitle")}</small>
           <small className="rl-modal__filename" title={options.sourcePath}>
-            File: {options.filename}
+            {t("file", { filename: options.filename })}
           </small>
         </div>
-        <Button type="button" data-action="cancel" aria-label="Close" onClick={action("cancel")}>
+        <Button
+          type="button"
+          data-action="cancel"
+          aria-label={t("close")}
+          onClick={action("cancel")}
+        >
           ×
         </Button>
       </header>
@@ -221,17 +228,17 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
               <div ref={(element) => assignRef(visual, element)} className="rl-editor-visual">
                 <img
                   ref={(element) => assignRef(image, element)}
-                  alt="Selected reference preview"
+                  alt={t("selectedReferencePreview")}
                 />
                 <canvas
                   ref={(element) => assignRef(maskCanvas, element)}
-                  aria-label="Editable keep mask"
+                  aria-label={t("editableKeepMask")}
                 />
               </div>
               <div
                 ref={(element) => assignRef(cropOverlay, element)}
                 className="rl-crop-overlay"
-                aria-label="Crop viewport; drag inside to move the crop, drag outside or use Ctrl-drag to pan, and use the mouse wheel to zoom"
+                aria-label={t("cropViewport")}
               >
                 {cropHandleDefinitions.map(([handle, label], index) => (
                   <button
@@ -255,7 +262,7 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
             </div>
           </div>
           {options.showCaption ? (
-            <Field label={options.captionLabel} className="rl-modal__caption">
+            <Field label={options.captionLabel || t("caption")} className="rl-modal__caption">
               <textarea
                 ref={(element) => assignRef(caption, element)}
                 data-field="caption"
@@ -271,18 +278,18 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
         <div className="rl-editor-controls">
           <ToggleGroup
             className="rl-interaction-modes"
-            legend="Interaction"
+            legend={t("interaction")}
             value={draft.interactionMode}
             items={[
-              { value: "view", label: "View", ref: modeView, action: "mode-view" },
-              { value: "crop", label: "Crop", ref: modeCrop, action: "mode-crop" },
-              { value: "mask", label: "Mask", ref: modeMask, action: "mode-mask" },
+              { value: "view", label: t("view"), ref: modeView, action: "mode-view" },
+              { value: "crop", label: t("crop"), ref: modeCrop, action: "mode-crop" },
+              { value: "mask", label: t("mask"), ref: modeMask, action: "mode-mask" },
             ]}
             onValueChange={(value) => options.onAction(`mode-${value}`)}
           />
           <fieldset className="rl-viewport-values" hidden aria-hidden="true">
-            <legend>Viewport</legend>
-            <Field label="Zoom">
+            <legend>{t("viewport")}</legend>
+            <Field label={t("zoom")}>
               <input
                 ref={field("zoom")}
                 data-field="zoom"
@@ -294,7 +301,7 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
                 onInput={input("zoom")}
               />
             </Field>
-            <Field label="Pan X">
+            <Field label={t("panX")}>
               <input
                 ref={field("pan-x")}
                 data-field="pan-x"
@@ -306,7 +313,7 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
                 onInput={input("pan-x")}
               />
             </Field>
-            <Field label="Pan Y">
+            <Field label={t("panY")}>
               <input
                 ref={field("pan-y")}
                 data-field="pan-y"
@@ -321,17 +328,17 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
           </fieldset>
           <fieldset>
             <legend>
-              Crop in source pixels <span ref={cropDimensions} data-crop-dimensions />
+              {t("cropInSourcePixels")} <span ref={cropDimensions} data-crop-dimensions />
             </legend>
-            <Field label="Aspect ratio" className="rl-control-wide">
+            <Field label={t("aspectRatio")} className="rl-control-wide">
               <select
                 ref={field("crop-aspect")}
                 data-field="crop-aspect"
                 defaultValue={draft.cropAspect}
                 onChange={change("crop-aspect")}
               >
-                <option value="custom">Custom</option>
-                <option value="original">Original</option>
+                <option value="custom">{t("custom")}</option>
+                <option value="original">{t("original")}</option>
                 <option value="1:1">1:1</option>
                 <option value="4:3">4:3</option>
                 <option value="3:4">3:4</option>
@@ -356,7 +363,7 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
             ))}
           </fieldset>
           <fieldset>
-            <legend>Keep mask</legend>
+            <legend>{t("keepMask")}</legend>
             <Button
               ref={erase}
               type="button"
@@ -364,7 +371,7 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
               aria-pressed="true"
               onClick={action("erase")}
             >
-              Erase
+              {t("erase")}
             </Button>
             <Button
               ref={restore}
@@ -373,9 +380,9 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
               aria-pressed="false"
               onClick={action("restore")}
             >
-              Restore
+              {t("restore")}
             </Button>
-            <Field label="Brush size">
+            <Field label={t("brushSize")}>
               <input
                 ref={field("brush-size")}
                 data-field="brush-size"
@@ -387,7 +394,7 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
                 onInput={input("brush-size")}
               />
             </Field>
-            <Field label="Opacity">
+            <Field label={t("opacity")}>
               <input
                 ref={field("brush-opacity")}
                 data-field="brush-opacity"
@@ -406,20 +413,20 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
               data-action="invert-mask"
               onClick={action("invert-mask")}
             >
-              Invert mask
+              {t("invertMask")}
             </Button>
           </fieldset>
           <fieldset>
-            <legend>Transform</legend>
+            <legend>{t("transform")}</legend>
             <Button type="button" data-action="flip-x" onClick={action("flip-x")}>
-              Flip horizontal
+              {t("flipHorizontal")}
             </Button>
             <Button type="button" data-action="flip-y" onClick={action("flip-y")}>
-              Flip vertical
+              {t("flipVertical")}
             </Button>
           </fieldset>
           <fieldset>
-            <legend>Background</legend>
+            <legend>{t("background")}</legend>
             <Button
               ref={removeBackground}
               type="button"
@@ -428,29 +435,28 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
               aria-pressed="false"
               onClick={action("remove-background")}
             >
-              Remove background (rembg)
+              {t("removeBackground")}
             </Button>
             <small ref={backgroundStatus} className="rl-editor-note" data-background-status>
-              Optional server dependency. Click to generate a preview; the first run may download a
-              model.
+              {t("backgroundStatus")}
             </small>
-            <Field label="Background mode">
+            <Field label={t("backgroundMode")}>
               <select
                 ref={field("background-mode")}
                 data-field="background-mode"
                 defaultValue={draft.backgroundMode}
                 onChange={change("background-mode")}
               >
-                <option value="transparent">Transparent</option>
-                <option value="solid">Solid color</option>
+                <option value="transparent">{t("transparent")}</option>
+                <option value="solid">{t("solidColor")}</option>
               </select>
             </Field>
-            <Field label="Background color">
+            <Field label={t("backgroundColor")}>
               <input
                 ref={field("background-color")}
                 data-field="background-color"
                 type="color"
-                aria-label="Background color"
+                aria-label={t("backgroundColor")}
                 defaultValue={draft.backgroundColor}
                 onChange={change("background-color")}
               />
@@ -459,17 +465,17 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
           <StatusMessage ref={error} status="error" className="rl-modal__error" hidden />
           <EditorFooter
             className="rl-image-editor-actions"
-            historyLabel="Image history"
+            historyLabel={t("imageHistory")}
             history={
               <>
                 <Button ref={undo} type="button" data-action="undo" onClick={action("undo")}>
-                  Undo
+                  {t("undo")}
                 </Button>
                 <Button ref={redo} type="button" data-action="redo" onClick={action("redo")}>
-                  Redo
+                  {t("redo")}
                 </Button>
                 <Button type="button" data-action="reset-view" onClick={action("reset-view")}>
-                  Reset view
+                  {t("resetView")}
                 </Button>
               </>
             }
@@ -482,12 +488,14 @@ export function ImageEditorDialog({ options }: { options: ImageEditorReactOption
                 hidden={!options.materialized}
                 onClick={action("restore-original")}
               >
-                Restore original
+                {t("restoreOriginal")}
               </Button>
             }
             applyRef={apply}
             onCancel={action("cancel")}
             onApply={action("apply")}
+            applyLabel={t("apply")}
+            cancelLabel={t("cancel")}
           />
         </div>
       </div>

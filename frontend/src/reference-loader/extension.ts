@@ -19,6 +19,7 @@ import {
 } from "./comfyui-lifecycle-bridge.ts"
 import { ReferenceLoaderController } from "./components/loader.ts"
 import type { ReferencePromptController } from "./components/prompt-editor.ts"
+import { bindComfyLocale } from "./i18n.ts"
 import {
   applyReferenceLoaderSnapshotSettings,
   captureReferenceLoaderSnapshotSettings,
@@ -61,6 +62,9 @@ export function registerReferenceLoader(
   registeredLifecycleBridge = lifecycle
   referenceApp.registerExtension({
     name: "reference-loader.extension",
+    init() {
+      bindComfyLocale(referenceApp)
+    },
     getCustomWidgets() {
       const createLoaderWidget = (
         node: ComfyNode,

@@ -15,6 +15,7 @@ import {
 import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
+import { translateRaw, useI18n } from "../i18n.ts"
 import { Button } from "../ui/button.tsx"
 import { StatusMessage } from "../ui/status-message.tsx"
 import {
@@ -32,6 +33,12 @@ const MEDIA_EXTENSIONS = {
   audio: new Set(["wav", "mp3", "flac", "ogg", "opus", "m4a", "aac", "mka"]),
   video: new Set(["mp4", "mkv", "webm", "mov", "avi"]),
 } as const
+
+function guideBadgeLabel(label: string, locale: Parameters<typeof translateRaw>[0]): string {
+  if (label.startsWith("Ref #")) return `${locale === "ko" ? "참조" : "Ref"}${label.slice(3)}`
+  if (label.startsWith("Guide #")) return `${locale === "ko" ? "Guide" : "Guide"}${label.slice(5)}`
+  return translateRaw(locale, label)
+}
 
 export interface LoaderReactActions extends H3WorkspaceActions {
   addFiles(files: readonly File[], replaceId?: string): Promise<boolean>
@@ -183,6 +190,7 @@ function fileInputHandler(
 }
 
 function SnapshotMenu({ actions }: { actions: LoaderReactActions }): ReactNode {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const wrapper = useRef<HTMLSpanElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -261,7 +269,7 @@ function SnapshotMenu({ actions }: { actions: LoaderReactActions }): ReactNode {
         }}
         onKeyDown={onTriggerKeyDown}
       >
-        Snapshot <span aria-hidden="true">▾</span>
+        {t("snapshot")} <span aria-hidden="true">▾</span>
       </Button>
       <span
         className="rl-snapshot__menu"
@@ -274,25 +282,25 @@ function SnapshotMenu({ actions }: { actions: LoaderReactActions }): ReactNode {
           type="button"
           role="menuitem"
           data-action="snapshot-save"
-          title="Save Loader and Prompt settings to JSON"
+          title={t("saveSnapshotTitle")}
           onClick={(event) => {
             stop(event)
             save()
           }}
         >
-          Save
+          {t("save")}
         </Button>
         <Button
           type="button"
           role="menuitem"
           data-action="snapshot-load"
-          title="Load Loader and Prompt settings from JSON"
+          title={t("loadSnapshotTitle")}
           onClick={(event) => {
             stop(event)
             load()
           }}
         >
-          Load
+          {t("load")}
         </Button>
       </span>
       <input
@@ -300,7 +308,7 @@ function SnapshotMenu({ actions }: { actions: LoaderReactActions }): ReactNode {
         type="file"
         accept="application/json,.json"
         data-snapshot-input=""
-        aria-label="Load snapshot"
+        aria-label={t("loadSnapshot")}
         hidden
         onChange={(event) => {
           stop(event)
@@ -320,6 +328,7 @@ function LoaderToolbar({
   snapshot: LoaderViewSnapshot
   actions: LoaderReactActions
 }): ReactNode {
+  const { t } = useI18n()
   const hasClearableState =
     Object.keys(snapshot.state.items).length > 0 ||
     snapshot.pending.length > 0 ||
@@ -335,20 +344,20 @@ function LoaderToolbar({
     <div className="rl-media-topbar">
       <header className="rl-media-header">
         <div>
-          <strong data-media-title>Media</strong>
-          <small>Add, edit, and order image, video, and audio references.</small>
+          <strong data-media-title>{t("mediaTitle")}</strong>
+          <small>{t("mediaSubtitle")}</small>
         </div>
         <span className="rl-toolbar__count">
-          {count} reference{count === 1 ? "" : "s"}
+          {count === 1 ? t("referenceCountOne") : t("referenceCountMany", { count })}
         </span>
       </header>
-      <section className="rl-toolbar" aria-label="Reference Loader toolbar">
+      <section className="rl-toolbar" aria-label={t("referenceLoaderToolbar")}>
         <label
           className="rl-button rl-button--primary rl-primary rl-file-button"
-          aria-label="Add media"
-          title="Add media"
+          aria-label={t("addMedia")}
+          title={t("addMedia")}
         >
-          Add
+          {t("add")}
           <input
             type="file"
             accept="image/*,audio/*,video/*"
@@ -360,51 +369,51 @@ function LoaderToolbar({
           type="button"
           data-action="undo"
           disabled={!snapshot.canUndo}
-          title="Undo (Ctrl+Z)"
+          title={t("undoShortcut")}
           onClick={(event) => {
             stop(event)
             actions.undo()
           }}
         >
-          ↶ Undo
+          ↶ {t("undo")}
         </Button>
         <Button
           type="button"
           data-action="redo"
           disabled={!snapshot.canRedo}
-          title="Redo (Ctrl+Shift+Z)"
+          title={t("redoShortcut")}
           onClick={(event) => {
             stop(event)
             actions.redo()
           }}
         >
-          ↷ Redo
+          ↷ {t("redo")}
         </Button>
         <Button
           type="button"
           className="rl-clear"
           data-action="clear"
           disabled={!hasClearableState}
-          title="Clear all references and Timeline Guides (Undo available)"
+          title={t("clearReferencesTitle")}
           onClick={(event) => {
             stop(event)
             actions.clear()
           }}
         >
-          Clear
+          {t("clear")}
         </Button>
         {snapshot.h3 ? (
           <Button
             type="button"
             data-action="toggle-h3-workspace"
             aria-expanded={!snapshot.h3.collapsed}
-            title="Open H3 Guide Timeline"
+            title={t("openTimelineTitle")}
             onClick={(event) => {
               stop(event)
               actions.h3ToggleCollapsed()
             }}
           >
-            Timeline
+            {t("openTimeline")}
           </Button>
         ) : null}
         <SnapshotMenu actions={actions} />
@@ -420,6 +429,7 @@ function CardMedia({
   card: LoaderCardView
   deferPreview: boolean
 }): ReactNode {
+  const { t } = useI18n()
   if ((card.channel === "image" || card.channel === "video") && card.previewUrl && !deferPreview) {
     return <img src={card.previewUrl} alt="" draggable={false} />
   }
@@ -428,7 +438,9 @@ function CardMedia({
       <>
         <canvas
           data-waveform-id={card.id}
-          aria-label={card.waveformStatus ? `${card.waveformStatus} waveform` : "Waveform"}
+          aria-label={
+            card.waveformStatus ? `${card.waveformStatus} ${t("waveform")}` : t("waveform")
+          }
         />
         {card.waveformStatus ? (
           <span className="rl-waveform-status" aria-hidden="true">
@@ -446,13 +458,14 @@ function CardMedia({
 }
 
 function LoadingState({ card }: { card: LoaderCardView }): ReactNode {
+  const { t } = useI18n()
   if (card.applyingEdit)
     return (
-      <span className="rl-card__loading-overlay" role="status" aria-label="Applying image edit">
+      <span className="rl-card__loading-overlay" role="status" aria-label={t("applyingImageEdit")}>
         <span className="rl-spinner" aria-hidden="true" />
       </span>
     )
-  if (card.loading) return <span className="rl-spinner" title="Loading" />
+  if (card.loading) return <span className="rl-spinner" title={t("loading")} />
   return null
 }
 
@@ -471,6 +484,9 @@ function MediaCard({
   actions: LoaderReactActions
   dragHandlers: DragHandlers
 }): ReactNode {
+  const { locale, t } = useI18n()
+  const mediaLabel =
+    card.channel === "image" ? t("image") : card.channel === "video" ? t("video") : t("audio")
   const mediaClass = `rl-card__media${card.channel === "image" && card.kind === "image" ? " is-transparent-preview" : ""}`
   const audioPlaybackDisabled =
     card.silentVideo || card.loading || card.playbackDuration === undefined
@@ -575,7 +591,7 @@ function MediaCard({
       onDragEnd={dragHandlers.onDragEnd}
       onDrop={(event) => dragHandlers.onDrop({ id: card.id, channel: card.channel }, event)}
     >
-      <div className={mediaClass} title="Double-click to edit" onDoubleClick={doubleClick}>
+      <div className={mediaClass} title={t("doubleClickToEdit")} onDoubleClick={doubleClick}>
         {card.channel === "video" && card.kind === "video" ? (
           <span data-video-preview-host="" aria-hidden="true" />
         ) : null}
@@ -583,19 +599,22 @@ function MediaCard({
         <div className="rl-media-badges">
           <span className={`rl-kind rl-kind--${card.kind}`}>{card.kind}</span>
           {card.outputIndex === undefined ? null : (
-            <span className="rl-output-index" title={`${card.channel} output #${card.outputIndex}`}>
+            <span
+              className="rl-output-index"
+              title={t("outputIndex", { channel: mediaLabel, index: card.outputIndex })}
+            >
               #{card.outputIndex}
             </span>
           )}
           {card.guideIndex === undefined ? null : (
-            <span className="rl-guide-index" title={`Guide #${card.guideIndex}`}>
+            <span className="rl-guide-index" title={t("guideIndex", { index: card.guideIndex })}>
               G#{card.guideIndex}
             </span>
           )}
           {card.megapixelLabel ? (
             <span
               className="rl-megapixels"
-              title={`Current source resolution: ${card.megapixelLabel}`}
+              title={t("currentSourceResolution", { value: card.megapixelLabel })}
             >
               {card.megapixelLabel}
             </span>
@@ -609,8 +628,8 @@ function MediaCard({
           type="button"
           className="rl-button--remove rl-remove"
           data-action="remove"
-          aria-label="Remove reference"
-          title="Delete reference"
+          aria-label={t("removeReference")}
+          title={t("deleteReference")}
           onClick={remove}
         >
           ×
@@ -619,13 +638,13 @@ function MediaCard({
       </div>
       <div className="rl-card__body">
         {card.guideLabels.length > 0 ? (
-          <div className="rl-h3-card-badges" aria-label="Guide roles">
+          <div className="rl-h3-card-badges" aria-label={t("guideRoles")}>
             {card.guideLabels.map((label) => (
               <span
                 key={label}
                 className={`rl-h3-card-badge${label.startsWith("Ref #") ? " is-reference" : label.startsWith("Guide #") ? " is-guide" : label === "Guide off" || label === "Paused" ? " is-paused" : label === "Start" || label === "End" || /^\d+f$/.test(label) ? " is-order" : " is-guide"}`}
               >
-                {label}
+                {guideBadgeLabel(label, locale)}
               </span>
             ))}
           </div>
@@ -636,20 +655,26 @@ function MediaCard({
             data-capture-wheel="true"
             rows={2}
             maxLength={16_384}
-            placeholder="Caption"
-            aria-label={`${card.channel === "image" ? "Image" : card.channel === "video" ? "Video" : "Audio"} caption`}
+            placeholder={t("caption")}
+            aria-label={t(
+              card.channel === "image"
+                ? "imageCaption"
+                : card.channel === "video"
+                  ? "videoCaption"
+                  : "audioCaption",
+            )}
             value={card.caption}
             onInput={captionInput}
           />
         ) : null}
         <div className="rl-card__actions">
-          <span className="rl-output-actions" role="group" aria-label="Output controls">
+          <span className="rl-output-actions" role="group" aria-label={t("outputControls")}>
             {card.channel === "image" && card.kind === "image" ? (
               <Button
                 type="button"
                 data-action="toggle-image"
                 className={`rl-button--output rl-button--card-action rl-output-button${card.imageEnabled ? " is-on" : ""}`}
-                aria-label="Toggle image output"
+                aria-label={t("toggleImageOutput")}
                 aria-pressed={card.imageEnabled}
                 onClick={toggle("image")}
               >
@@ -662,7 +687,7 @@ function MediaCard({
                   type="button"
                   data-action="toggle-video"
                   className={`rl-button--output rl-button--card-action rl-output-button${card.videoEnabled ? " is-on" : ""}`}
-                  aria-label="Toggle video output"
+                  aria-label={t("toggleVideoOutput")}
                   aria-pressed={card.videoEnabled}
                   onClick={toggle("video")}
                 >
@@ -672,14 +697,14 @@ function MediaCard({
                   type="button"
                   data-action="toggle-video-audio"
                   className={`rl-button--output rl-button--card-action rl-output-button${card.videoAudioEnabled ? " is-on" : ""}`}
-                  aria-label="Include embedded audio in video output"
+                  aria-label={t("includeEmbeddedAudio")}
                   aria-pressed={card.videoAudioEnabled}
                   title={
                     card.silentVideo
-                      ? "No embedded audio track"
+                      ? t("noEmbeddedAudio")
                       : card.videoAudioEnabled
-                        ? "VIDEO output includes embedded audio"
-                        : "VIDEO output is muted"
+                        ? t("videoIncludesAudio")
+                        : t("videoMuted")
                   }
                   disabled={card.silentVideo}
                   onClick={(event) => {
@@ -696,10 +721,10 @@ function MediaCard({
                 type="button"
                 data-action="toggle-audio"
                 className={`rl-button--output rl-button--card-action rl-output-button${card.audioEnabled ? " is-on" : ""}`}
-                aria-label="Toggle audio output"
+                aria-label={t("toggleAudioOutput")}
                 aria-pressed={card.audioEnabled}
                 disabled={card.silentVideo}
-                title={card.silentVideo ? "No embedded audio track" : undefined}
+                title={card.silentVideo ? t("noEmbeddedAudio") : undefined}
                 onClick={toggle("audio")}
               >
                 A
@@ -712,14 +737,14 @@ function MediaCard({
                 data-id={card.id}
                 data-h3-channel={card.guideChannel}
                 className={`rl-button--guide rl-button--card-action rl-output-button rl-guide-button${card.guideEnabled ? " is-on" : ""}`}
-                aria-label="Toggle Guide usage"
+                aria-label={t("toggleGuideUsage")}
                 aria-pressed={card.guideEnabled}
                 title={
                   card.guideEnabled
-                    ? "Disable Guide usage for this media"
+                    ? t("disableGuideUsage")
                     : card.guideConfigured
-                      ? "Enable saved Guide placements for this media"
-                      : "Enable Guide usage and choose a frame"
+                      ? t("enableSavedGuide")
+                      : t("enableGuideChooseFrame")
                 }
                 onClick={(event) => {
                   stop(event)
@@ -731,13 +756,13 @@ function MediaCard({
             ) : null}
           </span>
           <span className="rl-action-divider" aria-hidden="true" />
-          <span className="rl-order-actions" role="group" aria-label="Reorder controls">
+          <span className="rl-order-actions" role="group" aria-label={t("reorderControls")}>
             <Button
               type="button"
               className="rl-button--card-action"
               data-action="move-back"
-              aria-label="Move earlier"
-              title="Move earlier (Alt+ArrowLeft)"
+              aria-label={t("moveEarlier")}
+              title={`${t("moveEarlier")} (Alt+ArrowLeft)`}
               onClick={(event) => {
                 stop(event)
                 actions.move(card.id, card.channel, -1)
@@ -749,8 +774,8 @@ function MediaCard({
               type="button"
               className="rl-button--card-action"
               data-action="move-forward"
-              aria-label="Move later"
-              title="Move later (Alt+ArrowRight)"
+              aria-label={t("moveLater")}
+              title={`${t("moveLater")} (Alt+ArrowRight)`}
               onClick={(event) => {
                 stop(event)
                 actions.move(card.id, card.channel, 1)
@@ -760,20 +785,20 @@ function MediaCard({
             </Button>
           </span>
           <span className="rl-actions-spacer" aria-hidden="true" />
-          <span className="rl-media-actions" role="group" aria-label="Media actions">
+          <span className="rl-media-actions" role="group" aria-label={t("mediaActions")}>
             {card.channel === "video" && card.kind === "video" ? (
               <Button
                 type="button"
                 data-action="preview-video"
                 data-playback-owner={`grid:${card.id}`}
                 className="rl-button--preview rl-button--card-action rl-preview-media"
-                aria-label={`Play video preview ${card.videoAudioEnabled ? "with audio" : "muted"}`}
+                aria-label={card.videoAudioEnabled ? t("playVideoWithAudio") : t("playVideoMuted")}
                 title={
                   card.loading || card.playbackDuration === undefined
-                    ? "Loading video preview"
+                    ? t("loadingVideoPreview")
                     : card.videoAudioEnabled
-                      ? "Play trimmed video preview with audio"
-                      : "Play trimmed muted video preview"
+                      ? t("playTrimmedVideoWithAudio")
+                      : t("playTrimmedVideoMuted")
                 }
                 disabled={videoPlaybackDisabled}
                 onClick={preview("video")}
@@ -787,13 +812,13 @@ function MediaCard({
                 data-action="preview-audio"
                 data-playback-owner={`grid:${card.id}`}
                 className="rl-button--preview rl-button--card-action rl-preview-media"
-                aria-label="Play audio preview"
+                aria-label={t("playAudioPreview")}
                 title={
                   card.silentVideo || card.loading || card.playbackDuration === undefined
                     ? card.silentVideo
-                      ? "No embedded audio track"
-                      : "Loading audio preview"
-                    : "Play trimmed audio preview"
+                      ? t("noEmbeddedAudio")
+                      : t("loadingAudioPreview")
+                    : t("playTrimmedAudioPreview")
                 }
                 disabled={audioPlaybackDisabled}
                 onClick={preview("audio")}
@@ -809,8 +834,8 @@ function MediaCard({
                   data-action="edit-h3-guide"
                   data-id={card.id}
                   data-h3-channel={card.guideChannel}
-                  aria-label="Edit Guide placements"
-                  title="Edit Guide placements"
+                  aria-label={t("editGuidePlacements")}
+                  title={t("editGuidePlacements")}
                   onClick={(event) => {
                     stop(event)
                     actions.h3OpenMedia(card.guideMediaId ?? card.id, card.guideChannel!)
@@ -827,8 +852,8 @@ function MediaCard({
                 type="button"
                 className="rl-button--edit rl-button--card-action rl-edit-button"
                 data-action="edit"
-                aria-label="Edit reference"
-                title="Edit reference"
+                aria-label={t("editReference")}
+                title={t("editReference")}
                 disabled={card.applyingEdit}
                 onClick={edit}
               >
@@ -866,19 +891,32 @@ function MediaChannel({
   horizontalCards: boolean
   deferPreview: boolean
 }): ReactNode {
+  const { t } = useI18n()
+  const label =
+    channel.channel === "image"
+      ? t("images")
+      : channel.channel === "video"
+        ? t("videos")
+        : t("audios")
+  const description =
+    channel.channel === "image"
+      ? t("imageDescription")
+      : channel.channel === "video"
+        ? t("videoDescription")
+        : t("audioDescription")
   const accepts = `${channel.channel}/*`
   return (
     <section
       className="rl-channel"
       data-channel={channel.channel}
-      aria-label={`${channel.label} references`}
+      aria-label={t("referencesLabel", { label })}
     >
       <header>
         <div>
-          <strong>{channel.label}</strong>
+          <strong>{label}</strong>
           <span>{channel.count}</span>
         </div>
-        <small>{channel.description}</small>
+        <small>{description}</small>
       </header>
       <div
         className={`rl-card-grid${horizontalCards ? " rl-card-grid--horizontal" : ""}${channel.cards.length === 0 ? " is-empty" : ""}`}
@@ -900,18 +938,40 @@ function MediaChannel({
         <label
           className={`rl-grid-add${channel.hasOpenCell ? " is-tile" : " is-wide"}`}
           data-media-kind={channel.channel}
-          title={`Add ${channel.label.toLowerCase()}`}
+          title={t(
+            channel.channel === "image"
+              ? "addImage"
+              : channel.channel === "video"
+                ? "addVideo"
+                : "addAudio",
+          )}
         >
           <span className="rl-grid-add__icon" aria-hidden="true">
             +
           </span>
-          {channel.hasOpenCell ? null : <span>Add {channel.label.toLowerCase()}</span>}
+          {channel.hasOpenCell ? null : (
+            <span>
+              {t(
+                channel.channel === "image"
+                  ? "addImage"
+                  : channel.channel === "video"
+                    ? "addVideo"
+                    : "addAudio",
+              )}
+            </span>
+          )}
           <input
             type="file"
             accept={accepts}
             multiple
             data-upload-kind={channel.channel}
-            aria-label={`Add ${channel.label.toLowerCase()}`}
+            aria-label={t(
+              channel.channel === "image"
+                ? "addImage"
+                : channel.channel === "video"
+                  ? "addVideo"
+                  : "addAudio",
+            )}
             onChange={fileInputHandler(actions, channel.channel)}
           />
         </label>
@@ -921,14 +981,15 @@ function MediaChannel({
 }
 
 function PendingUploads({ snapshot }: { snapshot: LoaderViewSnapshot }): ReactNode {
+  const { t } = useI18n()
   if (snapshot.pending.length === 0) return null
   return (
-    <div className="rl-pending" aria-label="Pending uploads">
+    <div className="rl-pending" aria-label={t("pendingUploads")}>
       {snapshot.pending.map((pending) => (
         <div key={pending.id}>
           <span className="rl-spinner" aria-hidden="true" />
           <span>{pending.filename}</span>
-          <small>Uploading…</small>
+          <small>{t("uploading")}</small>
         </div>
       ))}
     </div>
@@ -944,6 +1005,7 @@ function SingleImagePanel({
   actions: LoaderReactActions
   surface: HTMLElement
 }): ReactNode {
+  const { locale, t } = useI18n()
   const imageChannel = projectLoaderChannels(snapshot).find(
     (channel) => channel.channel === "image",
   )
@@ -976,11 +1038,11 @@ function SingleImagePanel({
         <img src={previewUrl} alt="" draggable={false} />
       ) : (
         <span className="rl-single-image-placeholder">
-          {loading ? "Uploading…" : "No image selected"}
+          {loading ? t("uploading") : t("chooseImage")}
         </span>
       )}
       {loading ? (
-        <span className="rl-card__loading-overlay" role="status" aria-label="Loading image">
+        <span className="rl-card__loading-overlay" role="status" aria-label={t("loading")}>
           <span className="rl-spinner" aria-hidden="true" />
         </span>
       ) : null}
@@ -1008,7 +1070,7 @@ function SingleImagePanel({
   return (
     <section
       className="rl-single-image-panel"
-      aria-label="Reference image"
+      aria-label={t("referenceImage")}
       onDragOver={(event) => {
         const kinds = mediaDropKinds(event.dataTransfer)
         if (!hasFilePayload(event.dataTransfer) || !actions.acceptsFileDrop(event.dataTransfer)) {
@@ -1027,9 +1089,13 @@ function SingleImagePanel({
       onDrop={dropFiles}
     >
       <div className="rl-single-image-controls">
-        <label className="rl-single-image-select" aria-label="Choose image" title="Choose image">
-          <span className="rl-single-image-select__value" title={filename ?? "Choose image"}>
-            {filename ?? "Choose image"}
+        <label
+          className="rl-single-image-select"
+          aria-label={t("chooseImage")}
+          title={t("chooseImage")}
+        >
+          <span className="rl-single-image-select__value" title={filename ?? t("chooseImage")}>
+            {filename ?? t("chooseImage")}
           </span>
           <span className="rl-single-image-select__arrow" aria-hidden="true">
             ▾
@@ -1037,7 +1103,7 @@ function SingleImagePanel({
           <input
             type="file"
             data-upload-kind="image"
-            aria-label="Choose image"
+            aria-label={t("chooseImage")}
             onChange={chooseFile}
           />
         </label>
@@ -1050,7 +1116,7 @@ function SingleImagePanel({
           disabled={!hasImage || card?.applyingEdit}
           onClick={edit}
         >
-          Edit
+          {t("edit")}
         </Button>
       </div>
       {card ? (
@@ -1064,7 +1130,7 @@ function SingleImagePanel({
         >
           <div
             className="rl-card__media rl-single-image-preview is-transparent-preview"
-            title="Double-click to edit"
+            title={t("doubleClickToEdit")}
             onDoubleClick={doubleClick}
           >
             {preview}
@@ -1079,7 +1145,7 @@ function SingleImagePanel({
         <div
           className={`rl-single-image-preview${loading ? " is-loading" : " is-empty"}`}
           data-drop-zone="image"
-          title="Double-click to choose an image"
+          title={t("chooseImage")}
           onDoubleClick={doubleClick}
         >
           {preview}
@@ -1087,7 +1153,7 @@ function SingleImagePanel({
       )}
       {snapshot.status ? (
         <p className="rl-status rl-single-image-status" role="status">
-          {snapshot.status}
+          {translateRaw(locale, snapshot.status)}
         </p>
       ) : null}
     </section>
@@ -1104,6 +1170,7 @@ function ReferenceLoaderReactRoot({
   onCommit,
 }: LoaderReactOptions): ReactNode {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const { locale } = useI18n()
   const [drag, setDrag] = useState<DragInfo>()
   const [dropTarget, setDropTargetState] = useState<DragInfo>()
   const dragRef = useRef<DragInfo | undefined>(undefined)
@@ -1349,7 +1416,7 @@ function ReferenceLoaderReactRoot({
         <div data-loader-content="">
           <LoaderToolbar snapshot={snapshot} actions={actions} />
           <p className="rl-status" role="status">
-            {snapshot.status}
+            {translateRaw(locale, snapshot.status)}
           </p>
           <PendingUploads snapshot={snapshot} />
           <div className="rl-channels">

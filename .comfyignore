@@ -13,6 +13,8 @@
 !/dist/**
 !/presets/
 !/presets/**
+!/locales/
+!/locales/**
 
 # Distribution metadata
 !/LICENSE

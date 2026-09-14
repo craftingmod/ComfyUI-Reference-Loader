@@ -17,6 +17,7 @@ import {
   type H3GuideChannel,
   type H3TimelinePlacement,
 } from "../h3-media-guides.ts"
+import { translateRaw, useI18n } from "../i18n.ts"
 import type { MediaItem } from "../types.ts"
 import { Button } from "../ui/button.tsx"
 import { StatusMessage } from "../ui/status-message.tsx"
@@ -68,19 +69,16 @@ function itemForMediaId(snapshot: LoaderViewSnapshot, mediaId: string): MediaIte
   return snapshot.state.items[itemId]
 }
 
-function itemLabel(item: MediaItem | undefined): string {
+function itemLabel(item: MediaItem | undefined, missingLabel = "Missing source"): string {
   return (
-    item?.sourceFilename ||
-    item?.source.path.split("/").pop() ||
-    item?.source.path ||
-    "Missing source"
+    item?.sourceFilename || item?.source.path.split("/").pop() || item?.source.path || missingLabel
   )
 }
 
-function frameLabel(frame: number, fps: number): string {
+function frameLabel(frame: number, fps: number, unspecified: string): string {
   return Number.isSafeInteger(frame) && frame >= 0
     ? `${frame}f · ${(frame / fps).toFixed(3)}s`
-    : "Unspecified frame"
+    : unspecified
 }
 
 function frameInputValue(frameIndex: number): string {
@@ -98,9 +96,11 @@ function sourceLabel(
   snapshot: LoaderViewSnapshot,
   mediaId: string | null | undefined,
   channel: H3GuideChannel,
+  noneLabel: string,
+  missingLabel: string,
 ): string {
-  if (!mediaId) return "None"
-  return itemLabel(itemForMediaId(snapshot, channel === "audio" ? mediaId : mediaId))
+  if (!mediaId) return noneLabel
+  return itemLabel(itemForMediaId(snapshot, channel === "audio" ? mediaId : mediaId), missingLabel)
 }
 
 function GuideList({
@@ -114,6 +114,7 @@ function GuideList({
   actions: H3WorkspaceActions
   fps: number
 }): ReactNode {
+  const { t } = useI18n()
   const marks = timelineMarks(
     { ...snapshot.state, h3Timeline: h3.timeline },
     snapshot.runtime,
@@ -130,8 +131,7 @@ function GuideList({
       return frameDifference || left.index - right.index
     })
     .map(({ mark }) => mark)
-  if (marks.length === 0)
-    return <p className="rl-h3-workspace__empty">No Guides or Shots yet. Choose a Media source.</p>
+  if (marks.length === 0) return <p className="rl-h3-workspace__empty">{t("noGuides")}</p>
 
   const selectedGuideId = h3.selection?.kind === "guide" ? h3.selection.guideId : undefined
 
@@ -184,40 +184,52 @@ function GuideList({
               <span className="rl-h3-workspace__list-copy">
                 <strong>
                   {mark.shotTag
-                    ? `Shot #${mark.shotTag}`
+                    ? `${t("shot")} #${mark.shotTag}`
                     : mark.placement.kind === "start"
-                      ? "Start"
+                      ? t("start")
                       : mark.placement.kind === "end"
-                        ? "End"
-                        : `Guide ${mark.placement.guideId ?? ""}`}
+                        ? t("end")
+                        : `${t("guide")} ${mark.placement.guideId ?? ""}`}
                 </strong>
                 <small>
                   {mark.placement.kind === "end"
-                    ? "final output frame"
-                    : frameLabel(mark.frame, fps)}
-                  {mark.disabled ? " · paused" : ""}
-                  {mark.incomplete ? " · Missing source" : ""}
+                    ? t("finalOutputFrame")
+                    : frameLabel(mark.frame, fps, t("frameUnspecified"))}
+                  {mark.disabled ? ` · ${t("paused")}` : ""}
+                  {mark.incomplete ? ` · ${t("missingSource")}` : ""}
                 </small>
               </span>
               <span className="rl-h3-workspace__list-source">
                 {mark.shotTag
                   ? mark.label
                   : mark.channel === "audio"
-                    ? sourceLabel(snapshot, mark.placement.audioId, "audio")
-                    : sourceLabel(snapshot, mark.placement.visualId, "visual")}
+                    ? sourceLabel(
+                        snapshot,
+                        mark.placement.audioId,
+                        "audio",
+                        t("none"),
+                        t("missingSource"),
+                      )
+                    : sourceLabel(
+                        snapshot,
+                        mark.placement.visualId,
+                        "visual",
+                        t("none"),
+                        t("missingSource"),
+                      )}
               </span>
             </Button>
             {shotControl ? (
               <H3FrameControl
                 id={mark.shotTag!}
                 frameIndex={mark.frame}
-                label={`Shot #${mark.shotTag}`}
-                removeLabel="Remove Shot"
-                frameAriaLabel="Shot frame"
+                label={`${t("shot")} #${mark.shotTag}`}
+                removeLabel={`${t("remove")} ${t("shot")}`}
+                frameAriaLabel={t("shotFrame")}
                 fps={fps}
                 shortcuts={[
-                  { label: "Start", frame: 0 },
-                  { label: "End", frame: Math.max(0, snapshot.display.h3TotalFrames - 1) },
+                  { label: t("start"), frame: 0 },
+                  { label: t("end"), frame: Math.max(0, snapshot.display.h3TotalFrames - 1) },
                 ]}
                 compact
                 onInput={() => undefined}
@@ -241,6 +253,8 @@ function guideEditorProps(
   h3: H3WorkspaceView,
   actions: H3WorkspaceActions,
   fps: number,
+  noneLabel: string,
+  missingLabel: string,
 ): H3GuideEditorProps | undefined {
   const editor = h3.editor
   if (!editor?.mediaId) return undefined
@@ -257,12 +271,18 @@ function guideEditorProps(
         id: guide.id,
         frameIndex: nativeToTimelineFrame(guide.frameIndex, fps),
         pairedLabel: pairedId
-          ? sourceLabel(snapshot, pairedId, editor.channel === "visual" ? "audio" : "visual")
+          ? sourceLabel(
+              snapshot,
+              pairedId,
+              editor.channel === "visual" ? "audio" : "visual",
+              noneLabel,
+              missingLabel,
+            )
           : undefined,
       }
     })
   return {
-    sourceLabel: itemLabel(item),
+    sourceLabel: itemLabel(item, missingLabel),
     sourcePreviewUrl:
       editor.channel === "visual" ? snapshot.runtime.get(item.id)?.previewUrl : undefined,
     sourceKind: editor.channel === "visual" ? "image" : "audio",
@@ -306,9 +326,9 @@ function SourceInspector({
   actions: H3WorkspaceActions
   fps: number
 }): ReactNode {
-  const props = guideEditorProps(snapshot, h3, actions, fps)
-  if (!props)
-    return <p className="rl-h3-workspace__empty">The selected Media source is unavailable.</p>
+  const { t } = useI18n()
+  const props = guideEditorProps(snapshot, h3, actions, fps, t("none"), t("missingSource"))
+  if (!props) return <p className="rl-h3-workspace__empty">{t("selectedSourceUnavailable")}</p>
   return (
     <H3GuideInspector
       key={`source:${h3.sessionId}`}
@@ -330,6 +350,7 @@ function RecoveryInspector({
   actions: H3WorkspaceActions
   fps: number
 }): ReactNode {
+  const { locale, t } = useI18n()
   const editor = h3.editor
   const guideId = editor?.selectedGuideId ?? editor?.ownedGuideIds[0]
   const guide = guideId ? h3.timeline.guides.find((entry) => entry.id === guideId) : undefined
@@ -349,7 +370,7 @@ function RecoveryInspector({
       committed.current = frameValue
     }
   }, [frameValue, frame, guideId])
-  if (!guide) return <p className="rl-h3-workspace__empty">No incomplete Guide selected.</p>
+  if (!guide) return <p className="rl-h3-workspace__empty">{t("noIncompleteGuide")}</p>
   const images = snapshot.state.imageOrder
     .map((id) => snapshot.state.items[id])
     .filter((item): item is Extract<MediaItem, { kind: "image" }> => item?.kind === "image")
@@ -370,16 +391,14 @@ function RecoveryInspector({
       data-h3-editor=""
       data-h3-inspector=""
       data-h3-react-surface=""
-      aria-label="Recover incomplete Timeline Guide"
+      aria-label={t("recoverIncompleteGuide")}
     >
       <header className="rl-h3-editor__header">
-        <strong className="rl-h3-editor__title">Recover incomplete Guide</strong>
+        <strong className="rl-h3-editor__title">{t("recoverIncompleteGuideTitle")}</strong>
       </header>
-      <p className="rl-h3-editor__hint">
-        Choose a missing Image or standalone Audio source, or remove the Guide.
-      </p>
+      <p className="rl-h3-editor__hint">{t("recoverIncompleteGuideHint")}</p>
       <label className="rl-h3-guide-details__frame">
-        <span>Frame</span>
+        <span>{t("frame")}</span>
         <input
           type="number"
           min="0"
@@ -408,40 +427,40 @@ function RecoveryInspector({
         />
       </label>
       <label>
-        <span>Visual source</span>
+        <span>{t("visualSource")}</span>
         <select
           data-h3-draft-field="visual"
           data-h3-guide-id={guide.id}
           value={guide.visualId ?? ""}
           onChange={(event) => selectSource("visual", event)}
         >
-          <option value="">None</option>
+          <option value="">{t("none")}</option>
           {images.map((item) => (
             <option key={item.id} value={item.id}>
-              Image · {itemLabel(item)}
+              {t("image")} · {itemLabel(item, t("missingSource"))}
             </option>
           ))}
         </select>
       </label>
       <label>
-        <span>Audio source</span>
+        <span>{t("audioSource")}</span>
         <select
           data-h3-draft-field="audio"
           data-h3-guide-id={guide.id}
           value={guide.audioId ?? ""}
           onChange={(event) => selectSource("audio", event)}
         >
-          <option value="">None</option>
+          <option value="">{t("none")}</option>
           {audio.map((item) => (
             <option key={item.id} value={timelineMediaId(item, "audio")}>
-              Audio · {itemLabel(item)}
+              {t("audio")} · {itemLabel(item, t("missingSource"))}
             </option>
           ))}
         </select>
       </label>
       {h3.issue ? (
         <StatusMessage status="error" className="rl-h3-editor__error">
-          {h3.issue}
+          {translateRaw(locale, h3.issue)}
         </StatusMessage>
       ) : null}
       <Button
@@ -449,13 +468,14 @@ function RecoveryInspector({
         className="rl-h3-guide-details__remove"
         onClick={() => actions.h3RemovePlacement(guide.id)}
       >
-        Delete incomplete Guide
+        {t("deleteIncompleteGuide")}
       </Button>
     </section>
   )
 }
 
 export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): ReactNode {
+  const { locale, t } = useI18n()
   const h3 = snapshot.h3
   const [mode, setMode] = useState<"timeline" | "list">("timeline")
   const pageId = useId()
@@ -465,14 +485,14 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
   const frameCount = snapshot.display.h3TotalFrames
   const count = Object.keys(snapshot.state.items).length
   const status = h3.issue
-    ? h3.issue
+    ? translateRaw(locale, h3.issue)
     : h3.shotDirty
-      ? "Shot timing is unsaved"
+      ? t("shotTimingUnsaved")
       : h3.dirty
-        ? "Unsaved changes"
+        ? t("unsavedChanges")
         : h3.timeline.enabled
-          ? "Ready"
-          : "Guides are off"
+          ? t("ready")
+          : t("guidesOff")
   return (
     <div className="rl-h3-workspace-container">
       <section
@@ -480,15 +500,15 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
         data-h3-root=""
         data-h3-workspace=""
         data-h3-react-surface=""
-        aria-label="H3 Guide Timeline workspace"
+        aria-label={t("h3Workspace")}
       >
         <header className="rl-h3-workspace__header">
           <Button
             type="button"
             className="rl-h3-workspace__heading"
             data-h3-action="collapse"
-            aria-label={h3.collapsed ? "Expand H3 Timeline" : "Collapse H3 Timeline"}
-            title={h3.collapsed ? "Expand H3 Timeline" : "Collapse H3 Timeline"}
+            aria-label={h3.collapsed ? t("expandTimeline") : t("collapseTimeline")}
+            title={h3.collapsed ? t("expandTimeline") : t("collapseTimeline")}
             aria-expanded={!h3.collapsed}
             aria-controls={pageId}
             onClick={(event) => {
@@ -496,14 +516,14 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
               actions.h3ToggleCollapsed()
             }}
           >
-            <strong>Timeline Guides</strong>
+            <strong>{t("timelineGuides")}</strong>
             <small
               className={!h3.collapsed ? "rl-h3-workspace__summary" : undefined}
-              title={h3.collapsed ? "Open H3 Timeline Guides" : `${fps} FPS · ${frameCount} frames`}
+              title={h3.collapsed ? t("openTimelineTitle") : `${fps} FPS · ${frameCount} frames`}
             >
               {h3.collapsed
-                ? "Assign image/audio guides and output-frame placements."
-                : `Media (Image/Video/Audio) · ${count} media ~ ${frameCount} frames · ${fps} FPS`}
+                ? t("h3Subtitle")
+                : `${t("mediaTitle")} (${t("image")}/${t("video")}/${t("audio")}) · ${count} media ~ ${frameCount} frames · ${fps} FPS`}
             </small>
           </Button>
           <div className="rl-h3-workspace__tools">
@@ -511,11 +531,11 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
               <ToggleGroup
                 value={mode}
                 items={[
-                  { value: "timeline", label: "Timeline" },
-                  { value: "list", label: "List" },
+                  { value: "timeline", label: t("openTimeline") },
+                  { value: "list", label: t("listView") },
                 ]}
                 onValueChange={setMode}
-                ariaLabel="Timeline view"
+                ariaLabel={t("timelineView")}
                 className="rl-h3-workspace__view-group"
               />
             </span>
@@ -523,15 +543,15 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
               type="button"
               className={`rl-h3-workspace__status${h3.timeline.enabled ? " is-on" : ""}`}
               data-h3-action="toggle"
-              aria-label="Toggle Guides"
-              title="Toggle Guides"
+              aria-label={t("toggleGuideUsage")}
+              title={t("toggleGuideUsage")}
               aria-pressed={h3.timeline.enabled}
               onClick={(event) => {
                 event.stopPropagation()
                 actions.h3Toggle()
               }}
             >
-              {h3.timeline.enabled ? "ON" : "OFF"}
+              {h3.timeline.enabled ? t("on") : t("off")}
             </Button>
           </div>
         </header>
@@ -574,7 +594,7 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
             disabled={!h3.editor && !h3.dirty}
             onClick={() => actions.h3Cancel()}
           >
-            Cancel
+            {t("cancel")}
           </Button>
           <Button
             type="button"
@@ -584,7 +604,7 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
             disabled={!h3.canApply}
             onClick={() => actions.h3Apply()}
           >
-            Apply
+            {t("apply")}
           </Button>
         </footer>
       </section>

@@ -37,6 +37,15 @@ export type DomWidgetOptions = Omit<DOMWidgetOptions<string>, "setValue"> & {
 
 type ComfyGraph = Pick<NonNullable<OfficialComfyNode["graph"]>, "afterChange" | "beforeChange">
 
+export interface ComfyLocaleAppLike {
+  extensionManager?: {
+    setting: { get<T = unknown>(id: string): T | undefined }
+  }
+  ui?: {
+    settings: Pick<EventTarget, "addEventListener" | "removeEventListener">
+  }
+}
+
 export interface ComfyNode {
   addDOMWidget(
     name: string,
@@ -73,12 +82,15 @@ type ComfyWidgetConstructor = (
 
 export interface ComfyExtension {
   name: OfficialComfyExtension["name"]
+  init?(app: ComfyAppLike): void | Promise<void>
+  setup?(app: ComfyAppLike): void | Promise<void>
   getCustomWidgets?(): Record<string, ComfyWidgetConstructor>
   nodeCreated?(node: ComfyNode, app: ComfyAppLike): void
   loadedGraphNode?(node: ComfyNode, app: ComfyAppLike): void
 }
 
-export type ComfyAppLike = Omit<Pick<ComfyApp, "registerExtension">, "registerExtension"> & {
-  canvas?: Pick<ComfyApp["canvas"], "emitAfterChange" | "emitBeforeChange">
-  registerExtension(extension: ComfyExtension): void
-}
+export type ComfyAppLike = ComfyLocaleAppLike &
+  Omit<Pick<ComfyApp, "registerExtension">, "registerExtension"> & {
+    canvas?: Pick<ComfyApp["canvas"], "emitAfterChange" | "emitBeforeChange">
+    registerExtension(extension: ComfyExtension): void
+  }

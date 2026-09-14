@@ -1,4 +1,5 @@
 import { AudioPreviewPlayer } from "./audio-preview-player.ts"
+import { localeStore, t, type Locale } from "./i18n.ts"
 import type { ItemRuntime, MediaItem } from "./types.ts"
 import { isAudioItem } from "./types.ts"
 import { VideoPreviewPlayer } from "./video-preview-player.ts"
@@ -57,6 +58,8 @@ export class PreviewSurfaceBridge {
   #waveformResizeObserver: ResizeObserver | undefined
   #unsubscribeAudioPreview: (() => void) | undefined
   #unsubscribeVideoPreview: (() => void) | undefined
+  #unsubscribeLocale: (() => void) | undefined
+  #locale: Locale = localeStore.getSnapshot()
   #destroyed = false
 
   constructor(host: PreviewSurfaceHost) {
@@ -67,6 +70,10 @@ export class PreviewSurfaceBridge {
     }
     this.#unsubscribeAudioPreview = this.#audioPreview.subscribe(() => this.#syncPlaybackUi())
     this.#unsubscribeVideoPreview = this.#videoPreview.subscribe(() => this.#syncPlaybackUi())
+    this.#unsubscribeLocale = localeStore.subscribe(() => {
+      this.#locale = localeStore.getSnapshot()
+      this.#syncPlaybackUi()
+    })
   }
 
   getAudioEditorPlayback(): AudioPreviewPlayer {
@@ -114,8 +121,10 @@ export class PreviewSurfaceBridge {
     this.#waveformResizeObserver = undefined
     this.#unsubscribeAudioPreview?.()
     this.#unsubscribeVideoPreview?.()
+    this.#unsubscribeLocale?.()
     this.#unsubscribeAudioPreview = undefined
     this.#unsubscribeVideoPreview = undefined
+    this.#unsubscribeLocale = undefined
     this.#audioPreview.destroy()
     this.#videoPreview.destroy()
   }
@@ -143,8 +152,13 @@ export class PreviewSurfaceBridge {
         (audioSnapshot.status === "playing" || audioSnapshot.status === "loading")
       button.textContent = active ? "■" : "▶"
       button.classList.toggle("is-playing", active)
-      button.setAttribute("aria-label", `${active ? "Stop" : "Play"} audio preview`)
-      button.title = active ? "Stop audio preview" : "Play trimmed audio preview"
+      button.setAttribute(
+        "aria-label",
+        active ? t(this.#locale, "stopAudio") : t(this.#locale, "playAudioPreview"),
+      )
+      button.title = active
+        ? t(this.#locale, "stopAudio")
+        : t(this.#locale, "playTrimmedAudioPreview")
     }
 
     const videoSnapshot = this.#videoPreview.snapshot
@@ -164,13 +178,17 @@ export class PreviewSurfaceBridge {
       const withAudio = item?.kind === "video" && item.videoAudioEnabled
       button.setAttribute(
         "aria-label",
-        `${active ? "Stop" : "Play"} video preview ${withAudio ? "with audio" : "muted"}`,
+        active
+          ? t(this.#locale, "stopVideo")
+          : withAudio
+            ? t(this.#locale, "playVideoWithAudio")
+            : t(this.#locale, "playVideoMuted"),
       )
       button.title = active
-        ? "Stop video preview"
+        ? t(this.#locale, "stopVideo")
         : withAudio
-          ? "Play trimmed video preview with audio"
-          : "Play trimmed muted video preview"
+          ? t(this.#locale, "playTrimmedVideoWithAudio")
+          : t(this.#locale, "playTrimmedVideoMuted")
       if (active)
         activeMedia =
           button.closest<HTMLElement>(".rl-card")?.querySelector<HTMLElement>(".rl-card__media") ??

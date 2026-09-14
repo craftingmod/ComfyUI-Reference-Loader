@@ -13,6 +13,7 @@ import {
 import { createPortal, flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 
+import { useI18n } from "../i18n.ts"
 import { Button } from "../ui/button.tsx"
 import { sectionColor, SHOT_COLOR, subjectColor } from "./prompt-dom.ts"
 import type {
@@ -196,6 +197,7 @@ function PromptV6Editor({
   ariaLabel?: string
   sessionScope: string
 }): ReactNode {
+  const { t } = useI18n()
   const releaseRef = useRef<(() => void) | undefined>(undefined)
   const onReady = useCallback(
     (handle: PromptRichEditorHandle | undefined): void => {
@@ -214,7 +216,10 @@ function PromptV6Editor({
         onChange={actions.applyPromptBodyEdit}
         readOnly={disabled}
         ariaLabel={
-          ariaLabel ?? (target.type === "section" ? `${target.title} text` : "Prompt text")
+          ariaLabel ??
+          (target.type === "section"
+            ? t("promptSectionText", { title: target.title })
+            : t("promptText"))
         }
         placeholder={helperText ? undefined : placeholder}
         className={className}
@@ -252,6 +257,7 @@ function PromptToolbar({
   snapshot: PromptViewSnapshot
   actions: PromptReactActions
 }): ReactNode {
+  const { t } = useI18n()
   const raw = snapshot.view === "raw"
   return (
     <header className="rl-prompt-toolbar">
@@ -261,7 +267,7 @@ function PromptToolbar({
           <span
             className="rl-prompt-preset"
             data-prompt-preset=""
-            title={`Preset: ${snapshot.presetLabel} · ${snapshot.presetDescription}`}
+            title={`${t("preset")}: ${snapshot.presetLabel} · ${snapshot.presetDescription}`}
           >
             {snapshot.presetLabel}
           </span>
@@ -272,20 +278,20 @@ function PromptToolbar({
         <Button
           type="button"
           data-prompt-action="copy-source"
-          title="Copy source with #tags"
+          title={t("copySourceTitle")}
           disabled={snapshot.sourceText.length === 0}
           onClick={() => void actions.copySource()}
         >
-          Copy source
+          {t("copySource")}
         </Button>
         <Button
           type="button"
           data-prompt-action="copy-compiled"
-          title="Copy compiled model prompt"
+          title={t("copyCompiledTitle")}
           disabled={snapshot.compiledText.length === 0}
           onClick={() => void actions.copyCompiled()}
         >
-          Copy compiled
+          {t("copyCompiled")}
         </Button>
         <Button
           type="button"
@@ -320,6 +326,7 @@ function PromptV6RawEditor({
   snapshot: PromptViewSnapshot
   actions: PromptReactActions
 }): ReactNode {
+  const { t } = useI18n()
   return (
     <textarea
       className="rl-prompt-editor rl-prompt-editor--plain is-raw"
@@ -328,7 +335,7 @@ function PromptV6RawEditor({
       data-prompt-raw-editor=""
       data-capture-wheel="true"
       data-placeholder={snapshot.rawPlaceholder}
-      aria-label="Raw prompt editor"
+      aria-label={t("rawPromptEditor")}
       aria-multiline="true"
       placeholder={snapshot.rawPlaceholder}
       value={actions.rawDraftText() ?? snapshot.sourceText}

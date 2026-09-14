@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react"
 
 import type { AudioPreviewSnapshot } from "../audio-preview-player.ts"
+import { useI18n } from "../i18n.ts"
 import type { TimeRange } from "../types.ts"
 import { Button } from "../ui/button.tsx"
 import { EditorFooter } from "../ui/editor-footer.tsx"
@@ -71,6 +72,7 @@ export function TrimEditorDialog({
   state: TrimEditorReactState
   actions: TrimEditorReactActions
 }): ReactNode {
+  const { t } = useI18n()
   const captionRef = useRef<HTMLTextAreaElement>(null)
   const videoHostRef = useRef<HTMLDivElement>(null)
   const rangeStartRef = useRef<HTMLInputElement>(null)
@@ -167,7 +169,8 @@ export function TrimEditorDialog({
   const playing = ownsPlayback && playback.status === "playing"
   const loading = ownsPlayback && playback.status === "loading"
   const paused = ownsPlayback && playback.status === "paused"
-  const playbackNoun = state.kind === "video" ? "video" : "audio"
+  const playbackNoun =
+    state.kind === "video" ? t("video").toLocaleLowerCase() : t("audio").toLocaleLowerCase()
   const current = state.seekPosition
   const showPlayhead = playing || loading || paused || state.seekTouched
 
@@ -175,11 +178,16 @@ export function TrimEditorDialog({
     <form method="dialog" className="rl-modal__panel">
       <header>
         <div>
-          <strong>{state.kind === "video" ? "Video" : "Audio"} trim</strong>
-          <small>No shared timeline; this range affects only this reference.</small>
-          <small className="rl-modal__filename">File: {state.filename}</small>
+          <strong>{t("trim", { kind: state.kind === "video" ? t("video") : t("audio") })}</strong>
+          <small>{t("trimSubtitle")}</small>
+          <small className="rl-modal__filename">{t("file", { filename: state.filename })}</small>
         </div>
-        <Button type="button" data-action="cancel" aria-label="Close" onClick={actions.onCancel}>
+        <Button
+          type="button"
+          data-action="cancel"
+          aria-label={t("close")}
+          onClick={actions.onCancel}
+        >
           ×
         </Button>
       </header>
@@ -187,14 +195,16 @@ export function TrimEditorDialog({
         <div
           ref={videoHostRef}
           className="rl-trim-video-preview"
-          aria-label="Video frame preview"
+          aria-label={t("videoFramePreview")}
         />
       ) : null}
       <div className="rl-trim-timeline">
         <canvas
           ref={actions.onCanvas}
           aria-label={
-            state.waveformStatus ? `${state.waveformStatus} waveform preview` : "Waveform preview"
+            state.waveformStatus
+              ? `${state.waveformStatus} ${t("waveformPreview")}`
+              : t("waveformPreview")
           }
         />
         {state.waveformStatus ? (
@@ -228,7 +238,7 @@ export function TrimEditorDialog({
           max={state.duration}
           step="0.01"
           value={state.range.start}
-          aria-label="Trim start"
+          aria-label={t("trimStart")}
           onInput={(event) => actions.onRangeInput("start", event.currentTarget.valueAsNumber)}
         />
         <input
@@ -240,11 +250,11 @@ export function TrimEditorDialog({
           max={state.duration}
           step="0.01"
           value={state.range.end}
-          aria-label="Trim end"
+          aria-label={t("trimEnd")}
           onInput={(event) => actions.onRangeInput("end", event.currentTarget.valueAsNumber)}
         />
       </div>
-      <Field label="Seek" className="rl-trim-seekbar">
+      <Field label={t("seek")} className="rl-trim-seekbar">
         <input
           ref={seekRef}
           data-field="seek"
@@ -253,29 +263,35 @@ export function TrimEditorDialog({
           max={state.range.end}
           step="0.01"
           value={current}
-          aria-label={`${playbackNoun} playback position`}
+          aria-label={t("playbackPosition", { kind: playbackNoun })}
           disabled={!state.playbackEnabled}
           onInput={(event) => actions.onSeekInput(event.currentTarget.valueAsNumber)}
         />
       </Field>
-      <div className="rl-trim-transport" aria-label={`${playbackNoun} preview controls`}>
+      <div className="rl-trim-transport" aria-label={t("previewControls", { kind: playbackNoun })}>
         <Button
           ref={playbackToggleRef}
           type="button"
           data-action="playback-toggle"
           aria-label={
             loading
-              ? `Loading ${playbackNoun} preview`
+              ? t("loadingPreview", { kind: playbackNoun })
               : playing
-                ? `Pause ${playbackNoun} preview`
+                ? t("pausePreview", { kind: playbackNoun })
                 : paused
-                  ? `Resume ${playbackNoun} preview`
-                  : `Play ${playbackNoun} preview`
+                  ? t("resumePreview", { kind: playbackNoun })
+                  : t("playPreview", { kind: playbackNoun })
           }
           disabled={!state.playbackEnabled || loading}
           onClick={actions.onPlaybackToggle}
         >
-          {loading ? "Loading…" : playing ? "Ⅱ Pause" : paused ? "▶ Resume" : "▶ Play"}
+          {loading
+            ? `${t("loading")}…`
+            : playing
+              ? `Ⅱ ${t("pause")}`
+              : paused
+                ? `▶ ${t("resume")}`
+                : `▶ ${t("play")}`}
         </Button>
         <Button
           ref={stopRef}
@@ -284,7 +300,7 @@ export function TrimEditorDialog({
           disabled={!(playing || loading || paused)}
           onClick={actions.onStop}
         >
-          ■ Stop
+          ■ {t("stop")}
         </Button>
         <output ref={outputRef} data-field="playback-time" aria-live="off">
           {formatTime(current)} / {formatTime(state.range.end)}
@@ -299,7 +315,7 @@ export function TrimEditorDialog({
         {state.playbackError}
       </StatusMessage>
       <div className="rl-trim-fields">
-        <Field label="Start (seconds)">
+        <Field label={t("startSeconds")}>
           <input
             ref={startRef}
             data-field="start"
@@ -311,7 +327,7 @@ export function TrimEditorDialog({
             onInput={(event) => actions.onNumberInput("start", event.currentTarget.valueAsNumber)}
           />
         </Field>
-        <Field label="End (seconds)">
+        <Field label={t("endSeconds")}>
           <input
             ref={endRef}
             data-field="end"
@@ -333,38 +349,40 @@ export function TrimEditorDialog({
           data-field="caption"
           rows={2}
           maxLength={16384}
-          placeholder="Caption"
+          placeholder={t("caption")}
           value={state.caption}
           onChange={(event) => actions.onCaptionChange(event.currentTarget.value)}
         />
       </Field>
       <EditorFooter
         className="rl-trim-footer"
-        historyLabel="Trim history"
+        historyLabel={t("trimHistory")}
         history={
           <>
             <Button
               type="button"
               data-action="undo"
-              title="Undo trim change"
+              title={t("undoTrim")}
               disabled={!state.historyCanUndo}
               onClick={actions.onUndo}
             >
-              Undo trim
+              {t("undoTrim")}
             </Button>
             <Button
               type="button"
               data-action="redo"
-              title="Redo trim change"
+              title={t("redoTrim")}
               disabled={!state.historyCanRedo}
               onClick={actions.onRedo}
             >
-              Redo trim
+              {t("redoTrim")}
             </Button>
           </>
         }
         onCancel={actions.onCancel}
         onApply={() => actions.onApply(captionRef.current?.value ?? state.caption)}
+        applyLabel={t("apply")}
+        cancelLabel={t("cancel")}
       />
     </form>
   )

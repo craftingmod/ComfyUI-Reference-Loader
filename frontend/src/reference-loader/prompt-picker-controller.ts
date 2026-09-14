@@ -314,6 +314,11 @@ export class PromptPickerController {
     if (this.#mode === "reference") this.updateReferenceQuery()
   }
 
+  refreshLocale(): void {
+    if (this.#destroyed) return
+    this.#publish()
+  }
+
   close(): void {
     if (this.#destroyed) return
     this.#anchor = undefined

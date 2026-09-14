@@ -1,4 +1,5 @@
 import type { ComfyNode } from "../../comfyui.ts"
+import { resolveLocale } from "../i18n.ts"
 import { PromptEditorEngine } from "../prompt-editor-engine.ts"
 import { PROMPT_MESSAGES, detectPromptLocale, localize } from "../prompt-i18n.ts"
 import {
@@ -223,6 +224,20 @@ export class ReferencePromptController {
 
   get promptSessionScope(): string {
     return this.#sessionScope
+  }
+
+  setLocale(locale: PromptLocale): void {
+    if (this.#destroyed) return
+    const next = resolveLocale(locale) as PromptLocale
+    if (next === this.#locale) return
+    this.#locale = next
+    this.#viewSnapshot = undefined
+    this.#definitionsSnapshot = undefined
+    this.#sectionsSnapshot = undefined
+    this.#picker.refreshLocale()
+    this.#publishView()
+    this.#publishDefinitions()
+    this.#publishSections()
   }
 
   get #documentV6(): PromptDocumentV6 {

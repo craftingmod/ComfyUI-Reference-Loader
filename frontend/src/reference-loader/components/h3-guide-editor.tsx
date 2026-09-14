@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react"
 
+import { translateRaw, useI18n } from "../i18n.ts"
 import { Button } from "../ui/button.tsx"
 import { StatusMessage } from "../ui/status-message.tsx"
 
@@ -45,6 +46,7 @@ function GuideFrame({
   guide: H3GuideEditorProps["guides"][number]
   props: H3GuideEditorProps
 }) {
+  const { t } = useI18n()
   const descriptionId = useId()
   const externalFrame = frameInputValue(guide.frameIndex)
   const previousExternalFrame = useRef(externalFrame)
@@ -64,7 +66,7 @@ function GuideFrame({
     }
   }, [externalFrame, frame])
   const validFrame = Number.isSafeInteger(guide.frameIndex) && guide.frameIndex >= 0
-  const frameLabel = validFrame ? `${guide.frameIndex} frame` : "this frame"
+  const frameLabel = validFrame ? `${guide.frameIndex} ${t("frame")}` : t("frame")
   const commit = (value: string): void => {
     if (committed.current === value) return
     committed.current = value
@@ -77,7 +79,7 @@ function GuideFrame({
     >
       <div className="rl-h3-editor__placement-heading">
         <label>
-          <span>Guide</span>
+          <span>{t("guide")}</span>
           <input
             type="number"
             min="0"
@@ -114,15 +116,17 @@ function GuideFrame({
           className="rl-button--remove"
           data-h3-action="delete-draft-placement"
           data-h3-guide-id={guide.id}
-          aria-label={`Delete ${frameLabel} ${props.channel === "visual" ? "image" : "audio"} connection`}
-          title="Delete this connection"
+          aria-label={`${t("delete")} ${frameLabel} ${props.channel === "visual" ? t("image") : t("audio")} connection`}
+          title={`${t("delete")} ${t("guide")}`}
           onClick={() => props.onRemoveGuide(guide.id)}
         >
           ×
         </Button>
       </div>
       {guide.pairedLabel && (
-        <small className="rl-h3-editor__paired">Also connected: {guide.pairedLabel}</small>
+        <small className="rl-h3-editor__paired">
+          {t("alsoConnected")} {guide.pairedLabel}
+        </small>
       )}
     </article>
   )
@@ -137,7 +141,8 @@ function Role({
   selected: boolean
   onRemove(): void
 }) {
-  const label = role === "start" ? "Start" : "End"
+  const { t } = useI18n()
+  const label = role === "start" ? t("start") : t("end")
   return (
     <article
       className={`rl-h3-editor__placement rl-h3-editor__stack-row rl-h3-editor__role${selected ? " is-selected" : ""}`}
@@ -145,15 +150,15 @@ function Role({
     >
       <div>
         <strong>{label}</strong>
-        <small>{role === "start" ? "frame 0" : "final output frame"}</small>
+        <small>{role === "start" ? `${t("frame")} 0` : t("finalOutputFrame")}</small>
       </div>
       <Button
         type="button"
         className="rl-button--remove"
         data-h3-action="remove-draft-role"
         data-h3-role={role}
-        aria-label={`Delete ${label} image connection`}
-        title={`Delete ${label} image connection`}
+        aria-label={`${t("delete")} ${label} ${t("image")} connection`}
+        title={`${t("delete")} ${label} ${t("image")} connection`}
         onClick={onRemove}
       >
         ×
@@ -174,6 +179,7 @@ export function H3GuideInspector({
   showActions = true,
   positionMode = "select",
 }: H3GuideInspectorProps) {
+  const { locale, t } = useI18n()
   const [position, setPosition] = useState<H3GuidePosition>("guide")
   const [frame, setFrame] = useState("")
   const frameIndex = frame.trim() === "" ? Number.NaN : Number(frame)
@@ -203,7 +209,7 @@ export function H3GuideInspector({
       data-h3-editor=""
       data-h3-inspector=""
       data-h3-react-surface=""
-      aria-label={`${props.channel === "visual" ? "Image" : "Audio"} Guide Inspector`}
+      aria-label={props.channel === "visual" ? t("imageGuideInspector") : t("audioGuideInspector")}
     >
       <header className="rl-h3-editor__header">
         <span className="rl-h3-editor__source-preview" aria-hidden="true">
@@ -219,13 +225,11 @@ export function H3GuideInspector({
           {props.sourceLabel}
         </strong>
         <span className="rl-h3-editor__channel">
-          {props.channel === "visual" ? "Image" : "Audio"}
+          {props.channel === "visual" ? t("image") : t("audio")}
         </span>
       </header>
       <p className="rl-h3-editor__hint">
-        {props.channel === "visual"
-          ? "Use this Image at Start, a specific frame, or End."
-          : "Place this standalone Audio at a specific frame."}
+        {props.channel === "visual" ? t("useImageAtPositions") : t("placeAudioAtFrame")}
       </p>
       <div className="rl-h3-editor__stack" data-h3-placement-list="">
         <div className="rl-h3-editor__placements">
@@ -247,7 +251,7 @@ export function H3GuideInspector({
             />
           )}
           {!props.start && !props.end && props.guides.length === 0 && (
-            <p className="rl-h3-editor__empty">No placements yet.</p>
+            <p className="rl-h3-editor__empty">{t("noPlacements")}</p>
           )}
         </div>
       </div>
@@ -256,9 +260,9 @@ export function H3GuideInspector({
           <div
             className="rl-h3-editor__position-field"
             role="radiogroup"
-            aria-label="Guide position"
+            aria-label={t("guidePosition")}
           >
-            <span className="rl-h3-editor__position-label">Position</span>
+            <span className="rl-h3-editor__position-label">{t("position")}</span>
             <div className="rl-h3-editor__position-group">
               {positionOptions.map((value) => (
                 <button
@@ -273,29 +277,29 @@ export function H3GuideInspector({
                   onClick={() => setPosition(value)}
                   onKeyDown={(event) => movePosition(event, value)}
                 >
-                  {value === "guide" ? "Frame" : value === "start" ? "Start" : "End"}
+                  {value === "guide" ? t("frame") : value === "start" ? t("start") : t("end")}
                 </button>
               ))}
             </div>
           </div>
         ) : (
           <label className="rl-h3-editor__position-field">
-            <span>Position</span>
+            <span>{t("position")}</span>
             <select
               data-h3-add-field="position"
               value={position}
               onChange={(event) => setPosition(event.currentTarget.value as H3GuidePosition)}
             >
-              {props.channel === "visual" && <option value="start">Start</option>}
+              {props.channel === "visual" && <option value="start">{t("start")}</option>}
               <option value="guide" disabled={props.atGuideLimit}>
-                Specific frame{props.atGuideLimit ? " (limit reached)" : ""}
+                {props.atGuideLimit ? t("specificFrameLimitReached") : t("specificFrame")}
               </option>
-              {props.channel === "visual" && <option value="end">End</option>}
+              {props.channel === "visual" && <option value="end">{t("end")}</option>}
             </select>
           </label>
         )}
         <label className="rl-h3-editor__frame-label" data-h3-add-frame="" hidden={!showFrame}>
-          <span>Frame</span>
+          <span>{t("frame")}</span>
           <span className="rl-h3-editor__frame-field">
             <input
               type="number"
@@ -319,8 +323,8 @@ export function H3GuideInspector({
           type="button"
           data-h3-action="add-draft-placement"
           className="rl-button--add rl-h3-editor__add"
-          aria-label="Add Guide"
-          title="Add Guide"
+          aria-label={t("addGuide")}
+          title={t("addGuide")}
           disabled={showFrame && props.atGuideLimit}
           onClick={() => props.onAdd(position, frame)}
         >
@@ -329,18 +333,18 @@ export function H3GuideInspector({
       </div>
       {props.addError && (
         <StatusMessage status="error" className="rl-h3-editor__error" data-h3-add-error="">
-          {props.addError}
+          {translateRaw(locale, props.addError)}
         </StatusMessage>
       )}
       {props.issue && (
         <StatusMessage status="error" className="rl-h3-editor__error" data-h3-editor-error="">
-          {props.issue}
+          {translateRaw(locale, props.issue)}
         </StatusMessage>
       )}
       {showActions && (
         <div className="rl-h3-editor__actions">
           <Button type="button" data-h3-action="cancel-editor" onClick={props.onCancel}>
-            Cancel
+            {t("cancel")}
           </Button>
           <Button
             type="button"
@@ -348,7 +352,7 @@ export function H3GuideInspector({
             disabled={Boolean(props.issue)}
             onClick={props.onApply}
           >
-            Apply
+            {t("apply")}
           </Button>
         </div>
       )}

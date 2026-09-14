@@ -1,0 +1,69 @@
+{
+  "Alyac_ReferenceLoader": {
+    "display_name": "Reference Loader",
+    "description": "Loads image, video, and audio references with an authoring Prompt and optional H3 Timeline Guides."
+  },
+  "Alyac_LoadReferenceImage": {
+    "display_name": "Load Reference Image",
+    "description": "Loads exactly one reference image.",
+    "inputs": {
+      "image": { "name": "Image", "tooltip": "Managed state for exactly one reference image." },
+      "limit_image_pixels": {
+        "name": "Limit image pixels",
+        "tooltip": "Limit the decoded image resolution."
+      },
+      "max_image_pixels": {
+        "name": "Max image pixels (MPixel)",
+        "tooltip": "Maximum decoded image resolution."
+      },
+      "composite_alpha": {
+        "name": "Composite alpha",
+        "tooltip": "How transparent pixels are composited."
+      },
+      "alpha_background": {
+        "name": "Alpha background",
+        "tooltip": "Fallback color used when compositing alpha."
+      },
+      "preview_pixels": {
+        "name": "Preview pixels (MPixel)",
+        "tooltip": "Maximum preview resolution; execution media is unchanged."
+      }
+    }
+  },
+  "Alyac_ReferenceLoaderRawOutputs": {
+    "display_name": "[Reference Loader] Media Outputs",
+    "description": "Exposes the enabled media outputs from a Reference Loader bundle."
+  },
+  "Alyac_ReferenceLoaderRawPrompt": {
+    "display_name": "[Reference Loader] Raw Prompt",
+    "description": "Exposes the compiled prompt from a Reference Loader bundle."
+  },
+  "Alyac_ReferenceLoaderStartEndFrames": {
+    "display_name": "[Reference Loader] Start/End Frames",
+    "description": "Exposes the first and last enabled image frames from a Reference Loader bundle."
+  },
+  "Alyac_ReferenceLoaderOptionsOverride": {
+    "display_name": "[Reference Loader] Options Override",
+    "description": "Overrides selected Reference Loader execution options."
+  },
+  "Alyac_ReferenceLoaderLLMDescriptionInputs": {
+    "display_name": "[Reference Loader] LLM Description Inputs",
+    "description": "Builds ordered image, audio, and video inputs for an LLM description workflow."
+  },
+  "Alyac_ReferenceLoaderExportPromptForLLM": {
+    "display_name": "[Reference Loader] Export Prompt for LLM",
+    "description": "Exports a Reference Loader prompt and media manifest for an LLM workflow."
+  },
+  "Alyac_ReferencePromptCache": {
+    "display_name": "[Reference Loader] Reference Prompt Cache",
+    "description": "Caches a prompt using a workflow-persisted Reference Loader fingerprint."
+  },
+  "Alyac_PromptLiveCache": {
+    "display_name": "Prompt Live Cache",
+    "description": "Caches an editable workflow-persisted prompt while an invalidate key is current."
+  },
+  "Alyac_MiniMaxH3ReferenceToVideoWrapper": {
+    "display_name": "[Reference Loader] MiniMax H3 Wrapper",
+    "description": "Wraps the Reference Loader bundle for MiniMax H3 video generation."
+  }
+}

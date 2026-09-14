@@ -49,9 +49,13 @@ export class H3WorkspaceBridge {
       return
     }
     if (focus.kind === "timeline-shot") {
-      const mark = [...surface.querySelectorAll<HTMLButtonElement>("[data-timeline-shot]")].find(
-        (button) => button.dataset.timelineShot === focus.tag,
-      )
+      const mark =
+        [...surface.querySelectorAll<HTMLButtonElement>("[data-timeline-shot-id]")].find(
+          (button) => button.dataset.timelineShotId === focus.id,
+        ) ??
+        [...surface.querySelectorAll<HTMLButtonElement>("[data-timeline-shot]")].find(
+          (button) => button.dataset.timelineShot === focus.tag,
+        )
       if (focus.scroll) mark?.scrollIntoView?.({ block: "nearest", inline: "nearest" })
       mark?.focus({ preventScroll: true })
       return

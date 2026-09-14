@@ -544,6 +544,14 @@ export class ReferencePromptController {
     return shot ? this.setShotFrame(shot.tag, frameIndex) : false
   }
 
+  setShotFrameDraftByIdentity(identity: string, frameIndex: number): boolean {
+    if (this.#destroyed) return false
+    return this.#finishMutation(this.#mutations.setShotFrameDraftByIdentity(identity, frameIndex), {
+      render: true,
+      notifyShots: true,
+    })
+  }
+
   clear(): void {
     this.#finishMutation(this.#mutations.clear(), {
       closePicker: true,
@@ -581,9 +589,10 @@ export class ReferencePromptController {
     return this.#documentV6
   }
 
-  get shots(): readonly { tag: string; frameIndex: number }[] {
+  get shots(): readonly { id: string; tag: string; frameIndex: number }[] {
     this.#flushBodyEditors()
     return this.#documentV6.shots.map((shot) => ({
+      id: shot.id,
       tag: shot.tag,
       frameIndex: shot.frameIndex,
     }))
@@ -623,6 +632,13 @@ export class ReferencePromptController {
     })
   }
 
+  removeShotByIdentity(identity: string): void {
+    this.#finishMutation(this.#mutations.removeShotByIdentity(identity), {
+      render: true,
+      notifyShots: true,
+    })
+  }
+
   applyShotDraft(): boolean {
     if (this.#destroyed) return false
     return this.#finishMutation(this.#mutations.applyShotDraft(), {
@@ -643,6 +659,14 @@ export class ReferencePromptController {
     this.#definitionsRoot
       ?.querySelector<HTMLInputElement>(
         `[data-prompt-definition="shot"][data-prompt-definition-tag="${CSS.escape(tag)}"] [data-prompt-definition-tag-input]`,
+      )
+      ?.focus()
+  }
+
+  focusShotByIdentity(identity: string): void {
+    this.#definitionsRoot
+      ?.querySelector<HTMLInputElement>(
+        `[data-prompt-definition="shot"][data-prompt-definition-identity="${CSS.escape(identity)}"] [data-prompt-definition-tag-input]`,
       )
       ?.focus()
   }

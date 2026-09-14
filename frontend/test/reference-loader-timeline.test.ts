@@ -682,6 +682,108 @@ describe("Guide timeline", () => {
     expect(shot.getAttribute("aria-pressed")).toBe("true")
   })
 
+  test("moves same-frame Shots by stable identity in any order", () => {
+    const { root, controller } = mount()
+    const shots = [
+      { id: "shot-a", tag: "opening", frameIndex: 0 },
+      { id: "shot-b", tag: "middle", frameIndex: 0 },
+      { id: "shot-c", tag: "closing", frameIndex: 0 },
+      { id: "shot-d", tag: "finale", frameIndex: 0 },
+      { id: "shot-e", tag: "credits", frameIndex: 0 },
+    ]
+    const moved: string[] = []
+    let current = shots
+    let dirty = true
+    const publish = (): void => {
+      controller.setPromptShots(
+        current,
+        (identity, frameIndex) => {
+          moved.push(identity)
+          current = current.map((shot) => (shot.id === identity ? { ...shot, frameIndex } : shot))
+          publish()
+        },
+        undefined,
+        undefined,
+        () => {
+          dirty = false
+          publish()
+        },
+        () => {
+          dirty = false
+          current = current.map((shot) => ({ ...shot, frameIndex: 0 }))
+          publish()
+        },
+        dirty,
+      )
+    }
+    publish()
+    root.querySelector<HTMLButtonElement>('[data-h3-action="collapse"]')!.click()
+    sizeSurface(root)
+
+    const order = ["shot-c", "shot-a", "shot-e", "shot-b", "shot-d"]
+    for (const identity of order) {
+      const marker = root.querySelector<HTMLButtonElement>(`[data-timeline-shot-id="${identity}"]`)!
+      pointer(marker, "pointerdown", 128)
+      pointer(document, "pointermove", 192)
+      pointer(document, "pointerup", 192)
+    }
+
+    expect(moved).toEqual(order)
+    expect(current.map((shot) => shot.frameIndex)).toEqual([24, 24, 24, 24, 24])
+    expect(
+      [
+        ...root.querySelectorAll<HTMLElement>(
+          '[data-timeline-channel="shot"] .rl-h3-timeline__mark-position',
+        ),
+      ].map((position) => position.style.zIndex),
+    ).toEqual(["5", "4", "3", "2", "1"])
+    expect(
+      new Set(
+        [...root.querySelectorAll<HTMLButtonElement>("[data-timeline-shot-id]")].map(
+          (marker) => marker.dataset.timelineShotId,
+        ),
+      ).size,
+    ).toBe(5)
+  })
+
+  test("keeps a Shot drag alive when selection releases pointer capture", () => {
+    const { root, controller } = mount()
+    const shots = [
+      { id: "shot-a", tag: "opening", frameIndex: 0 },
+      { id: "shot-b", tag: "middle", frameIndex: 0 },
+    ]
+    const moved: string[] = []
+    let current = shots
+    const publish = (): void => {
+      controller.setPromptShots(
+        current,
+        (identity, frameIndex) => {
+          moved.push(identity)
+          current = current.map((shot) => (shot.id === identity ? { ...shot, frameIndex } : shot))
+          publish()
+        },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true,
+      )
+    }
+    publish()
+    root.querySelector<HTMLButtonElement>('[data-h3-action="collapse"]')!.click()
+    sizeSurface(root)
+
+    const marker = root.querySelector<HTMLButtonElement>('[data-timeline-shot-id="shot-a"]')!
+    pointer(marker, "pointerdown", 128)
+    pointer(marker, "lostpointercapture", 128)
+    pointer(document, "pointermove", 192)
+    pointer(document, "pointerup", 192)
+
+    expect(moved).toEqual(["shot-a"])
+    expect(current[0]?.frameIndex).toBe(24)
+    expect(marker.getAttribute("aria-pressed")).toBe("true")
+  })
+
   test("starts and continues a drag when a Nodes 2.0 wrapper stops bubbling", () => {
     const host = document.createElement("div")
     const root = mount().root

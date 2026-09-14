@@ -23,7 +23,7 @@ export type H3TimelineFocus =
   | { kind: "editor-guide"; guideId: string }
   | { kind: "workspace" }
   | { kind: "timeline-guide"; guideId: string }
-  | { kind: "timeline-shot"; tag: string; scroll?: boolean }
+  | { kind: "timeline-shot"; id?: string; tag: string; scroll?: boolean }
   | { kind: "source-control"; mediaId: string; channel: H3GuideChannel; control: "toggle" | "edit" }
   | { kind: "preserve-editor-focus"; guideId?: string }
 
@@ -33,9 +33,9 @@ export interface H3GuideDropSource {
 }
 
 export interface H3PromptShotBridge {
-  change?(tag: string, frameIndex: number): void
-  select?(tag: string): void
-  remove?(tag: string): void
+  change?(identity: string, frameIndex: number): void
+  select?(identity: string): void
+  remove?(identity: string): void
   apply?(): void
   cancel?(): void
 }
@@ -82,7 +82,7 @@ export class H3TimelineSession {
   #host: H3TimelineHost
   #collapsed = true
   #editor: H3EditorState | undefined
-  #shots: readonly Pick<PromptShot, "tag" | "frameIndex">[] = []
+  #shots: readonly Pick<PromptShot, "id" | "tag" | "frameIndex">[] = []
   #shotBridge: H3PromptShotBridge = {}
   #shotDirty = false
   #selectedShot: string | undefined
@@ -95,15 +95,19 @@ export class H3TimelineSession {
   }
 
   setPromptShots(
-    shots: readonly Pick<PromptShot, "tag" | "frameIndex">[],
+    shots: readonly (Pick<PromptShot, "tag" | "frameIndex"> & { id?: string })[],
     bridge: H3PromptShotBridge = {},
     dirty = false,
   ): void {
     if (this.#destroyed) return
-    this.#shots = shots.map((shot) => ({ tag: shot.tag, frameIndex: shot.frameIndex }))
+    this.#shots = shots.map((shot) => ({
+      id: shot.id ?? shot.tag,
+      tag: shot.tag,
+      frameIndex: shot.frameIndex,
+    }))
     this.#shotBridge = bridge
     this.#shotDirty = dirty
-    if (this.#selectedShot && !this.#shots.some((shot) => shot.tag === this.#selectedShot))
+    if (this.#selectedShot && !this.#shots.some((shot) => shot.id === this.#selectedShot))
       this.#selectedShot = undefined
   }
 
@@ -131,7 +135,10 @@ export class H3TimelineSession {
     const selection: H3Selection = this.#selectedRole
       ? { kind: this.#selectedRole }
       : this.#selectedShot
-        ? { kind: "shot", tag: this.#selectedShot }
+        ? (() => {
+            const shot = this.#shots.find((candidate) => candidate.id === this.#selectedShot)
+            return shot ? { kind: "shot" as const, id: shot.id, tag: shot.tag } : undefined
+          })()
         : editor?.selectedGuideId
           ? { kind: "guide", guideId: editor.selectedGuideId, channel: editor.channel }
           : editor?.mediaId
@@ -387,7 +394,11 @@ export class H3TimelineSession {
     return this.#sessionId !== sessionBefore
   }
 
-  selectShot(tag: string, scroll = false): boolean {
+  selectShot(identity: string, scroll = false): boolean {
+    const shot = this.#shots.find(
+      (candidate) => candidate.id === identity || candidate.tag === identity,
+    )
+    if (!shot) return false
     const sessionBefore = this.#sessionId
     const editor = this.#editor
     if (editor && this.isDirty) {
@@ -401,34 +412,37 @@ export class H3TimelineSession {
       this.#editor = undefined
       this.#sessionId += 1
     }
-    this.#selectedShot = tag
+    this.#selectedShot = shot.id
     this.#selectedRole = undefined
     this.#host.selectMedia(undefined)
-    this.#shotBridge.select?.(tag)
+    this.#shotBridge.select?.(shot.id)
     this.#host.requestRender(true, {
       kind: "timeline-shot",
-      tag,
+      id: shot.id,
+      tag: shot.tag,
       ...(scroll ? { scroll: true } : {}),
     })
     return this.#sessionId !== sessionBefore
   }
 
-  changeShot(tag: string, frameIndex: number): void {
-    if (!this.#destroyed) this.#shotBridge.change?.(tag, frameIndex)
+  changeShot(identity: string, frameIndex: number): void {
+    if (!this.#destroyed) this.#shotBridge.change?.(identity, frameIndex)
   }
 
-  removeShot(tag: string): void {
-    if (!this.#destroyed) this.#shotBridge.remove?.(tag)
+  removeShot(identity: string): void {
+    if (!this.#destroyed) this.#shotBridge.remove?.(identity)
   }
 
-  editGuidesForShot(tag: string): void {
+  editGuidesForShot(identity: string): void {
     if (this.#destroyed) return
     if (this.#shotDirty) {
       this.#host.setStatus("Apply or cancel Shot changes before editing a Guide.")
       this.#host.requestRender(true)
       return
     }
-    const shot = this.#shots.find((candidate) => candidate.tag === tag)
+    const shot = this.#shots.find(
+      (candidate) => candidate.id === identity || candidate.tag === identity,
+    )
     if (!shot) return
     const guide = this.#host
       .getState()
@@ -441,7 +455,7 @@ export class H3TimelineSession {
       return
     }
     this.#collapsed = false
-    this.selectShot(tag, true)
+    this.selectShot(shot.id, true)
   }
 
   openForMedia(mediaId: string, channel: H3GuideChannel, guideId?: string): void {

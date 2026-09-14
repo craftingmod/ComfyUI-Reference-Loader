@@ -97,20 +97,25 @@ describe("PromptMutationCoordinator", () => {
 
   test("keeps Shot draft changes outside graph state until Apply and supports Cancel", () => {
     const shotId = createPromptDefinitionId()
+    const secondShotId = createPromptDefinitionId()
     const context = createCoordinator({
       ...createEmptyPromptDocumentV6(),
-      shots: [{ id: shotId, tag: "opening", frameIndex: 0, parts: [] }],
+      shots: [
+        { id: shotId, tag: "opening", frameIndex: 0, parts: [] },
+        { id: secondShotId, tag: "middle", frameIndex: 0, parts: [] },
+      ],
     })
 
-    expect(context.coordinator.setShotFrameDraft("opening", 24).changed).toBe(true)
-    expect(context.store.document.shots[0]?.frameIndex).toBe(0)
+    expect(context.coordinator.setShotFrameDraftByIdentity(secondShotId, 48).changed).toBe(true)
+    expect(context.coordinator.setShotFrameDraftByIdentity(shotId, 24).changed).toBe(true)
+    expect(context.store.document.shots.map((shot) => shot.frameIndex)).toEqual([0, 0])
     expect(context.coordinator.applyShotDraft().changed).toBe(true)
-    expect(context.store.document.shots[0]?.frameIndex).toBe(24)
+    expect(context.store.document.shots.map((shot) => shot.frameIndex)).toEqual([24, 48])
     expect(context.transactions).toEqual(["before", "after"])
 
-    expect(context.coordinator.setShotFrameDraft("opening", 48).changed).toBe(true)
+    expect(context.coordinator.setShotFrameDraftByIdentity(secondShotId, 72).changed).toBe(true)
     expect(context.coordinator.cancelShotDraft().changed).toBe(true)
-    expect(context.store.document.shots[0]?.frameIndex).toBe(24)
+    expect(context.store.document.shots.map((shot) => shot.frameIndex)).toEqual([24, 48])
     expect(context.transactions).toEqual(["before", "after"])
   })
 

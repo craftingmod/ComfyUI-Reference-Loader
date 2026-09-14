@@ -136,7 +136,7 @@ function GuideList({
   const selectedGuideId = h3.selection?.kind === "guide" ? h3.selection.guideId : undefined
 
   const selectMark = (mark: (typeof marks)[number]): void => {
-    if (mark.shotTag) actions.selectShot(mark.shotTag)
+    if (mark.shotId) actions.selectShot(mark.shotId)
     else
       actions.h3SelectPlacement(mark.placement, mark.channel === "shot" ? "visual" : mark.channel)
   }
@@ -154,12 +154,12 @@ function GuideList({
             : undefined
         const selected =
           h3.selection?.kind === "shot"
-            ? h3.selection.tag === mark.shotTag
+            ? h3.selection.id === mark.shotId
             : role !== undefined
               ? h3.selection?.kind === role
               : selectedGuide
-        const key = `${mark.placement.guideId ?? mark.placement.kind}:${mark.channel}:${mark.shotTag ?? mark.label}`
-        const shotControl = selected && Boolean(mark.shotTag)
+        const key = `${mark.placement.guideId ?? mark.placement.kind}:${mark.channel}:${mark.shotId ?? mark.shotTag ?? mark.label}`
+        const shotControl = selected && Boolean(mark.shotId)
         return (
           <div
             key={key}
@@ -221,7 +221,7 @@ function GuideList({
             </Button>
             {shotControl ? (
               <H3FrameControl
-                id={mark.shotTag!}
+                id={mark.shotId!}
                 frameIndex={mark.frame}
                 label={`${t("shot")} #${mark.shotTag}`}
                 removeLabel={`${t("remove")} ${t("shot")}`}
@@ -236,9 +236,9 @@ function GuideList({
                 onCommit={(value) => {
                   const frame = Number(value.trim())
                   if (Number.isSafeInteger(frame) && frame >= 0)
-                    actions.changeShot(mark.shotTag!, timelineToNativeFrame(frame, fps))
+                    actions.changeShot(mark.shotId!, timelineToNativeFrame(frame, fps))
                 }}
-                onRemove={() => actions.removeShot(mark.shotTag!)}
+                onRemove={() => actions.removeShot(mark.shotId!)}
               />
             ) : null}
           </div>

@@ -207,9 +207,9 @@ export class ReferenceLoaderController {
     selectPlacement: (placement, channel, focusGuide) =>
       this.#timelineSession.selectPlacement(placement, channel, focusGuide),
     removePlacement: (id) => this.#timelineSession.removePlacement(id),
-    selectShot: (tag) => this.#timelineSession.selectShot(tag),
-    changeShot: (tag, frame) => this.#timelineSession.changeShot(tag, frame),
-    removeShot: (tag) => this.#timelineSession.removeShot(tag),
+    selectShot: (identity) => this.#timelineSession.selectShot(identity),
+    changeShot: (identity, frame) => this.#timelineSession.changeShot(identity, frame),
+    removeShot: (identity) => this.#timelineSession.removeShot(identity),
     canDrop: (channel, dataTransfer) => {
       if (this.#timelineSession.promptShotDirty) return false
       if (this.#timelineSession.canDrop(channel, dataTransfer)) return true
@@ -412,10 +412,10 @@ export class ReferenceLoaderController {
   }
 
   setPromptShots(
-    shots: readonly Pick<PromptShot, "tag" | "frameIndex">[],
-    onChange?: (tag: string, frameIndex: number) => void,
-    onSelect?: (tag: string) => void,
-    onRemove?: (tag: string) => void,
+    shots: readonly (Pick<PromptShot, "tag" | "frameIndex"> & { id?: string })[],
+    onChange?: (identity: string, frameIndex: number) => void,
+    onSelect?: (identity: string) => void,
+    onRemove?: (identity: string) => void,
     onApply?: () => void,
     onCancel?: () => void,
     dirty = false,

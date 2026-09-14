@@ -42,6 +42,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert h3_timeline.data_type == "string"
   assert h3_timeline.options["extra_dict"] == {"widgetType": "REFERENCE_H3_TIMELINE"}
   assert h3_timeline.options["default"] == ""
+  assert "optional" not in h3_timeline.options
   assert h3_timeline.options["socketless"] is True
   definitions = schema.inputs[2]
   assert definitions.data_type == "string"
@@ -49,6 +50,7 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
     "widgetType": "REFERENCE_PROMPT_DEFINITIONS"
   }
   assert definitions.options["default"] == ""
+  assert "optional" not in definitions.options
   assert definitions.options["socketless"] is True
   prompt = schema.inputs[3]
   assert prompt.data_type == "string"

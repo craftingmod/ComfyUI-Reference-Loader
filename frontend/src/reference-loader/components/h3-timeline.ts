@@ -38,6 +38,7 @@ export interface TimelineMark {
   placement: H3TimelinePlacement
   channel: "visual" | "audio" | "shot"
   audioOrdinal?: number
+  shotId?: string
   shotTag?: string
   label: string
   previewUrl?: string
@@ -53,7 +54,7 @@ export interface TimelineMark {
 export function timelineMarks(
   state: LoaderState,
   runtime: ReadonlyMap<string, ItemRuntime>,
-  shots: readonly { tag: string; frameIndex: number }[] = [],
+  shots: readonly { id?: string; tag: string; frameIndex: number }[] = [],
   fps = FPS,
 ): TimelineMark[] {
   const displayFps = safeFps(fps)
@@ -105,9 +106,11 @@ export function timelineMarks(
     }
   }
   for (const shot of shots) {
+    const shotId = shot.id ?? shot.tag
     marks.push({
-      placement: { kind: "guide", guideId: `shot:${shot.tag}`, frameIndex: shot.frameIndex },
+      placement: { kind: "guide", guideId: `shot:${shotId}`, frameIndex: shot.frameIndex },
       channel: "shot",
+      shotId,
       shotTag: shot.tag,
       label: `#${shot.tag}`,
       frame: nativeToTimelineFrame(shot.frameIndex, displayFps),

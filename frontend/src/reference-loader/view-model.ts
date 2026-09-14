@@ -38,7 +38,7 @@ export type H3Selection =
   | { kind: "source"; mediaId: string; channel: H3GuideChannel }
   | { kind: "guide"; guideId: string; channel: H3GuideChannel }
   | { kind: "start" | "end" }
-  | { kind: "shot"; tag: string }
+  | { kind: "shot"; id: string; tag: string }
   | undefined
 
 export interface H3EditorView {
@@ -63,7 +63,7 @@ export interface H3WorkspaceView {
   readonly draftError: string | undefined
   readonly timeline: H3TimelineState
   readonly editor: H3EditorView | undefined
-  readonly shots: readonly { tag: string; frameIndex: number }[]
+  readonly shots: readonly { id: string; tag: string; frameIndex: number }[]
 }
 
 export type GuideBadge =
@@ -466,6 +466,7 @@ function sameH3WorkspaceView(
   if (previous.shots.length !== next.shots.length) return false
   return next.shots.every(
     (shot, index) =>
+      previous.shots[index]?.id === shot.id &&
       previous.shots[index]?.tag === shot.tag &&
       previous.shots[index]?.frameIndex === shot.frameIndex,
   )

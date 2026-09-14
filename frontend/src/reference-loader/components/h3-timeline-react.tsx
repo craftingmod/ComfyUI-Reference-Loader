@@ -66,7 +66,7 @@ type TimelineChannel = "visual" | "audio" | "shot"
 
 interface Gesture {
   id: string
-  shotTag?: string
+  shotId?: string
   channel: TimelineChannel
   pointerId: number
   clientX: number
@@ -228,7 +228,10 @@ export function H3FrameControl({
 function isSelectedMark(mark: TimelineMark, h3: H3WorkspaceView): boolean {
   const selection = h3.selection
   if (!selection) return false
-  if (selection.kind === "shot") return mark.shotTag === selection.tag
+  if (selection.kind === "shot")
+    return (
+      mark.shotId === selection.id || (mark.shotId === undefined && mark.shotTag === selection.tag)
+    )
   if (selection.kind === "guide") return mark.placement.guideId === selection.guideId
   if (selection.kind === "source") return false
   return selection.kind === mark.placement.kind
@@ -297,16 +300,21 @@ function SelectedElementControls({
   frameCount: number
 }): ReactNode {
   const { t } = useI18n()
-  const previewShotTag = preview?.id.startsWith("shot:") ? preview.id.slice(5) : undefined
-  const shotTag = previewShotTag ?? (h3.selection?.kind === "shot" ? h3.selection.tag : undefined)
-  const shot = shotTag ? h3.shots.find((entry) => entry.tag === shotTag) : undefined
+  const previewShotId = preview?.id.startsWith("shot:") ? preview.id.slice(5) : undefined
+  const selectedShot = h3.selection?.kind === "shot" ? h3.selection : undefined
+  const shotId = previewShotId ?? selectedShot?.id
+  const shot = shotId
+    ? h3.shots.find((entry) => entry.id === shotId)
+    : selectedShot
+      ? h3.shots.find((entry) => entry.tag === selectedShot.tag)
+      : undefined
   if (shot) {
     return (
       <H3FrameControl
-        key={`shot:${shot.tag}`}
-        id={shot.tag}
+        key={`shot:${shot.id}`}
+        id={shot.id}
         frameIndex={
-          previewShotTag && preview ? preview.frame : nativeToTimelineFrame(shot.frameIndex, fps)
+          previewShotId && preview ? preview.frame : nativeToTimelineFrame(shot.frameIndex, fps)
         }
         label={`${t("shot")} #${shot.tag}`}
         removeLabel={`${t("remove")} ${t("shot")}`}
@@ -319,9 +327,9 @@ function SelectedElementControls({
         onInput={() => undefined}
         onCommit={(value) => {
           const frame = parseFrameInput(value)
-          if (!Number.isNaN(frame)) actions.changeShot(shot.tag, timelineToNativeFrame(frame, fps))
+          if (!Number.isNaN(frame)) actions.changeShot(shot.id, timelineToNativeFrame(frame, fps))
         }}
-        onRemove={() => actions.removeShot(shot.tag)}
+        onRemove={() => actions.removeShot(shot.id)}
       />
     )
   }
@@ -493,7 +501,7 @@ export function H3TimelineReact({
       suppressClick.current = gesture.moved
       if (!cancel && gesture.moved && gesture.next !== gesture.frame) {
         const nativeFrame = timelineToNativeFrame(gesture.next, fps)
-        if (gesture.shotTag) actions.changeShot(gesture.shotTag, nativeFrame)
+        if (gesture.shotId) actions.changeShot(gesture.shotId, nativeFrame)
         else actions.movePlacement(gesture.id, nativeFrame)
       }
     },
@@ -534,7 +542,9 @@ export function H3TimelineReact({
     }
     const onBlur = (): void => finishGesture(true)
     const onLostPointerCapture = (event: globalThis.PointerEvent): void => {
-      if (event.pointerId === gestureRef.current?.pointerId) finishGesture(true)
+      const gesture = gestureRef.current
+      if (event.pointerId !== gesture?.pointerId || gesture.shotId) return
+      finishGesture(true)
     }
     document.addEventListener("pointermove", onMove, { capture: true })
     document.addEventListener("pointerup", onUp, { capture: true })
@@ -558,22 +568,12 @@ export function H3TimelineReact({
     const track = trackRefs.current.get(mark.channel)
     const rect = track?.getBoundingClientRect()
     if (!rect || !(rect.width > 0)) return
-    if (mark.placement.kind === "guide") {
-      preserveGestureOnSession.current = true
-      const changed = mark.shotTag
-        ? actions.selectShot(mark.shotTag)
-        : actions.selectPlacement(
-            mark.placement,
-            mark.channel === "shot" ? "visual" : mark.channel,
-            false,
-          )
-      if (!changed) preserveGestureOnSession.current = false
-    }
+    const target = event.currentTarget
     event.stopPropagation()
     suppressClick.current = false
     const gesture: Gesture = {
       id: mark.placement.guideId,
-      ...(mark.shotTag ? { shotTag: mark.shotTag } : {}),
+      ...(mark.shotId ? { shotId: mark.shotId } : {}),
       channel: mark.channel,
       pointerId: event.pointerId,
       clientX: event.clientX,
@@ -581,15 +581,26 @@ export function H3TimelineReact({
       frame: mark.frame,
       next: mark.frame,
       moved: false,
-      target: event.currentTarget,
+      target,
     }
     gestureRef.current = gesture
     setPreview({ id: gesture.id, frame: gesture.frame })
     setGestureActive(true)
     try {
-      event.currentTarget.setPointerCapture(event.pointerId)
+      target.setPointerCapture(event.pointerId)
     } catch {
       // Pointer capture is a progressive enhancement for synthetic/native events.
+    }
+    if (mark.placement.kind === "guide") {
+      preserveGestureOnSession.current = true
+      const changed = mark.shotId
+        ? actions.selectShot(mark.shotId)
+        : actions.selectPlacement(
+            mark.placement,
+            mark.channel === "shot" ? "visual" : mark.channel,
+            false,
+          )
+      if (!changed) preserveGestureOnSession.current = false
     }
   }
 
@@ -655,9 +666,9 @@ export function H3TimelineReact({
           ? t("end")
           : undefined
     const endpointRole = endpointRoleLabel !== undefined
-    const key = `${mark.placement.guideId ?? mark.placement.kind}:${mark.channel}:${mark.shotTag ?? mark.label}`
+    const key = `${mark.placement.guideId ?? mark.placement.kind}:${mark.channel}:${mark.shotId ?? mark.shotTag ?? mark.label}`
     const shotOrdinal = mark.shotTag
-      ? h3.shots.findIndex((shot) => shot.tag === mark.shotTag) + 1
+      ? h3.shots.findIndex((shot) => shot.id === mark.shotId) + 1
       : undefined
     return (
       <Button
@@ -666,6 +677,7 @@ export function H3TimelineReact({
         className={`rl-h3-timeline__mark${mark.disabled ? " is-paused" : ""}${mark.incomplete ? " is-incomplete" : ""}${mark.warning ? " is-warning" : ""}${outOfRange ? " is-out-of-range" : ""}${selected ? " is-selected" : ""}${mark.channel === "audio" ? " is-audio" : ""}${mark.channel === "shot" ? " is-shot" : ""}${mark.frames === undefined ? " is-unknown" : ""}${endpointPreview ? " is-endpoint-preview" : ""}${endpointRole ? " is-endpoint-role" : ""}${endpointAtEnd ? " is-endpoint-end" : ""}${gestureActive && preview?.id === mark.placement.guideId ? " is-dragging" : ""}`}
         data-timeline-mark={index}
         data-timeline-guide={mark.placement.guideId}
+        data-timeline-shot-id={mark.shotId}
         data-timeline-shot={mark.shotTag}
         data-h3-channel={mark.channel}
         data-h3-frame={Number.isFinite(mark.frame) ? mark.frame : undefined}
@@ -686,7 +698,7 @@ export function H3TimelineReact({
             suppressClick.current = false
             return
           }
-          if (mark.shotTag) actions.selectShot(mark.shotTag)
+          if (mark.shotId) actions.selectShot(mark.shotId)
           else
             actions.selectPlacement(
               mark.placement,
@@ -697,7 +709,7 @@ export function H3TimelineReact({
           event.stopPropagation()
           if (event.key === "Delete" || event.key === "Backspace") {
             event.preventDefault()
-            if (mark.shotTag) actions.removeShot(mark.shotTag)
+            if (mark.shotId) actions.removeShot(mark.shotId)
             else if (mark.placement.guideId) actions.removePlacement(mark.placement.guideId)
             return
           }
@@ -708,7 +720,7 @@ export function H3TimelineReact({
             mark.frame + (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? fps : 1),
           )
           const nativeFrame = timelineToNativeFrame(next, fps)
-          if (mark.shotTag) actions.changeShot(mark.shotTag, nativeFrame)
+          if (mark.shotId) actions.changeShot(mark.shotId, nativeFrame)
           else if (mark.placement.guideId)
             actions.movePlacement(mark.placement.guideId, nativeFrame)
         }}
@@ -912,11 +924,14 @@ export function H3TimelineReact({
                         : undefined
                     return (
                       <span
-                        key={`${mark.placement.guideId ?? mark.placement.kind}:${mark.shotTag ?? mark.label}`}
+                        key={`${mark.placement.guideId ?? mark.placement.kind}:${mark.shotId ?? mark.shotTag ?? mark.label}`}
                         className="rl-h3-timeline__mark-position"
                         style={{
                           left: `${(markerLeftFrame / extent) * 100}%`,
                           top: `${row * 40 + 4}px`,
+                          // Rows can overlap when host CSS enlarges a marker. Keep the
+                          // visually upper row as the pointer target in that overlap.
+                          zIndex: rows.length - row,
                           ...(width ? { width } : {}),
                         }}
                       >

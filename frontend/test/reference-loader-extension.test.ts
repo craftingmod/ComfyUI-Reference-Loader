@@ -111,10 +111,12 @@ describe("Reference Loader custom widget", () => {
     registerReferenceLoader(app, { fetchApi: async () => new Response("{}") })
     const factories = extension?.getCustomWidgets?.()
     const roots = new Map<string, HTMLElement>()
+    const widgetOptions = new Map<string, DomWidgetOptions>()
     const widgets: ComfyWidget[] = []
     const node: ComfyNode = {
       addDOMWidget(name, _type, element, options) {
         roots.set(name, element)
+        widgetOptions.set(name, options)
         const widget = { name, value: "", options } as ComfyWidget
         widgets.push(widget)
         return widget
@@ -156,6 +158,8 @@ describe("Reference Loader custom widget", () => {
     expect(roots.get("loader_state")?.querySelector("[data-h3-workspace]")).toBeNull()
     expect(roots.get("h3_timeline")?.querySelector("[data-h3-workspace]")).not.toBeNull()
     expect(roots.get("prompt_definitions")?.querySelector(".rl-prompt-definitions")).not.toBeNull()
+    expect(widgetOptions.get("h3_timeline")?.serialize).toBe(true)
+    expect(widgetOptions.get("prompt_definitions")?.serialize).toBe(true)
 
     for (const widget of widgets) widget.onRemove?.()
   })
@@ -295,7 +299,7 @@ describe("Reference Loader custom widget", () => {
     expect(roots.get("prompt_definitions")?.querySelector(".rl-prompt-definitions")).toBeTruthy()
     expect(roots.get("prompt")?.querySelector(".rl-prompt-definitions")).toBeNull()
     expect(widgets.get("prompt_definitions")?.serialize).toBe(true)
-    expect(widgets.get("prompt_definitions")?.options?.serialize).toBe(false)
+    expect(widgets.get("prompt_definitions")?.options?.serialize).toBe(true)
 
     const savedValues = orderedWidgets.map((widget) =>
       widget.serialize === false ? undefined : widget.value,

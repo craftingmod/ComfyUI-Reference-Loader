@@ -184,7 +184,10 @@ export function registerReferenceLoader(
           root.className = "reference-h3-timeline"
           root.dataset.input = inputName
           const widget = node.addDOMWidget(inputName, REFERENCE_H3_TIMELINE_WIDGET_TYPE, root, {
-            serialize: false,
+            // Keep the required schema slot in the API payload. The Timeline
+            // state is already carried by loader_state, so this is only the
+            // empty placeholder required by the backend contract.
+            serialize: true,
             hideOnZoom: false,
             getValue: () => "",
             setValue: () => undefined,

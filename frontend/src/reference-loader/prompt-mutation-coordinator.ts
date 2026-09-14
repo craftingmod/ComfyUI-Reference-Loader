@@ -242,6 +242,13 @@ export class PromptMutationCoordinator {
     return this.#outcome(true, true)
   }
 
+  setShotFrameDraftByIdentity(identity: string, frameIndex: number): PromptMutationOutcome {
+    const shot = this.document.shots.find((candidate) => candidate.id === identity)
+    return shot
+      ? this.setShotFrameDraft(shot.tag, frameIndex)
+      : this.#outcome(false, false, "not-found")
+  }
+
   removeShot(tag: string): PromptMutationOutcome {
     const current = this.document.shots.find((shot) => shot.tag === tag)
     if (!current) return this.#outcome(false, false, "not-found")
@@ -258,6 +265,11 @@ export class PromptMutationCoordinator {
     }
     this.#markDirty()
     return this.#outcome(true, true)
+  }
+
+  removeShotByIdentity(identity: string): PromptMutationOutcome {
+    const shot = this.document.shots.find((candidate) => candidate.id === identity)
+    return shot ? this.removeShot(shot.tag) : this.#outcome(false, false, "not-found")
   }
 
   applyShotDraft(): PromptMutationOutcome {

@@ -26,7 +26,9 @@ export class ComfyPromptAdapter {
     root.className = "reference-prompt-definitions"
     root.dataset.input = inputName
     const widget = node.addDOMWidget(inputName, REFERENCE_PROMPT_DEFINITIONS_WIDGET_TYPE, root, {
-      serialize: false,
+      // Keep the required schema slot in the API payload. Subjects and Shots
+      // are stored in prompt; this widget only supplies the empty placeholder.
+      serialize: true,
       hideOnZoom: false,
       getValue: () => "",
       setValue: () => undefined,
@@ -147,9 +149,9 @@ export class ComfyPromptAdapter {
     const releaseShots = prompt.subscribeShots(() => {
       loader.setPromptShots(
         prompt.shots,
-        (tag, frame) => prompt.setShotFrameDraft(tag, frame),
-        (tag) => prompt.focusShot(tag),
-        (tag) => prompt.removeShot(tag),
+        (identity, frame) => prompt.setShotFrameDraftByIdentity(identity, frame),
+        (identity) => prompt.focusShotByIdentity(identity),
+        (identity) => prompt.removeShotByIdentity(identity),
         () => prompt.applyShotDraft(),
         () => prompt.cancelShotDraft(),
         prompt.hasShotDraft,

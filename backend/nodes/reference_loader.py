@@ -351,6 +351,7 @@ class ReferenceLoaderNode(io.ComfyNode):
   def fingerprint_inputs(
     cls,
     loader_state: str,
+    h3_timeline: str = "",
     prompt_definitions: str = "",
     limit_image_pixels: bool = False,
     max_image_pixels: float = 2.0,
@@ -369,6 +370,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     h3_fps: int = H3_OUTPUT_DEFAULT_FPS,
   ) -> str:
     _ = (
+      h3_timeline,
       prompt_definitions,
       grid_columns,
       preview_pixels,
@@ -409,6 +411,7 @@ class ReferenceLoaderNode(io.ComfyNode):
   def execute(
     cls,
     loader_state: str,
+    h3_timeline: str = "",
     prompt_definitions: str = "",
     limit_image_pixels: bool = False,
     max_image_pixels: float = 2.0,
@@ -427,6 +430,7 @@ class ReferenceLoaderNode(io.ComfyNode):
     h3_fps: int = H3_OUTPUT_DEFAULT_FPS,
   ) -> io.NodeOutput:
     _ = (
+      h3_timeline,
       prompt_definitions,
       grid_columns,
       preview_pixels,

@@ -7,15 +7,15 @@ import {
   isAudioItem,
   H3_OUTPUT_MAX_FPS,
   H3_OUTPUT_MAX_MEGAPIXELS,
-  H3_OUTPUT_MAX_TOTAL_FRAMES,
   H3_OUTPUT_MIN_FPS,
   H3_OUTPUT_MIN_MEGAPIXELS,
-  H3_OUTPUT_MIN_TOTAL_FRAMES,
   H3_OUTPUT_ASPECT_IDS,
   H3_OUTPUT_MODES,
   createEmptyH3Timeline,
   MAX_H3_GUIDES,
+  normalizeH3OutputConfig,
   normalizeH3OutputDimension,
+  normalizeH3OutputFrameCount,
   type LoaderState,
   type LoaderUiPreferences,
   type H3OutputSettings,
@@ -313,25 +313,47 @@ export function loaderReducer(state: LoaderState, action: LoaderAction): LoaderS
     case "set-ui":
       return { ...state, ui: { ...state.ui, ...action.values } }
     case "set-h3-output": {
+      const config = normalizeH3OutputConfig(action.values, state.h3Output)
       const fps =
         action.values.fps === undefined
           ? state.h3Output.fps
           : Math.min(H3_OUTPUT_MAX_FPS, Math.max(H3_OUTPUT_MIN_FPS, Math.round(action.values.fps)))
       const totalFrames =
         action.values.totalFrames === undefined
-          ? state.h3Output.totalFrames
-          : Math.min(
-              H3_OUTPUT_MAX_TOTAL_FRAMES,
-              Math.max(H3_OUTPUT_MIN_TOTAL_FRAMES, Math.round(action.values.totalFrames)),
+          ? normalizeH3OutputFrameCount(
+              state.h3Output.totalFrames,
+              state.h3Output.totalFrames,
+              config,
+            )
+          : normalizeH3OutputFrameCount(
+              action.values.totalFrames,
+              state.h3Output.totalFrames,
+              config,
             )
       const width =
         action.values.width === undefined
-          ? state.h3Output.width
-          : normalizeH3OutputDimension(action.values.width, state.h3Output.width)
+          ? normalizeH3OutputDimension(
+              state.h3Output.width,
+              state.h3Output.width,
+              config.resolutionMultiple,
+            )
+          : normalizeH3OutputDimension(
+              action.values.width,
+              state.h3Output.width,
+              config.resolutionMultiple,
+            )
       const height =
         action.values.height === undefined
-          ? state.h3Output.height
-          : normalizeH3OutputDimension(action.values.height, state.h3Output.height)
+          ? normalizeH3OutputDimension(
+              state.h3Output.height,
+              state.h3Output.height,
+              config.resolutionMultiple,
+            )
+          : normalizeH3OutputDimension(
+              action.values.height,
+              state.h3Output.height,
+              config.resolutionMultiple,
+            )
       const mode =
         action.values.mode === undefined
           ? state.h3Output.mode
@@ -362,6 +384,9 @@ export function loaderReducer(state: LoaderState, action: LoaderAction): LoaderS
         totalFrames === state.h3Output.totalFrames &&
         width === state.h3Output.width &&
         height === state.h3Output.height &&
+        config.resolutionMultiple === state.h3Output.resolutionMultiple &&
+        config.frameModulo === state.h3Output.frameModulo &&
+        config.frameRemainder === state.h3Output.frameRemainder &&
         mode === state.h3Output.mode &&
         imageId === state.h3Output.imageId &&
         aspect === state.h3Output.aspect &&
@@ -373,6 +398,7 @@ export function loaderReducer(state: LoaderState, action: LoaderAction): LoaderS
         h3Output: {
           fps,
           totalFrames,
+          ...config,
           width,
           height,
           mode,

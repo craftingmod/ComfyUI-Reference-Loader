@@ -252,8 +252,35 @@ describe("Reference Loader stylesheet", () => {
     expect(workspace).toContain("grid-template-columns: max-content max-content auto;")
     expect(workspace).toContain(".rl-h3-editor__add-form > .rl-h3-editor__add")
     expect(workspace).toContain("justify-self: start;")
+    expect(workspace).toContain(".rl-h3-workspace__footer-controls")
+    expect(workspace).toContain(".rl-h3-workspace__view-controls")
+    expect(workspace).toContain(".rl-h3-workspace__commit-actions")
+    expect(workspace).toContain("border-left: 1px solid var(--rl-border);")
     expect(workspace).toContain("@container (max-width: 420px)")
     expect(workspace).toContain(".rl-h3-editor__frame-label")
+  })
+
+  it("makes the H3 Timing and Config tabs fill their panel width", async () => {
+    const timing = await Bun.file(
+      new URL("../src/reference-loader/styles/h3-timing.css", import.meta.url),
+    ).text()
+
+    expect(timing).toContain(".rl-h3-timing-panel__tabs")
+    expect(timing).toContain("width: 100%;")
+    expect(timing).toContain(".rl-h3-timing-panel__tabs button")
+  })
+
+  it("makes the H3 Video Output modes a joined full-width button group", async () => {
+    const output = await Bun.file(
+      new URL("../src/reference-loader/styles/h3-output.css", import.meta.url),
+    ).text()
+
+    const modeRule = output.match(/\.rl-h3-output-panel__mode-group\s*\{([^}]*)\}/)?.[1]
+    expect(modeRule).toContain("width: 100%;")
+    expect(modeRule).toContain("grid-template-columns: repeat(3, minmax(0, 1fr));")
+    expect(modeRule).toContain("gap: 0;")
+    expect(output).toContain(".rl-h3-output-panel__mode-group button")
+    expect(output).toContain("width: 100%;")
   })
 
   it("keeps H3 surface ownership explicit", async () => {

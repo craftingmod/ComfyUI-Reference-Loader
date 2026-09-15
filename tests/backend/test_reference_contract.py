@@ -117,7 +117,10 @@ def test_h3_output_settings_are_execution_visible_and_round_trip_through_manifes
   raw = loader_state()
   raw["h3Output"] = {
     "fps": 24,
-    "totalFrames": 200,
+    "totalFrames": 203,
+    "resolutionMultiple": 64,
+    "frameModulo": 10,
+    "frameRemainder": 3,
     "width": 1024,
     "height": 576,
     "mode": "manual",
@@ -128,13 +131,16 @@ def test_h3_output_settings_are_execution_visible_and_round_trip_through_manifes
   state = parse_reference_state(raw)
 
   assert state.h3_output.fps == 24
-  assert state.h3_output.total_frames == 200
+  assert state.h3_output.total_frames == 203
+  assert state.h3_output.resolution_multiple == 64
+  assert state.h3_output.frame_modulo == 10
+  assert state.h3_output.frame_remainder == 3
   assert state.h3_output.width == 1024
   assert state.h3_output.height == 576
   assert execution_projection(state)["h3Output"] == raw["h3Output"]
 
   changed = copy.deepcopy(raw)
-  changed["h3Output"]["width"] = 1056
+  changed["h3Output"]["width"] = 1088
   assert execution_fingerprint(state) != execution_fingerprint(
     parse_reference_state(changed)
   )
@@ -142,7 +148,10 @@ def test_h3_output_settings_are_execution_visible_and_round_trip_through_manifes
   manifest = build_reference_manifest(state)
   assert manifest["h3_output"] == {
     "fps": 24,
-    "total_frames": 200,
+    "total_frames": 203,
+    "resolution_multiple": 64,
+    "frame_modulo": 10,
+    "frame_remainder": 3,
     "width": 1024,
     "height": 576,
     "mode": "manual",
@@ -167,7 +176,7 @@ def test_h3_output_dimensions_migrate_when_older_state_omits_them():
   ("field", "value"),
   [("width", 31), ("width", 33), ("height", 16_385), ("height", True)],
 )
-def test_h3_output_dimensions_require_native_32_pixel_steps(field, value):
+def test_h3_output_dimensions_require_configured_resolution_steps(field, value):
   raw = loader_state()
   raw["h3Output"] = {"fps": 24, "totalFrames": 124, "width": 1344, "height": 768}
   raw["h3Output"][field] = value

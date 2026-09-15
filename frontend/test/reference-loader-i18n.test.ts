@@ -35,8 +35,8 @@ describe("Reference Loader i18n", () => {
       "max_image_pixels",
     )
     expect(enNodeDefs.Alyac_ReferenceLoader.inputs.h3_timeline.name).toBe("timeline")
-    expect(enNodeDefs.Alyac_ReferenceLoader.inputs.h3_total_frames.name).toBe("total_frames")
-    expect(enNodeDefs.Alyac_ReferenceLoader.inputs.h3_fps.name).toBe("fps")
+    expect(enNodeDefs.Alyac_ReferenceLoader.inputs).not.toHaveProperty("h3_total_frames")
+    expect(enNodeDefs.Alyac_ReferenceLoader.inputs).not.toHaveProperty("h3_fps")
     expect(enNodeDefs.Alyac_MiniMaxH3ReferenceToVideoWrapper.inputs.ref_image_size.name).toBe(
       "ref_image_size",
     )

@@ -14,10 +14,6 @@ import { deserializeLoaderState, serializeLoaderState } from "../serialization.t
 import {
   createEmptyH3Timeline,
   createMediaItem,
-  H3_OUTPUT_MAX_FPS,
-  H3_OUTPUT_MAX_TOTAL_FRAMES,
-  H3_OUTPUT_MIN_FPS,
-  H3_OUTPUT_MIN_TOTAL_FRAMES,
   type H3OutputSettings,
   type H3TimelineState,
   type LoaderState,
@@ -390,8 +386,6 @@ export class ReferenceLoaderController {
   #displayState(): LoaderDisplayState {
     return {
       gridColumns: this.state.ui.gridColumns,
-      h3Fps: this.state.h3Output.fps,
-      h3TotalFrames: this.state.h3Output.totalFrames,
       previewPixels: this.state.ui.previewMaxPixels / 1_000_000,
       showCaptions: showCaptionsProperty(this.#node),
       horizontalCards: horizontalCardsProperty(this.#node),
@@ -594,17 +588,6 @@ export class ReferenceLoaderController {
       values.waveformPairs === undefined || !Number.isFinite(values.waveformPairs)
         ? this.state.ui.waveformPeaks
         : Math.min(1000, Math.max(100, Math.round(values.waveformPairs)))
-    const h3Fps =
-      values.h3Fps === undefined || !Number.isFinite(values.h3Fps)
-        ? this.state.h3Output.fps
-        : Math.min(H3_OUTPUT_MAX_FPS, Math.max(H3_OUTPUT_MIN_FPS, Math.round(values.h3Fps)))
-    const h3TotalFrames =
-      values.h3TotalFrames === undefined || !Number.isFinite(values.h3TotalFrames)
-        ? this.state.h3Output.totalFrames
-        : Math.min(
-            H3_OUTPUT_MAX_TOTAL_FRAMES,
-            Math.max(H3_OUTPUT_MIN_TOTAL_FRAMES, Math.round(values.h3TotalFrames)),
-          )
     const previewFit =
       values.previewFit === "cover"
         ? "cover"
@@ -634,9 +617,6 @@ export class ReferenceLoaderController {
         this.#reloadChannelRuntime("video")
       }
       if (waveformChanged) this.#reloadChannelRuntime("audio")
-    }
-    if (h3Fps !== this.state.h3Output.fps || h3TotalFrames !== this.state.h3Output.totalFrames) {
-      this.#dispatch({ type: "set-h3-output", values: { fps: h3Fps, totalFrames: h3TotalFrames } })
     }
     if (values.showCaptions !== undefined) {
       const showCaptions = Boolean(values.showCaptions)

@@ -60,7 +60,13 @@
 }
 
 .rl-h3-output-panel__mode-group {
+  width: 100%;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+}
+
+.rl-h3-output-panel__mode-group button {
+  width: 100%;
 }
 
 .rl-h3-output-panel__orientation-label {

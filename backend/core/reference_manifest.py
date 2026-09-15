@@ -6,8 +6,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from .reference_contract import (
+  H3_OUTPUT_DEFAULT_FRAME_MODULO,
+  H3_OUTPUT_DEFAULT_FRAME_REMAINDER,
   H3_OUTPUT_DEFAULT_HEIGHT,
   H3_OUTPUT_DEFAULT_MEGAPIXELS,
+  H3_OUTPUT_DEFAULT_RESOLUTION_MULTIPLE,
   H3_OUTPUT_DEFAULT_WIDTH,
   ImageOutputSettings,
   ReferenceContractError,
@@ -255,6 +258,18 @@ def parse_reference_manifest_state(value: str | Mapping[str, Any]) -> ReferenceS
       "targetMegapixels": raw_h3_output.get(
         "target_megapixels",
         H3_OUTPUT_DEFAULT_MEGAPIXELS,
+      ),
+      "resolutionMultiple": raw_h3_output.get(
+        "resolution_multiple",
+        H3_OUTPUT_DEFAULT_RESOLUTION_MULTIPLE,
+      ),
+      "frameModulo": raw_h3_output.get(
+        "frame_modulo",
+        H3_OUTPUT_DEFAULT_FRAME_MODULO,
+      ),
+      "frameRemainder": raw_h3_output.get(
+        "frame_remainder",
+        H3_OUTPUT_DEFAULT_FRAME_REMAINDER,
       ),
     }
 

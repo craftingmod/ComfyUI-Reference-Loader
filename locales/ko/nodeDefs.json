@@ -19,14 +19,6 @@
         "name": "프롬프트",
         "tooltip": "안정적인 미디어 멘션을 포함하는 구조화된 프롬프트입니다. 출력 프롬프트에서는 <Picture N>, <Video N>, <Audio N> 태그로 변환됩니다."
       },
-      "h3_total_frames": {
-        "name": "프레임",
-        "tooltip": "H3 출력에서 생성할 총 프레임 수입니다. Wrapper가 이 값을 기본 H3 length 입력으로 전달합니다."
-      },
-      "h3_fps": {
-        "name": "FPS",
-        "tooltip": "H3 출력 타임라인의 프레임 레이트입니다. 현재 기본 MiniMax H3 실행은 24 FPS가 필요합니다."
-      },
       "limit_image_pixels": {
         "name": "이미지 픽셀 제한",
         "tooltip": "max_image_pixels를 초과하는 IMAGE 출력을 축소합니다. 원본 및 편집 파일은 변경하지 않습니다."

@@ -55,6 +55,14 @@ function enter(input: HTMLInputElement, value: string) {
   })
 }
 
+function enterReactInput(input: HTMLInputElement, value: string) {
+  flushSync(() => {
+    input.focus()
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value)
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }))
+  })
+}
+
 function position(root: HTMLElement, value: "start" | "guide" | "end") {
   const button = root.querySelector<HTMLButtonElement>(
     `[data-h3-add-field="position"][value="${value}"]`,
@@ -299,6 +307,119 @@ describe("React Guide inspector boundary", () => {
     flushSync(() =>
       reopened.querySelector<HTMLButtonElement>(".rl-h3-output-panel__close")?.click(),
     )
+  })
+
+  test("shares one panel slot between output and timing/config settings", async () => {
+    const { root, controller } = mount()
+    const outputButton = root.querySelector<HTMLButtonElement>(
+      '[data-h3-action="output-settings"]',
+    )!
+    const timingButton = root.querySelector<HTMLButtonElement>(
+      '[data-h3-action="timing-settings"]',
+    )!
+
+    expect(outputButton.getAttribute("aria-label")).toContain("Output: 16:9 · 1344×768")
+    expect(timingButton.getAttribute("aria-label")).toContain("Timing: 24 fps · 124 frames")
+    expect(outputButton.textContent).toBe("Resolution: 1344x768")
+    expect(timingButton.textContent).toBe("Frame: 24x5.167sec")
+
+    flushSync(() => timingButton.click())
+    const timingPanel = root.querySelector<HTMLElement>("[data-h3-timing-panel]")!
+    expect(root.querySelector("[data-h3-output-panel]")).toBeNull()
+    expect(timingPanel.textContent).toContain("Video Timing")
+    expect(
+      [...timingPanel.querySelectorAll<HTMLButtonElement>(".rl-h3-timing-panel__tabs button")].map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["Timing", "Config"])
+    expect(timingPanel.querySelector<HTMLElement>("[data-h3-timing-duration]")?.textContent).toBe(
+      "Duration5.167s",
+    )
+    expect(timingButton.getAttribute("aria-expanded")).toBe("true")
+    expect(outputButton.getAttribute("aria-expanded")).toBe("false")
+
+    const fps = timingPanel.querySelector<HTMLInputElement>('[data-h3-timing-field="fps"]')!
+    enterReactInput(fps, "30")
+    flushSync(() => fps.dispatchEvent(new Event("focusout", { bubbles: true })))
+    expect(controller.state.h3Output.fps).toBe(30)
+    expect(timingPanel.querySelector<HTMLElement>("[data-h3-timing-duration]")?.textContent).toBe(
+      "Duration4.133s",
+    )
+
+    const totalFrames = timingPanel.querySelector<HTMLInputElement>(
+      '[data-h3-timing-field="totalFrames"]',
+    )!
+    enterReactInput(totalFrames, "243")
+    flushSync(() => totalFrames.dispatchEvent(new Event("focusout", { bubbles: true })))
+    expect(controller.state.h3Output.totalFrames).toBe(243)
+    expect(timingButton.getAttribute("aria-label")).toContain("Timing: 30 fps · 243 frames")
+
+    flushSync(() => controller.setH3Output({ fps: 48, totalFrames: 90 }))
+    expect(controller.state.h3Output).toMatchObject({ fps: 48, totalFrames: 90 })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const updatedTimingPanel = root.querySelector<HTMLElement>("[data-h3-timing-panel]")!
+    expect(
+      updatedTimingPanel.querySelector<HTMLInputElement>('[data-h3-timing-field="fps"]')?.value,
+    ).toBe("48")
+    expect(
+      updatedTimingPanel.querySelector<HTMLInputElement>('[data-h3-timing-field="totalFrames"]')
+        ?.value,
+    ).toBe("90")
+    expect(
+      updatedTimingPanel.querySelector<HTMLElement>("[data-h3-timing-duration]")?.textContent,
+    ).toBe("Duration1.875s")
+
+    const configTab = timingPanel.querySelector<HTMLButtonElement>(
+      '.rl-h3-timing-panel__tabs [data-value="config"]',
+    )!
+    flushSync(() => configTab.click())
+    const configPanel = timingPanel.querySelector<HTMLElement>("[data-h3-config-panel]")!
+    const resolutionMultiple = configPanel.querySelector<HTMLInputElement>(
+      '[data-h3-config-field="resolutionMultiple"]',
+    )!
+    enterReactInput(resolutionMultiple, "64")
+    flushSync(() => resolutionMultiple.dispatchEvent(new Event("focusout", { bubbles: true })))
+    expect(controller.state.h3Output.resolutionMultiple).toBe(64)
+    const frameModulo = configPanel.querySelector<HTMLInputElement>(
+      '[data-h3-config-field="frameModulo"]',
+    )!
+    enterReactInput(frameModulo, "10")
+    flushSync(() => frameModulo.dispatchEvent(new Event("focusout", { bubbles: true })))
+    expect(controller.state.h3Output).toMatchObject({
+      totalFrames: 95,
+      frameModulo: 10,
+      frameRemainder: 5,
+    })
+    const frameRemainder = configPanel.querySelector<HTMLInputElement>(
+      '[data-h3-config-field="frameRemainder"]',
+    )!
+    enterReactInput(frameRemainder, "3")
+    flushSync(() => frameRemainder.dispatchEvent(new Event("focusout", { bubbles: true })))
+    expect(controller.state.h3Output).toMatchObject({
+      totalFrames: 93,
+      frameModulo: 10,
+      frameRemainder: 3,
+    })
+    expect(configTab.getAttribute("aria-pressed")).toBe("true")
+
+    const timingTab = timingPanel.querySelector<HTMLButtonElement>(
+      '.rl-h3-timing-panel__tabs [data-value="timing"]',
+    )!
+    flushSync(() => timingTab.click())
+    expect(root.querySelector("[data-h3-config-panel]")).toBeNull()
+    expect(root.querySelector('[data-h3-timing-field="fps"]')).not.toBeNull()
+
+    flushSync(() => outputButton.click())
+    expect(root.querySelector("[data-h3-timing-panel]")).toBeNull()
+    expect(root.querySelector("[data-h3-config-panel]")).toBeNull()
+    expect(root.querySelector("[data-h3-output-panel]")).not.toBeNull()
+    expect(outputButton.getAttribute("aria-expanded")).toBe("true")
+    expect(timingButton.getAttribute("aria-expanded")).toBe("false")
+    flushSync(() => root.querySelector<HTMLButtonElement>(".rl-h3-output-panel__close")?.click())
+    expect(document.activeElement).toBe(outputButton)
+    flushSync(() => outputButton.click())
+    flushSync(() => outputButton.click())
+    expect(root.querySelector("[data-h3-output-panel]")).toBeNull()
   })
 
   test("isolates node instances and cleans up the permanent roots on restore and destroy", () => {

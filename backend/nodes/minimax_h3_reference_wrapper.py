@@ -559,6 +559,9 @@ class MiniMaxH3ReferenceToVideoWrapperNode(io.ComfyNode):
       references.h3_image_id,
       references.h3_aspect,
       references.h3_target_megapixels,
+      references.h3_resolution_multiple,
+      references.h3_frame_modulo,
+      references.h3_frame_remainder,
     )
     if output.fps != H3_REFERENCE_FPS:
       raise ValueError(

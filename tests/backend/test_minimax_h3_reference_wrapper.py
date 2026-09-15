@@ -143,13 +143,13 @@ def test_wrapper_reads_bundle_frames_and_rejects_non_native_fps(monkeypatch):
   module = importlib.import_module("backend.nodes.minimax_h3_reference_wrapper")
   FakeMiniMaxH3.calls.clear()
   monkeypatch.setattr(module, "_minimax_h3_node", lambda: FakeMiniMaxH3)
-  bundle = replace(_bundle(module), h3_total_frames=200)
+  bundle = replace(_bundle(module), h3_total_frames=209)
 
   module.MiniMaxH3ReferenceToVideoWrapperNode.execute(
     clip="clip",
     references=bundle,
   )
-  assert FakeMiniMaxH3.calls[-1]["length"] == 200
+  assert FakeMiniMaxH3.calls[-1]["length"] == 209
 
   sized_bundle = replace(bundle, h3_width=1024, h3_height=576)
   module.MiniMaxH3ReferenceToVideoWrapperNode.execute(

@@ -1,0 +1,51 @@
+/* H3 output constraint configuration panel. */
+
+.rl-h3-config-panel {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  gap: 8px;
+  color: var(--rl-text);
+}
+
+.rl-h3-config-panel__fields {
+  display: grid;
+  gap: 8px;
+}
+
+.rl-h3-config-panel__fields label {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.rl-h3-config-panel__fields label span,
+.rl-h3-config-panel__hint,
+.rl-h3-config-panel__formula span {
+  color: var(--rl-muted);
+  font-size: 10px;
+}
+
+.rl-h3-config-panel__fields input {
+  width: 100%;
+  min-height: 28px;
+  padding: 3px 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rl-h3-config-panel__hint {
+  line-height: 1.35;
+}
+
+.rl-h3-config-panel__formula {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rl-border);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}

@@ -4,7 +4,6 @@ import { useI18n } from "../i18n.ts"
 import {
   H3_OUTPUT_DEFAULT_HEIGHT,
   H3_OUTPUT_DEFAULT_WIDTH,
-  H3_OUTPUT_DIMENSION_STEP,
   H3_OUTPUT_MAX_MEGAPIXELS,
   H3_OUTPUT_MIN_MEGAPIXELS,
   normalizeH3OutputDimension,
@@ -74,11 +73,20 @@ function orientationForRatio(ratio: H3OutputRatio): H3OutputOrientation {
 function dimensionsForRatio(
   ratio: H3OutputRatio,
   targetMegapixels: number,
+  resolutionMultiple: number,
 ): Pick<H3OutputSettings, "width" | "height"> {
   const scale = Math.sqrt((targetMegapixels * 1_000_000) / (ratio.width * ratio.height))
   return {
-    width: normalizeH3OutputDimension(ratio.width * scale, H3_OUTPUT_DEFAULT_WIDTH),
-    height: normalizeH3OutputDimension(ratio.height * scale, H3_OUTPUT_DEFAULT_HEIGHT),
+    width: normalizeH3OutputDimension(
+      ratio.width * scale,
+      H3_OUTPUT_DEFAULT_WIDTH,
+      resolutionMultiple,
+    ),
+    height: normalizeH3OutputDimension(
+      ratio.height * scale,
+      H3_OUTPUT_DEFAULT_HEIGHT,
+      resolutionMultiple,
+    ),
   }
 }
 
@@ -120,11 +128,13 @@ export function outputImageOptions(
 }
 
 export function H3OutputPanel({
+  id,
   output,
   imageOptions,
   onChange,
   onClose,
 }: {
+  id?: string
   output: H3OutputSettings
   imageOptions: readonly H3ImageRatioOption[]
   onChange(values: Partial<H3OutputSettings>): void
@@ -201,7 +211,11 @@ export function H3OutputPanel({
     if (!ratio) return
     setActiveAspect(aspect)
     setActiveOrientation(orientationForRatio(ratio))
-    const dimensions = dimensionsForRatio(ratio, currentTargetMegapixels())
+    const dimensions = dimensionsForRatio(
+      ratio,
+      currentTargetMegapixels(),
+      output.resolutionMultiple,
+    )
     chooseResolution(dimensions.width, dimensions.height, { mode: "aspect", aspect })
   }
 
@@ -209,7 +223,11 @@ export function H3OutputPanel({
     const image = imageOptions.find((option) => option.id === id)
     if (!image?.ratio) return
     setSelectedImageId(id)
-    const dimensions = dimensionsForRatio(image.ratio, currentTargetMegapixels())
+    const dimensions = dimensionsForRatio(
+      image.ratio,
+      currentTargetMegapixels(),
+      output.resolutionMultiple,
+    )
     chooseResolution(dimensions.width, dimensions.height, { mode: "image", imageId: id })
   }
 
@@ -227,7 +245,7 @@ export function H3OutputPanel({
     const parsed = Number(value)
     if (!Number.isFinite(parsed) || parsed <= 0 || !activeRatio) return
     const target = Math.min(H3_OUTPUT_MAX_MEGAPIXELS, Math.max(H3_OUTPUT_MIN_MEGAPIXELS, parsed))
-    const dimensions = dimensionsForRatio(activeRatio, target)
+    const dimensions = dimensionsForRatio(activeRatio, target, output.resolutionMultiple)
     setDraftMegapixels(String(target))
     chooseResolution(dimensions.width, dimensions.height, { targetMegapixels: target })
   }
@@ -247,7 +265,11 @@ export function H3OutputPanel({
         setSelectedImageId(image.id)
         onChange({ mode: "image", imageId: image.id })
         if (image.ratio) {
-          const dimensions = dimensionsForRatio(image.ratio, currentTargetMegapixels())
+          const dimensions = dimensionsForRatio(
+            image.ratio,
+            currentTargetMegapixels(),
+            output.resolutionMultiple,
+          )
           chooseResolution(dimensions.width, dimensions.height, {
             mode: "image",
             imageId: image.id,
@@ -260,7 +282,11 @@ export function H3OutputPanel({
   const commitDimension = (dimension: H3OutputDimension, value: string): void => {
     const parsed = Number(value)
     if (!Number.isInteger(parsed)) return
-    const normalized = normalizeH3OutputDimension(parsed, output[dimension])
+    const normalized = normalizeH3OutputDimension(
+      parsed,
+      output[dimension],
+      output.resolutionMultiple,
+    )
     if (dimension === "width") {
       setDraftWidth(String(normalized))
       onChange({ width: normalized })
@@ -272,6 +298,7 @@ export function H3OutputPanel({
 
   return (
     <div
+      id={id}
       className="rl-h3-output-panel"
       data-h3-output-panel=""
       role="dialog"
@@ -284,7 +311,7 @@ export function H3OutputPanel({
         </Button>
       </header>
       <ToggleGroup
-        className="rl-h3-output-panel__mode-group"
+        className="rl-h3-workspace__view-group rl-h3-output-panel__mode-group"
         value={mode}
         items={[
           { value: "image", label: t("imageRatio") },
@@ -341,7 +368,7 @@ export function H3OutputPanel({
                 type="number"
                 min="32"
                 max="16384"
-                step={H3_OUTPUT_DIMENSION_STEP}
+                step={output.resolutionMultiple}
                 value={draftWidth}
                 data-h3-output-dimension="width"
                 onChange={(event) => setDraftWidth(event.currentTarget.value)}
@@ -354,7 +381,7 @@ export function H3OutputPanel({
                 type="number"
                 min="32"
                 max="16384"
-                step={H3_OUTPUT_DIMENSION_STEP}
+                step={output.resolutionMultiple}
                 value={draftHeight}
                 data-h3-output-dimension="height"
                 onChange={(event) => setDraftHeight(event.currentTarget.value)}
@@ -362,7 +389,7 @@ export function H3OutputPanel({
               />
             </label>
           </div>
-          <small>{t("videoOutputDimensionHint")}</small>
+          <small>{t("videoOutputDimensionHint", { multiple: output.resolutionMultiple })}</small>
         </fieldset>
       )}
       {mode !== "manual" ? (

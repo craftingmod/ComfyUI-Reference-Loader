@@ -14,8 +14,11 @@ from ..core.prompt_contract import (
 )
 from ..core.reference_contract import (
   H3_OUTPUT_DEFAULT_FPS,
+  H3_OUTPUT_DEFAULT_FRAME_MODULO,
+  H3_OUTPUT_DEFAULT_FRAME_REMAINDER,
   H3_OUTPUT_DEFAULT_HEIGHT,
   H3_OUTPUT_DEFAULT_MEGAPIXELS,
+  H3_OUTPUT_DEFAULT_RESOLUTION_MULTIPLE,
   H3_OUTPUT_DEFAULT_TOTAL_FRAMES,
   H3_OUTPUT_DEFAULT_WIDTH,
   ReferenceContractError,
@@ -51,6 +54,9 @@ class ReferenceLoaderBundle:
   h3_image_id: str | None = None
   h3_aspect: str = "16:9"
   h3_target_megapixels: float = H3_OUTPUT_DEFAULT_MEGAPIXELS
+  h3_resolution_multiple: int = H3_OUTPUT_DEFAULT_RESOLUTION_MULTIPLE
+  h3_frame_modulo: int = H3_OUTPUT_DEFAULT_FRAME_MODULO
+  h3_frame_remainder: int = H3_OUTPUT_DEFAULT_FRAME_REMAINDER
   guide_media: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -72,6 +78,9 @@ def validate_reference_loader_bundle(
       references.h3_image_id,
       references.h3_aspect,
       references.h3_target_megapixels,
+      references.h3_resolution_multiple,
+      references.h3_frame_modulo,
+      references.h3_frame_remainder,
     )
     != state.h3_output
   ):

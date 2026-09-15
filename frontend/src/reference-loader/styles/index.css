@@ -10,6 +10,8 @@
 @import "./h3-timeline.css";
 @import "./h3-workspace.css";
 @import "./h3-output.css";
+@import "./h3-timing.css";
+@import "./h3-config.css";
 @import "./native-editor.css";
 @import "./image-editor.css";
 @import "./trim-editor.css";

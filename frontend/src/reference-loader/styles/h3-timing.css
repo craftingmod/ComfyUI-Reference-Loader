@@ -1,0 +1,79 @@
+/* H3 video timing settings panel. */
+
+.rl-h3-timing-panel {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--rl-border);
+  border-radius: 8px;
+  background: var(--rl-panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+  color: var(--rl-text);
+}
+
+.rl-h3-timing-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rl-h3-timing-panel__header strong {
+  font-size: 12px;
+}
+
+.rl-h3-timing-panel__close {
+  min-height: 24px;
+  padding: 2px 6px;
+  font-size: 10px;
+}
+
+.rl-h3-timing-panel__tabs {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rl-h3-timing-panel__tabs button {
+  width: 100%;
+  min-width: 0;
+}
+
+.rl-h3-timing-panel__fields {
+  display: grid;
+  gap: 8px;
+}
+
+.rl-h3-timing-panel__fields label {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.rl-h3-timing-panel__fields label span,
+.rl-h3-timing-panel__duration span {
+  color: var(--rl-muted);
+  font-size: 10px;
+}
+
+.rl-h3-timing-panel__fields input {
+  width: 100%;
+  min-height: 28px;
+  padding: 3px 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rl-h3-timing-panel__duration {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rl-border);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}

@@ -361,8 +361,6 @@ function bindNativeDisplayProxies(
   const cardAspect = node.widgets?.find((widget) => widget.name === "card_aspect")
   const previewFit = node.widgets?.find((widget) => widget.name === "preview_fit")
   const waveformPairs = node.widgets?.find((widget) => widget.name === "waveform_pairs")
-  const h3TotalFrames = node.widgets?.find((widget) => widget.name === "h3_total_frames")
-  const h3Fps = node.widgets?.find((widget) => widget.name === "h3_fps")
   if (
     !gridColumns ||
     !previewPixels ||
@@ -382,8 +380,6 @@ function bindNativeDisplayProxies(
   const originalCardAspectCallback = cardAspect.callback
   const originalPreviewFitCallback = previewFit.callback
   const originalWaveformPairsCallback = waveformPairs.callback
-  const originalH3TotalFramesCallback = h3TotalFrames?.callback
-  const originalH3FpsCallback = h3Fps?.callback
   const syncFromState = (): void => {
     const values = controller.displayState
     gridColumns.value = values.gridColumns
@@ -393,8 +389,6 @@ function bindNativeDisplayProxies(
     cardAspect.value = values.cardAspect
     previewFit.value = values.previewFit
     waveformPairs.value = values.waveformPairs
-    if (h3TotalFrames) h3TotalFrames.value = values.h3TotalFrames
-    if (h3Fps) h3Fps.value = values.h3Fps
   }
   const gridCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
     const result = originalGridCallback?.call(gridColumns, value, ...args)
@@ -451,22 +445,6 @@ function bindNativeDisplayProxies(
   cardAspect.callback = cardAspectCallback
   previewFit.callback = previewFitCallback
   waveformPairs.callback = waveformPairsCallback
-  const h3TotalFramesCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
-    const result = originalH3TotalFramesCallback?.call(h3TotalFrames, value, ...args)
-    controller.writeDisplayProxy({
-      h3TotalFrames: typeof value === "number" ? value : Number(value),
-    })
-    syncFromState()
-    return result
-  }
-  const h3FpsCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
-    const result = originalH3FpsCallback?.call(h3Fps, value, ...args)
-    controller.writeDisplayProxy({ h3Fps: typeof value === "number" ? value : Number(value) })
-    syncFromState()
-    return result
-  }
-  if (h3TotalFrames) h3TotalFrames.callback = h3TotalFramesCallback
-  if (h3Fps) h3Fps.callback = h3FpsCallback
   syncFromState()
   return {
     syncFromState,
@@ -499,14 +477,6 @@ function bindNativeDisplayProxies(
       if (waveformPairs.callback === waveformPairsCallback) {
         if (originalWaveformPairsCallback) waveformPairs.callback = originalWaveformPairsCallback
         else delete waveformPairs.callback
-      }
-      if (h3TotalFrames?.callback === h3TotalFramesCallback) {
-        if (originalH3TotalFramesCallback) h3TotalFrames.callback = originalH3TotalFramesCallback
-        else delete h3TotalFrames.callback
-      }
-      if (h3Fps?.callback === h3FpsCallback) {
-        if (originalH3FpsCallback) h3Fps.callback = originalH3FpsCallback
-        else delete h3Fps.callback
       }
     },
   }

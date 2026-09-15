@@ -22,7 +22,7 @@ import { createEmptyLoaderState, createMediaItem } from "../src/reference-loader
 
 function fixture() {
   const state = createEmptyLoaderState()
-  state.h3Output = { ...state.h3Output, fps: 24, totalFrames: 240, width: 1344, height: 768 }
+  state.h3Output = { ...state.h3Output, fps: 24, totalFrames: 243, width: 1344, height: 768 }
   const media = (kind: "image" | "audio", id: string) =>
     createMediaItem(
       kind,
@@ -164,14 +164,21 @@ function sizeSurface(root: HTMLElement, width = 640) {
 }
 
 describe("Guide timeline", () => {
-  test("uses the bold title area as the collapse toggle beside Guides controls", () => {
+  test("uses the bold title area as the collapse toggle and keeps view controls in the footer", () => {
     const { root, controller } = mount()
     const header = root.querySelector<HTMLElement>(".rl-h3-workspace__header")!
     const heading = header.querySelector<HTMLButtonElement>(".rl-h3-workspace__heading")!
     const tools = header.querySelector<HTMLElement>(".rl-h3-workspace__tools")!
+    const footer = root.querySelector<HTMLElement>(".rl-h3-workspace__footer")!
+    const footerControls = footer.querySelector<HTMLElement>(".rl-h3-workspace__footer-controls")!
+    const viewControls = footer.querySelector<HTMLElement>(".rl-h3-workspace__view-controls")!
+    const commitActions = footer.querySelector<HTMLElement>(".rl-h3-workspace__commit-actions")!
     const collapse = heading
     const status = header.querySelector<HTMLButtonElement>(".rl-h3-workspace__status")!
     const output = header.querySelector<HTMLButtonElement>('[data-h3-action="output-settings"]')!
+    const timing = header.querySelector<HTMLButtonElement>('[data-h3-action="timing-settings"]')!
+    const cancel = root.querySelector<HTMLButtonElement>('[data-h3-action="cancel-editor"]')!
+    const apply = root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!
 
     expect(heading.querySelector("strong")?.textContent).toBe("Timeline Guides")
     expect(collapse.getAttribute("aria-label")).toBe("Expand H3 Timeline")
@@ -180,11 +187,15 @@ describe("Guide timeline", () => {
     )
     expect(heading.querySelector(".rl-h3-workspace__summary")).toBeNull()
     expect(header.querySelector(".rl-h3-workspace__tools")).not.toBeNull()
-    expect(tools.children[0]?.hasAttribute("hidden")).toBe(true)
-    expect(tools.children[1]?.hasAttribute("hidden")).toBe(true)
-    expect(tools.children[2]).toBe(status)
-    expect(tools.children[3]).toBe(output)
-    expect(tools.children).toHaveLength(4)
+    expect(tools.children[0]).toBe(status)
+    expect(tools.children[1]).toBe(output)
+    expect(tools.children[2]).toBe(timing)
+    expect(tools.children).toHaveLength(3)
+    expect(footer.hasAttribute("hidden")).toBe(true)
+    expect(footerControls.children[0]).toBe(viewControls)
+    expect(footerControls.children[1]).toBe(commitActions)
+    expect(commitActions.children[0]).toBe(cancel)
+    expect(commitActions.children[1]).toBe(apply)
     expect(root.querySelector(".rl-h3-workspace > .rl-h3-workspace__tools")).toBeNull()
     expect(root.querySelector('[aria-label="Timeline zoom"]')).toBeNull()
     expect(
@@ -192,17 +203,17 @@ describe("Guide timeline", () => {
     ).toBe(false)
     expect(status.title).toBe("Toggle Guides")
     expect(
-      [...header.querySelectorAll<HTMLButtonElement>('[aria-label="Timeline view"] button')].map(
+      [...footer.querySelectorAll<HTMLButtonElement>('[aria-label="Timeline view"] button')].map(
         (button) => button.textContent,
       ),
     ).toEqual(["Timeline", "List"])
     expect(
       [
-        ...header.querySelectorAll<HTMLButtonElement>('[aria-label="Timeline snap mode"] button'),
+        ...footer.querySelectorAll<HTMLButtonElement>('[aria-label="Timeline snap mode"] button'),
       ].map((button) => button.textContent),
     ).toEqual(["Off", "0.5s"])
     expect(
-      header
+      footer
         .querySelector<HTMLButtonElement>('[aria-label="Timeline snap mode"] button')
         ?.getAttribute("aria-pressed"),
     ).toBe("true")
@@ -216,16 +227,16 @@ describe("Guide timeline", () => {
         ?.getAttribute("aria-expanded"),
     ).toBe("true")
     expect(root.querySelector(".rl-h3-workspace__summary")?.textContent).toBe(
-      "Media (Image/Video/Audio) · 3 media ~ 240 frames · 24 FPS",
+      "Media (Image/Video/Audio) · 3 media ~ 243 frames · 24 FPS",
     )
-    expect(tools.children[0]?.hasAttribute("hidden")).toBe(false)
-    expect(tools.children[1]?.hasAttribute("hidden")).toBe(false)
-    expect(tools.children[2]).toBe(status)
-    expect(tools.children[3]).toBe(output)
-    expect(tools.children).toHaveLength(4)
+    expect(footer.hasAttribute("hidden")).toBe(false)
+    expect(tools.children[0]).toBe(status)
+    expect(tools.children[1]).toBe(output)
+    expect(tools.children[2]).toBe(timing)
+    expect(tools.children).toHaveLength(3)
 
     flushSync(() => {
-      header
+      footer
         .querySelector<HTMLButtonElement>('[aria-label="Timeline snap mode"] button:nth-child(2)')
         ?.click()
     })
@@ -243,6 +254,29 @@ describe("Guide timeline", () => {
     expect(controller.getViewSnapshot().h3?.timeline.enabled).toBe(false)
     expect(status.textContent).toBe("OFF")
     expect(status.getAttribute("aria-pressed")).toBe("false")
+  })
+
+  test("expands the collapsed workspace before opening an output or timing panel", () => {
+    const { root } = mount()
+    const workspace = root.querySelector<HTMLElement>("[data-h3-workspace]")!
+    const output = root.querySelector<HTMLButtonElement>('[data-h3-action="output-settings"]')!
+    const timing = root.querySelector<HTMLButtonElement>('[data-h3-action="timing-settings"]')!
+
+    expect(workspace.classList.contains("is-collapsed")).toBe(true)
+    flushSync(() => output.click())
+    expect(workspace.classList.contains("is-collapsed")).toBe(false)
+    expect(root.querySelector("[data-h3-output-panel]")).not.toBeNull()
+    expect(root.querySelector("[data-h3-timing-panel]")).toBeNull()
+
+    flushSync(() => timing.click())
+    expect(root.querySelector("[data-h3-output-panel]")).toBeNull()
+    expect(root.querySelector("[data-h3-timing-panel]")).not.toBeNull()
+
+    flushSync(() =>
+      workspace.querySelector<HTMLButtonElement>(".rl-h3-workspace__heading")?.click(),
+    )
+    expect(workspace.classList.contains("is-collapsed")).toBe(true)
+    expect(root.querySelector("[data-h3-timing-panel]")).toBeNull()
   })
 
   test("rounds Timeline interaction frames to the nearest half-second", () => {
@@ -301,7 +335,7 @@ describe("Guide timeline", () => {
     state.h3Timeline.startImageId = "scene"
     state.h3Timeline.guides.push({
       id: "last",
-      frameIndex: 239,
+      frameIndex: 242,
       visualId: "scene",
       audioId: null,
     })
@@ -342,7 +376,7 @@ describe("Guide timeline", () => {
     expect(shot.querySelector("small")).toBeNull()
     expect(shot.querySelector(".rl-h3-timeline__endpoint-source")?.textContent).toBe("#opening")
     expect(shot.querySelector(".rl-h3-timeline__endpoint-role")?.textContent).toBe("Start")
-    dirtyShot(controller, 239)
+    dirtyShot(controller, 242)
     expect(shot.classList.contains("is-endpoint-role")).toBe(true)
     expect(shot.querySelector(".rl-h3-timeline__endpoint-role")?.textContent).toBe("End")
     const shotPosition = shot.closest<HTMLElement>(".rl-h3-timeline__mark-position")
@@ -358,11 +392,14 @@ describe("Guide timeline", () => {
     const { root, controller } = mount()
     root.querySelector<HTMLButtonElement>('[data-h3-action="collapse"]')!.click()
     const executionBefore = executionFingerprintSource(controller.state)
-    controller.writeDisplayProxy({ h3Fps: 30, h3TotalFrames: 120 })
+    controller.setH3Output({ fps: 30, totalFrames: 124 })
 
     expect(controller.state.h3Output).toEqual({
       fps: 30,
-      totalFrames: 120,
+      totalFrames: 124,
+      resolutionMultiple: 32,
+      frameModulo: 17,
+      frameRemainder: 5,
       width: 1344,
       height: 768,
       mode: "aspect",
@@ -375,16 +412,16 @@ describe("Guide timeline", () => {
     expect(timelineFrameInputToNative("61", 30)).toBe("49")
     expect(root.querySelector("[data-timeline-time]")?.textContent).toBe("60f · 2.000s")
     expect(root.querySelector("[data-timeline-channel=visual]")?.textContent).toContain("60f")
-    expect(root.querySelector(".rl-h3-timeline__ruler")?.textContent).toContain("4.000s · 120f")
+    expect(root.querySelector(".rl-h3-timeline__ruler")?.textContent).toContain("4.133s · 124f")
     expect(root.querySelector(".rl-h3-workspace__summary")?.textContent).toBe(
-      "Media (Image/Video/Audio) · 3 media ~ 120 frames · 30 FPS",
+      "Media (Image/Video/Audio) · 3 media ~ 124 frames · 30 FPS",
     )
     expect(root.querySelector(".rl-h3-workspace__summary")?.getAttribute("title")).toBe(
-      "30 FPS · 120 frames",
+      "30 FPS · 124 frames",
     )
     expect(executionFingerprintSource(controller.state)).not.toBe(executionBefore)
 
-    controller.writeDisplayProxy({ h3Fps: 24, h3TotalFrames: 124 })
+    controller.setH3Output({ fps: 24, totalFrames: 124 })
     expect(root.querySelector(".rl-h3-timeline__ruler")?.textContent).toContain("5.167s · 124f")
     expect(
       Number.parseFloat(
@@ -392,7 +429,7 @@ describe("Guide timeline", () => {
           "",
       ),
     ).toBeCloseTo((24 / 124) * 100)
-    controller.writeDisplayProxy({ h3Fps: 30, h3TotalFrames: 120 })
+    controller.setH3Output({ fps: 30, totalFrames: 124 })
 
     root.querySelector<HTMLButtonElement>('[data-timeline-guide="pair"]')!.click()
     expect(
@@ -861,14 +898,14 @@ describe("Guide timeline", () => {
     expect(controller.getViewSnapshot().h3?.dirty).toBe(true)
     expect(
       [...root.querySelectorAll<HTMLElement>("[data-timeline-guide] [data-timeline-time]")].some(
-        (element) => element.textContent === "72f · 3.000s",
+        (element) => element.textContent === "73f · 3.042s",
       ),
     ).toBe(true)
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
     expect(controller.state.h3Timeline.guides).toHaveLength(2)
     expect(controller.state.h3Timeline.guides).toContainEqual({
       id: expect.any(String),
-      frameIndex: 72,
+      frameIndex: 73,
       visualId: "scene",
       audioId: null,
     })
@@ -894,7 +931,7 @@ describe("Guide timeline", () => {
 
     expect(controller.getViewSnapshot().h3?.timeline.guides).toContainEqual({
       id: expect.any(String),
-      frameIndex: 72,
+      frameIndex: 73,
       visualId: null,
       audioId: "music",
     })
@@ -902,7 +939,7 @@ describe("Guide timeline", () => {
     root.querySelector<HTMLButtonElement>('[data-h3-action="apply-editor"]')!.click()
     expect(controller.state.h3Timeline.guides).toContainEqual({
       id: expect.any(String),
-      frameIndex: 72,
+      frameIndex: 73,
       visualId: null,
       audioId: "music",
     })
@@ -985,8 +1022,8 @@ describe("Guide timeline", () => {
     flushSync(() => {
       dock.querySelector<HTMLButtonElement>('[data-h3-frame-shortcut="end"]')!.click()
     })
-    expect(shot.frame).toBe(239)
-    expect(dock.querySelector<HTMLInputElement>("[data-h3-inline-frame]")!.value).toBe("239")
+    expect(shot.frame).toBe(242)
+    expect(dock.querySelector<HTMLInputElement>("[data-h3-inline-frame]")!.value).toBe("242")
 
     flushSync(() => {
       root
@@ -1003,7 +1040,7 @@ describe("Guide timeline", () => {
     flushSync(() => {
       row.querySelector<HTMLButtonElement>('[data-h3-frame-shortcut="end"]')!.click()
     })
-    expect(shot.frame).toBe(239)
+    expect(shot.frame).toBe(242)
   })
 
   test("removes a selected End role through the timeline draft", () => {

@@ -27,6 +27,13 @@ H3_OUTPUT_MIN_HEIGHT = 32
 H3_OUTPUT_MAX_WIDTH = 16384
 H3_OUTPUT_MAX_HEIGHT = 16384
 H3_OUTPUT_DIMENSION_STEP = 32
+H3_OUTPUT_MIN_RESOLUTION_MULTIPLE = 1
+H3_OUTPUT_MAX_RESOLUTION_MULTIPLE = H3_OUTPUT_MAX_WIDTH
+H3_OUTPUT_DEFAULT_RESOLUTION_MULTIPLE = H3_OUTPUT_DIMENSION_STEP
+H3_OUTPUT_MIN_FRAME_MODULO = 1
+H3_OUTPUT_MAX_FRAME_MODULO = H3_OUTPUT_MAX_TOTAL_FRAMES
+H3_OUTPUT_DEFAULT_FRAME_MODULO = 17
+H3_OUTPUT_DEFAULT_FRAME_REMAINDER = 5
 H3_OUTPUT_MIN_MEGAPIXELS = 0.01
 H3_OUTPUT_MAX_MEGAPIXELS = 268.44
 H3_OUTPUT_DEFAULT_MEGAPIXELS = round(
@@ -258,11 +265,17 @@ class H3OutputSettings:
   image_id: str | None = None
   aspect: str = "16:9"
   target_megapixels: float = H3_OUTPUT_DEFAULT_MEGAPIXELS
+  resolution_multiple: int = H3_OUTPUT_DEFAULT_RESOLUTION_MULTIPLE
+  frame_modulo: int = H3_OUTPUT_DEFAULT_FRAME_MODULO
+  frame_remainder: int = H3_OUTPUT_DEFAULT_FRAME_REMAINDER
 
   def state_projection(self) -> dict[str, Any]:
     return {
       "fps": self.fps,
       "totalFrames": self.total_frames,
+      "resolutionMultiple": self.resolution_multiple,
+      "frameModulo": self.frame_modulo,
+      "frameRemainder": self.frame_remainder,
       "width": self.width,
       "height": self.height,
       "mode": self.mode,
@@ -275,6 +288,9 @@ class H3OutputSettings:
     return {
       "fps": self.fps,
       "total_frames": self.total_frames,
+      "resolution_multiple": self.resolution_multiple,
+      "frame_modulo": self.frame_modulo,
+      "frame_remainder": self.frame_remainder,
       "width": self.width,
       "height": self.height,
       "mode": self.mode,
@@ -376,7 +392,41 @@ def h3_output_settings(
   image_id: Any = None,
   aspect: Any = "16:9",
   target_megapixels: Any = H3_OUTPUT_DEFAULT_MEGAPIXELS,
+  resolution_multiple: Any = H3_OUTPUT_DEFAULT_RESOLUTION_MULTIPLE,
+  frame_modulo: Any = H3_OUTPUT_DEFAULT_FRAME_MODULO,
+  frame_remainder: Any = H3_OUTPUT_DEFAULT_FRAME_REMAINDER,
 ) -> H3OutputSettings:
+  if (
+    isinstance(resolution_multiple, bool)
+    or not isinstance(resolution_multiple, int)
+    or not H3_OUTPUT_MIN_RESOLUTION_MULTIPLE
+    <= resolution_multiple
+    <= H3_OUTPUT_MAX_RESOLUTION_MULTIPLE
+  ):
+    raise _error(
+      "h3_output.resolution_multiple",
+      f"must be an integer between {H3_OUTPUT_MIN_RESOLUTION_MULTIPLE} and "
+      f"{H3_OUTPUT_MAX_RESOLUTION_MULTIPLE}",
+    )
+  if (
+    isinstance(frame_modulo, bool)
+    or not isinstance(frame_modulo, int)
+    or not H3_OUTPUT_MIN_FRAME_MODULO <= frame_modulo <= H3_OUTPUT_MAX_FRAME_MODULO
+  ):
+    raise _error(
+      "h3_output.frame_modulo",
+      f"must be an integer between {H3_OUTPUT_MIN_FRAME_MODULO} and "
+      f"{H3_OUTPUT_MAX_FRAME_MODULO}",
+    )
+  if (
+    isinstance(frame_remainder, bool)
+    or not isinstance(frame_remainder, int)
+    or not 0 <= frame_remainder < frame_modulo
+  ):
+    raise _error(
+      "h3_output.frame_remainder",
+      "must be an integer from 0 through frame_modulo - 1",
+    )
   if (
     isinstance(fps, bool)
     or not isinstance(fps, int)
@@ -396,25 +446,30 @@ def h3_output_settings(
       "must be an integer between "
       f"{H3_OUTPUT_MIN_TOTAL_FRAMES} and {H3_OUTPUT_MAX_TOTAL_FRAMES}",
     )
+  if total_frames % frame_modulo != frame_remainder:
+    raise _error(
+      "h3_output.total_frames",
+      "must satisfy frame_modulo * n + frame_remainder",
+    )
   if (
     isinstance(width, bool)
     or not isinstance(width, int)
     or not H3_OUTPUT_MIN_WIDTH <= width <= H3_OUTPUT_MAX_WIDTH
-    or width % H3_OUTPUT_DIMENSION_STEP != 0
+    or width % resolution_multiple != 0
   ):
     raise _error(
       "h3_output.width",
-      "must be an integer between 32 and 16384 in 32-pixel steps",
+      "must be an integer between 32 and 16384 in the configured resolution steps",
     )
   if (
     isinstance(height, bool)
     or not isinstance(height, int)
     or not H3_OUTPUT_MIN_HEIGHT <= height <= H3_OUTPUT_MAX_HEIGHT
-    or height % H3_OUTPUT_DIMENSION_STEP != 0
+    or height % resolution_multiple != 0
   ):
     raise _error(
       "h3_output.height",
-      "must be an integer between 32 and 16384 in 32-pixel steps",
+      "must be an integer between 32 and 16384 in the configured resolution steps",
     )
   if mode not in H3_OUTPUT_MODES:
     raise _error("h3_output.mode", "must be image, aspect, or manual")
@@ -439,6 +494,9 @@ def h3_output_settings(
     image_id=image_id,
     aspect=aspect,
     target_megapixels=target,
+    resolution_multiple=resolution_multiple,
+    frame_modulo=frame_modulo,
+    frame_remainder=frame_remainder,
   )
 
 
@@ -883,6 +941,12 @@ def parse_reference_state(value: str | Mapping[str, Any]) -> ReferenceState:
       h3_output_value.get("imageId"),
       h3_output_value.get("aspect", "16:9"),
       h3_output_value.get("targetMegapixels", H3_OUTPUT_DEFAULT_MEGAPIXELS),
+      h3_output_value.get(
+        "resolutionMultiple",
+        H3_OUTPUT_DEFAULT_RESOLUTION_MULTIPLE,
+      ),
+      h3_output_value.get("frameModulo", H3_OUTPUT_DEFAULT_FRAME_MODULO),
+      h3_output_value.get("frameRemainder", H3_OUTPUT_DEFAULT_FRAME_REMAINDER),
     )
     if h3_output.image_id is not None and h3_output.image_id not in image_ids:
       raise _error("state.h3Output.imageId", "must refer to an image item")
@@ -1015,19 +1079,25 @@ def reference_loader_fingerprint(
 __all__ = [
   "H3_OUTPUT_ASPECT_IDS",
   "H3_OUTPUT_DEFAULT_FPS",
+  "H3_OUTPUT_DEFAULT_FRAME_MODULO",
+  "H3_OUTPUT_DEFAULT_FRAME_REMAINDER",
   "H3_OUTPUT_DEFAULT_HEIGHT",
   "H3_OUTPUT_DEFAULT_MEGAPIXELS",
+  "H3_OUTPUT_DEFAULT_RESOLUTION_MULTIPLE",
   "H3_OUTPUT_DEFAULT_TOTAL_FRAMES",
   "H3_OUTPUT_DEFAULT_WIDTH",
   "H3_OUTPUT_DIMENSION_STEP",
   "H3_OUTPUT_MAX_FPS",
+  "H3_OUTPUT_MAX_FRAME_MODULO",
   "H3_OUTPUT_MAX_HEIGHT",
   "H3_OUTPUT_MAX_MEGAPIXELS",
   "H3_OUTPUT_MAX_TOTAL_FRAMES",
   "H3_OUTPUT_MAX_WIDTH",
   "H3_OUTPUT_MIN_FPS",
+  "H3_OUTPUT_MIN_FRAME_MODULO",
   "H3_OUTPUT_MIN_HEIGHT",
   "H3_OUTPUT_MIN_MEGAPIXELS",
+  "H3_OUTPUT_MIN_RESOLUTION_MULTIPLE",
   "H3_OUTPUT_MIN_TOTAL_FRAMES",
   "H3_OUTPUT_MIN_WIDTH",
   "H3_OUTPUT_MODES",

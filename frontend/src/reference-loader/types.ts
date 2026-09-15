@@ -15,6 +15,13 @@ export const H3_OUTPUT_MIN_HEIGHT = 32
 export const H3_OUTPUT_MAX_WIDTH = 16_384
 export const H3_OUTPUT_MAX_HEIGHT = 16_384
 export const H3_OUTPUT_DIMENSION_STEP = 32
+export const H3_OUTPUT_MIN_RESOLUTION_MULTIPLE = 1
+export const H3_OUTPUT_MAX_RESOLUTION_MULTIPLE = H3_OUTPUT_MAX_WIDTH
+export const H3_OUTPUT_DEFAULT_RESOLUTION_MULTIPLE = H3_OUTPUT_DIMENSION_STEP
+export const H3_OUTPUT_MIN_FRAME_MODULO = 1
+export const H3_OUTPUT_MAX_FRAME_MODULO = H3_OUTPUT_MAX_TOTAL_FRAMES
+export const H3_OUTPUT_DEFAULT_FRAME_MODULO = 17
+export const H3_OUTPUT_DEFAULT_FRAME_REMAINDER = 5
 export const H3_OUTPUT_MIN_MEGAPIXELS = 0.01
 export const H3_OUTPUT_MAX_MEGAPIXELS = 268.44
 export const H3_OUTPUT_DEFAULT_MEGAPIXELS = Number(
@@ -64,6 +71,9 @@ export interface H3TimelineState {
 export interface H3OutputSettings {
   fps: number
   totalFrames: number
+  resolutionMultiple: number
+  frameModulo: number
+  frameRemainder: number
   width: number
   height: number
   mode: H3OutputMode
@@ -190,6 +200,9 @@ export const DEFAULT_UI_PREFERENCES: LoaderUiPreferences = {
 export const DEFAULT_H3_OUTPUT: H3OutputSettings = {
   fps: H3_OUTPUT_DEFAULT_FPS,
   totalFrames: H3_OUTPUT_DEFAULT_TOTAL_FRAMES,
+  resolutionMultiple: H3_OUTPUT_DEFAULT_RESOLUTION_MULTIPLE,
+  frameModulo: H3_OUTPUT_DEFAULT_FRAME_MODULO,
+  frameRemainder: H3_OUTPUT_DEFAULT_FRAME_REMAINDER,
   width: H3_OUTPUT_DEFAULT_WIDTH,
   height: H3_OUTPUT_DEFAULT_HEIGHT,
   mode: "aspect",
@@ -198,10 +211,62 @@ export const DEFAULT_H3_OUTPUT: H3OutputSettings = {
   targetMegapixels: H3_OUTPUT_DEFAULT_MEGAPIXELS,
 }
 
-export function normalizeH3OutputDimension(value: number, fallback: number): number {
+export function normalizeH3OutputConfig(
+  values: Partial<Pick<H3OutputSettings, "resolutionMultiple" | "frameModulo" | "frameRemainder">>,
+  fallback: Pick<
+    H3OutputSettings,
+    "resolutionMultiple" | "frameModulo" | "frameRemainder"
+  > = DEFAULT_H3_OUTPUT,
+): Pick<H3OutputSettings, "resolutionMultiple" | "frameModulo" | "frameRemainder"> {
+  const resolutionMultiple = Number.isFinite(values.resolutionMultiple)
+    ? Math.min(
+        H3_OUTPUT_MAX_RESOLUTION_MULTIPLE,
+        Math.max(H3_OUTPUT_MIN_RESOLUTION_MULTIPLE, Math.round(values.resolutionMultiple!)),
+      )
+    : fallback.resolutionMultiple
+  const frameModulo = Number.isFinite(values.frameModulo)
+    ? Math.min(
+        H3_OUTPUT_MAX_FRAME_MODULO,
+        Math.max(H3_OUTPUT_MIN_FRAME_MODULO, Math.round(values.frameModulo!)),
+      )
+    : fallback.frameModulo
+  const frameRemainder = Number.isFinite(values.frameRemainder)
+    ? Math.min(frameModulo - 1, Math.max(0, Math.round(values.frameRemainder!)))
+    : Math.min(frameModulo - 1, Math.max(0, fallback.frameRemainder))
+  return { resolutionMultiple, frameModulo, frameRemainder }
+}
+
+export function normalizeH3OutputDimension(
+  value: number,
+  fallback: number,
+  resolutionMultiple = H3_OUTPUT_DEFAULT_RESOLUTION_MULTIPLE,
+): number {
   if (!Number.isFinite(value)) return fallback
-  const stepped = Math.round(value / H3_OUTPUT_DIMENSION_STEP) * H3_OUTPUT_DIMENSION_STEP
-  return Math.min(H3_OUTPUT_MAX_WIDTH, Math.max(H3_OUTPUT_MIN_WIDTH, stepped))
+  const multiple = normalizeH3OutputConfig({ resolutionMultiple }).resolutionMultiple
+  const minimum = Math.ceil(H3_OUTPUT_MIN_WIDTH / multiple) * multiple
+  const maximum = Math.floor(H3_OUTPUT_MAX_WIDTH / multiple) * multiple
+  const stepped = Math.round(value / multiple) * multiple
+  return Math.min(maximum, Math.max(minimum, stepped))
+}
+
+export function normalizeH3OutputFrameCount(
+  value: number,
+  fallback: number,
+  config: Pick<H3OutputSettings, "frameModulo" | "frameRemainder"> = DEFAULT_H3_OUTPUT,
+): number {
+  if (!Number.isFinite(value)) return fallback
+  const { frameModulo, frameRemainder } = normalizeH3OutputConfig(config)
+  const minimumN = Math.max(
+    0,
+    Math.ceil((H3_OUTPUT_MIN_TOTAL_FRAMES - frameRemainder) / frameModulo),
+  )
+  const maximumN = Math.floor((H3_OUTPUT_MAX_TOTAL_FRAMES - frameRemainder) / frameModulo)
+  if (maximumN < minimumN) return fallback
+  const n = Math.min(
+    maximumN,
+    Math.max(minimumN, Math.round((value - frameRemainder) / frameModulo)),
+  )
+  return frameRemainder + n * frameModulo
 }
 
 export function createEmptyLoaderState(): LoaderState {

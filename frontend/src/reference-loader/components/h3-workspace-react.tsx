@@ -21,15 +21,9 @@ import { translateRaw, useI18n } from "../i18n.ts"
 import { type H3OutputSettings, type MediaItem } from "../types.ts"
 import { Button } from "../ui/button.tsx"
 import { StatusMessage } from "../ui/status-message.tsx"
-import { ToggleGroup } from "../ui/toggle-group.tsx"
 import type { H3WorkspaceView, LoaderViewSnapshot } from "../view-model.ts"
 import { H3GuideInspector, type H3GuideEditorProps } from "./h3-guide-editor.tsx"
-import {
-  H3OutputPanel,
-  h3OutputAspect,
-  outputImageOptions,
-  outputResolutionLabel,
-} from "./h3-output-panel.tsx"
+import { H3OutputPanel, outputImageOptions } from "./h3-output-panel.tsx"
 import {
   H3FrameControl,
   H3TimelineReact,
@@ -42,6 +36,13 @@ import {
   timelineToNativeFrame,
   type H3TimelineSnapMode,
 } from "./h3-timeline.ts"
+import { H3TimingPanel } from "./h3-timing-panel.tsx"
+import {
+  H3WorkspaceHeader,
+  H3WorkspaceViewControls,
+  type H3WorkspaceMode,
+  type H3WorkspacePanel,
+} from "./h3-workspace-header.tsx"
 export interface H3WorkspaceActions extends H3TimelineReactActions {
   h3Toggle(): void
   h3ToggleCollapsed(): void
@@ -237,7 +238,10 @@ function GuideList({
                 fps={fps}
                 shortcuts={[
                   { label: t("start"), frame: 0 },
-                  { label: t("end"), frame: Math.max(0, snapshot.display.h3TotalFrames - 1) },
+                  {
+                    label: t("end"),
+                    frame: Math.max(0, snapshot.state.h3Output.totalFrames - 1),
+                  },
                 ]}
                 compact
                 onInput={() => undefined}
@@ -485,18 +489,29 @@ function RecoveryInspector({
 export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): ReactNode {
   const { locale, t } = useI18n()
   const h3 = snapshot.h3
-  const [mode, setMode] = useState<"timeline" | "list">("timeline")
+  const [mode, setMode] = useState<H3WorkspaceMode>("timeline")
   const [snapMode, setSnapMode] = useState<H3TimelineSnapMode>("off")
-  const [outputOpen, setOutputOpen] = useState(false)
+  const [activePanel, setActivePanel] = useState<H3WorkspacePanel>(null)
+  const previousPanel = useRef<H3WorkspacePanel>(null)
+  const outputButtonRef = useRef<HTMLButtonElement>(null)
+  const timingButtonRef = useRef<HTMLButtonElement>(null)
   const pageId = useId()
 
+  useEffect(() => {
+    if (activePanel === null && previousPanel.current !== null) {
+      const button =
+        previousPanel.current === "output" ? outputButtonRef.current : timingButtonRef.current
+      button?.focus({ preventScroll: true })
+    }
+    previousPanel.current = activePanel
+  }, [activePanel])
+
   if (!h3) return null
-  const fps = snapshot.display.h3Fps
-  const frameCount = snapshot.display.h3TotalFrames
+  const fps = snapshot.state.h3Output.fps
+  const frameCount = snapshot.state.h3Output.totalFrames
   const output = snapshot.state.h3Output
-  const aspect = h3OutputAspect(output)
+  const panelId = `${pageId}-panel`
   const imageOptions = outputImageOptions(snapshot, t("missingSource"))
-  const count = Object.keys(snapshot.state.items).length
   const status = h3.issue
     ? translateRaw(locale, h3.issue)
     : h3.shotDirty
@@ -515,93 +530,31 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
         data-h3-react-surface=""
         aria-label={t("h3Workspace")}
       >
-        <header className="rl-h3-workspace__header">
-          <Button
-            type="button"
-            className="rl-h3-workspace__heading"
-            data-h3-action="collapse"
-            aria-label={h3.collapsed ? t("expandTimeline") : t("collapseTimeline")}
-            title={h3.collapsed ? t("expandTimeline") : t("collapseTimeline")}
-            aria-expanded={!h3.collapsed}
-            aria-controls={pageId}
-            onClick={(event) => {
-              event.stopPropagation()
-              actions.h3ToggleCollapsed()
-            }}
-          >
-            <strong>{t("timelineGuides")}</strong>
-            <small
-              className={!h3.collapsed ? "rl-h3-workspace__summary" : undefined}
-              title={h3.collapsed ? t("openTimelineTitle") : `${fps} FPS · ${frameCount} frames`}
-            >
-              {h3.collapsed
-                ? t("h3Subtitle")
-                : `${t("mediaTitle")} (${t("image")}/${t("video")}/${t("audio")}) · ${count} media ~ ${frameCount} frames · ${fps} FPS`}
-            </small>
-          </Button>
-          <div className="rl-h3-workspace__tools">
-            <span
-              className="rl-h3-workspace__snap-control"
-              data-h3-snap-mode={snapMode}
-              hidden={h3.collapsed}
-            >
-              <span className="rl-h3-workspace__snap-label">{t("snap")}</span>
-              <ToggleGroup
-                className="rl-h3-workspace__view-group rl-h3-workspace__snap-group"
-                value={snapMode}
-                items={[
-                  { value: "off", label: t("snapOff") },
-                  { value: "half-second", label: t("snapHalfSecond") },
-                ]}
-                onValueChange={setSnapMode}
-                ariaLabel={t("snapMode")}
-              />
-            </span>
-            <span hidden={h3.collapsed}>
-              <ToggleGroup
-                value={mode}
-                items={[
-                  { value: "timeline", label: t("openTimeline") },
-                  { value: "list", label: t("listView") },
-                ]}
-                onValueChange={setMode}
-                ariaLabel={t("timelineView")}
-                className="rl-h3-workspace__view-group"
-              />
-            </span>
-            <Button
-              type="button"
-              className={`rl-h3-workspace__status${h3.timeline.enabled ? " is-on" : ""}`}
-              data-h3-action="toggle"
-              aria-label={t("toggleGuideUsage")}
-              title={t("toggleGuideUsage")}
-              aria-pressed={h3.timeline.enabled}
-              onClick={(event) => {
-                event.stopPropagation()
-                actions.h3Toggle()
-              }}
-            >
-              {h3.timeline.enabled ? t("on") : t("off")}
-            </Button>
-            <Button
-              type="button"
-              className="rl-h3-workspace__output-button"
-              data-h3-action="output-settings"
-              aria-haspopup="dialog"
-              aria-expanded={outputOpen}
-              title={t("videoOutputSettings")}
-              onClick={(event) => {
-                event.stopPropagation()
-                setOutputOpen((open) => !open)
-              }}
-            >
-              {t("videoOutput")}: {aspect} · {outputResolutionLabel(output.width, output.height)} ·{" "}
-              {frameCount}f · {fps}fps ▾
-            </Button>
-          </div>
-        </header>
+        <H3WorkspaceHeader
+          h3={h3}
+          fps={fps}
+          frameCount={frameCount}
+          mediaCount={Object.keys(snapshot.state.items).length}
+          activePanel={activePanel}
+          output={output}
+          pageId={pageId}
+          panelId={panelId}
+          outputButtonRef={outputButtonRef}
+          timingButtonRef={timingButtonRef}
+          onToggleCollapsed={() => {
+            setActivePanel(null)
+            actions.h3ToggleCollapsed()
+          }}
+          onToggleGuides={() => actions.h3Toggle()}
+          onPanelToggle={(panel) => {
+            if (h3.collapsed) actions.h3ToggleCollapsed()
+            setActivePanel((current) => (current === panel ? null : panel))
+          }}
+        />
         <div id={pageId} className="rl-h3-workspace__body" hidden={h3.collapsed}>
-          <div className={`rl-h3-stage${outputOpen ? " is-output-open" : ""}`}>
+          <div
+            className={`rl-h3-stage${activePanel === "output" ? " is-output-open" : activePanel === "timing" ? " is-timing-open" : ""}`}
+          >
             <div className="rl-h3-stage__main">
               {mode === "timeline" ? (
                 <H3TimelineReact
@@ -627,12 +580,20 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
                 </div>
               ) : null}
             </div>
-            {outputOpen ? (
+            {activePanel === "output" ? (
               <H3OutputPanel
+                id={panelId}
                 output={output}
                 imageOptions={imageOptions}
                 onChange={actions.h3SetOutput}
-                onClose={() => setOutputOpen(false)}
+                onClose={() => setActivePanel(null)}
+              />
+            ) : activePanel === "timing" ? (
+              <H3TimingPanel
+                id={panelId}
+                output={output}
+                onChange={actions.h3SetOutput}
+                onClose={() => setActivePanel(null)}
               />
             ) : null}
           </div>
@@ -644,24 +605,34 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
           aria-live="polite"
         >
           <span title={status}>{status}</span>
-          <Button
-            type="button"
-            data-h3-action="cancel-editor"
-            disabled={!h3.editor && !h3.dirty}
-            onClick={() => actions.h3Cancel()}
-          >
-            {t("cancel")}
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            className="rl-primary"
-            data-h3-action="apply-editor"
-            disabled={!h3.canApply}
-            onClick={() => actions.h3Apply()}
-          >
-            {t("apply")}
-          </Button>
+          <div className="rl-h3-workspace__footer-controls">
+            <H3WorkspaceViewControls
+              mode={mode}
+              snapMode={snapMode}
+              onSnapModeChange={setSnapMode}
+              onModeChange={setMode}
+            />
+            <div className="rl-h3-workspace__commit-actions">
+              <Button
+                type="button"
+                data-h3-action="cancel-editor"
+                disabled={!h3.editor && !h3.dirty}
+                onClick={() => actions.h3Cancel()}
+              >
+                {t("cancel")}
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                className="rl-primary"
+                data-h3-action="apply-editor"
+                disabled={!h3.canApply}
+                onClick={() => actions.h3Apply()}
+              >
+                {t("apply")}
+              </Button>
+            </div>
+          </div>
         </footer>
       </section>
     </div>

@@ -3,9 +3,7 @@
     "display_name": "Reference Loader",
     "description": "Loads image, video, and audio references with an authoring Prompt and optional H3 Timeline Guides.",
     "inputs": {
-      "h3_timeline": { "name": "timeline" },
-      "h3_total_frames": { "name": "total_frames" },
-      "h3_fps": { "name": "fps" }
+      "h3_timeline": { "name": "timeline" }
     }
   },
   "Alyac_LoadReferenceImage": {

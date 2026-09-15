@@ -3,10 +3,8 @@ import {
   DEFAULT_H3_OUTPUT,
   H3_OUTPUT_MAX_FPS,
   H3_OUTPUT_MAX_MEGAPIXELS,
-  H3_OUTPUT_MAX_TOTAL_FRAMES,
   H3_OUTPUT_MIN_FPS,
   H3_OUTPUT_MIN_MEGAPIXELS,
-  H3_OUTPUT_MIN_TOTAL_FRAMES,
   H3_OUTPUT_ASPECT_IDS,
   H3_OUTPUT_MODES,
   H3_TIMELINE_VERSION,
@@ -29,6 +27,8 @@ import {
   type NormalizedCrop,
   type TimeRange,
   normalizeH3OutputDimension,
+  normalizeH3OutputConfig,
+  normalizeH3OutputFrameCount,
 } from "./types.ts"
 
 export interface LoaderValidationResult {
@@ -260,6 +260,11 @@ function sanitizeH3Output(
   const width = finiteNumber(value.width)
   const height = finiteNumber(value.height)
   const targetMegapixels = finiteNumber(value.targetMegapixels)
+  const config = normalizeH3OutputConfig({
+    resolutionMultiple: finiteNumber(value.resolutionMultiple),
+    frameModulo: finiteNumber(value.frameModulo),
+    frameRemainder: finiteNumber(value.frameRemainder),
+  })
   const mode = stringValue(value.mode)
   const aspect = stringValue(value.aspect)
   const imageId = value.imageId
@@ -279,19 +284,29 @@ function sanitizeH3Output(
         : Math.min(H3_OUTPUT_MAX_FPS, Math.max(H3_OUTPUT_MIN_FPS, Math.round(fps))),
     totalFrames:
       totalFrames === undefined
-        ? DEFAULT_H3_OUTPUT.totalFrames
-        : Math.min(
-            H3_OUTPUT_MAX_TOTAL_FRAMES,
-            Math.max(H3_OUTPUT_MIN_TOTAL_FRAMES, Math.round(totalFrames)),
-          ),
+        ? normalizeH3OutputFrameCount(
+            DEFAULT_H3_OUTPUT.totalFrames,
+            DEFAULT_H3_OUTPUT.totalFrames,
+            config,
+          )
+        : normalizeH3OutputFrameCount(totalFrames, DEFAULT_H3_OUTPUT.totalFrames, config),
+    ...config,
     width:
       width === undefined
-        ? DEFAULT_H3_OUTPUT.width
-        : normalizeH3OutputDimension(width, DEFAULT_H3_OUTPUT.width),
+        ? normalizeH3OutputDimension(
+            DEFAULT_H3_OUTPUT.width,
+            DEFAULT_H3_OUTPUT.width,
+            config.resolutionMultiple,
+          )
+        : normalizeH3OutputDimension(width, DEFAULT_H3_OUTPUT.width, config.resolutionMultiple),
     height:
       height === undefined
-        ? DEFAULT_H3_OUTPUT.height
-        : normalizeH3OutputDimension(height, DEFAULT_H3_OUTPUT.height),
+        ? normalizeH3OutputDimension(
+            DEFAULT_H3_OUTPUT.height,
+            DEFAULT_H3_OUTPUT.height,
+            config.resolutionMultiple,
+          )
+        : normalizeH3OutputDimension(height, DEFAULT_H3_OUTPUT.height, config.resolutionMultiple),
     mode: H3_OUTPUT_MODES.includes(mode as H3OutputSettings["mode"])
       ? (mode as H3OutputSettings["mode"])
       : DEFAULT_H3_OUTPUT.mode,

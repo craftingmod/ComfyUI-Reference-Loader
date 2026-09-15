@@ -279,7 +279,7 @@ describe("validation and serialization", () => {
     expect(result.state.ui.previewFit).toBe("cover")
     expect(result.state.ui.gridColumns).toBe(8)
     expect(result.state.h3Output.fps).toBe(240)
-    expect(result.state.h3Output.totalFrames).toBe(1)
+    expect(result.state.h3Output.totalFrames).toBe(5)
     expect(result.state.h3Output.width).toBe(1344)
     expect(result.state.h3Output.height).toBe(768)
     expect(result.state.ui.previewMaxPixels).toBe(1_750_000)

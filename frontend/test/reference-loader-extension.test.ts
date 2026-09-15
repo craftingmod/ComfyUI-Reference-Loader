@@ -699,7 +699,16 @@ describe("Reference Loader custom widget", () => {
     expect(cardAspect.value).toBe("9 / 16")
     expect(previewFit.value).toBe("cover")
     expect(waveformPairs.value).toBe(750)
-    expect(serialized.h3Output).toEqual({ fps: 30, totalFrames: 200 })
+    expect(serialized.h3Output).toEqual({
+      fps: 30,
+      totalFrames: 200,
+      width: 1344,
+      height: 768,
+      mode: "aspect",
+      imageId: null,
+      aspect: "16:9",
+      targetMegapixels: 1.03,
+    })
     expect(h3TotalFrames.value).toBe(200)
     expect(h3Fps.value).toBe(30)
     expect(loaderRoot?.style.getPropertyValue("--rl-preview-fit")).toBe("cover")
@@ -971,7 +980,13 @@ describe("Reference Loader custom widget", () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     const loaderState = createEmptyLoaderState()
-    loaderState.h3Output = { fps: 30, totalFrames: 200 }
+    loaderState.h3Output = {
+      ...loaderState.h3Output,
+      fps: 30,
+      totalFrames: 200,
+      width: 1344,
+      height: 768,
+    }
     loaderState.ui.gridColumns = 6
     const promptState = createEmptyPromptDocumentV6()
     promptState.view = "raw"
@@ -1011,6 +1026,12 @@ describe("Reference Loader custom widget", () => {
       expect(JSON.parse(String(loaderOptions?.getValue?.())).h3Output).toEqual({
         fps: 30,
         totalFrames: 200,
+        width: 1344,
+        height: 768,
+        mode: "aspect",
+        imageId: null,
+        aspect: "16:9",
+        targetMegapixels: 1.03,
       })
       expect(JSON.parse(String(promptOptions?.getValue?.()))).toEqual(promptState)
       expect(node.widgets?.find((widget) => widget.name === "limit_image_pixels")?.value).toBe(true)

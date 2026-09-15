@@ -14,7 +14,10 @@ from ..core.prompt_contract import (
 )
 from ..core.reference_contract import (
   H3_OUTPUT_DEFAULT_FPS,
+  H3_OUTPUT_DEFAULT_HEIGHT,
+  H3_OUTPUT_DEFAULT_MEGAPIXELS,
   H3_OUTPUT_DEFAULT_TOTAL_FRAMES,
+  H3_OUTPUT_DEFAULT_WIDTH,
   ReferenceContractError,
   ReferenceState,
   h3_output_settings,
@@ -42,6 +45,12 @@ class ReferenceLoaderBundle:
   reference_fingerprint: str = ""
   h3_fps: int = H3_OUTPUT_DEFAULT_FPS
   h3_total_frames: int = H3_OUTPUT_DEFAULT_TOTAL_FRAMES
+  h3_width: int = H3_OUTPUT_DEFAULT_WIDTH
+  h3_height: int = H3_OUTPUT_DEFAULT_HEIGHT
+  h3_mode: str = "aspect"
+  h3_image_id: str | None = None
+  h3_aspect: str = "16:9"
+  h3_target_megapixels: float = H3_OUTPUT_DEFAULT_MEGAPIXELS
   guide_media: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -54,7 +63,17 @@ def validate_reference_loader_bundle(
     raise TypeError("references must be a REFERENCE_LOADER_BUNDLE value.")
   state = parse_reference_manifest_state(references.manifest_json)
   if (
-    h3_output_settings(references.h3_fps, references.h3_total_frames) != state.h3_output
+    h3_output_settings(
+      references.h3_fps,
+      references.h3_total_frames,
+      references.h3_width,
+      references.h3_height,
+      references.h3_mode,
+      references.h3_image_id,
+      references.h3_aspect,
+      references.h3_target_megapixels,
+    )
+    != state.h3_output
   ):
     raise ReferenceContractError(
       "Reference Loader bundle H3 output settings do not match its manifest."

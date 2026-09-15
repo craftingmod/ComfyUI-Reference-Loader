@@ -22,7 +22,7 @@ import { createEmptyLoaderState, createMediaItem } from "../src/reference-loader
 
 function fixture() {
   const state = createEmptyLoaderState()
-  state.h3Output = { fps: 24, totalFrames: 240 }
+  state.h3Output = { ...state.h3Output, fps: 24, totalFrames: 240, width: 1344, height: 768 }
   const media = (kind: "image" | "audio", id: string) =>
     createMediaItem(
       kind,
@@ -171,6 +171,7 @@ describe("Guide timeline", () => {
     const tools = header.querySelector<HTMLElement>(".rl-h3-workspace__tools")!
     const collapse = heading
     const status = header.querySelector<HTMLButtonElement>(".rl-h3-workspace__status")!
+    const output = header.querySelector<HTMLButtonElement>('[data-h3-action="output-settings"]')!
 
     expect(heading.querySelector("strong")?.textContent).toBe("Timeline Guides")
     expect(collapse.getAttribute("aria-label")).toBe("Expand H3 Timeline")
@@ -182,7 +183,8 @@ describe("Guide timeline", () => {
     expect(tools.children[0]?.hasAttribute("hidden")).toBe(true)
     expect(tools.children[1]?.hasAttribute("hidden")).toBe(true)
     expect(tools.children[2]).toBe(status)
-    expect(tools.children).toHaveLength(3)
+    expect(tools.children[3]).toBe(output)
+    expect(tools.children).toHaveLength(4)
     expect(root.querySelector(".rl-h3-workspace > .rl-h3-workspace__tools")).toBeNull()
     expect(root.querySelector('[aria-label="Timeline zoom"]')).toBeNull()
     expect(
@@ -219,7 +221,8 @@ describe("Guide timeline", () => {
     expect(tools.children[0]?.hasAttribute("hidden")).toBe(false)
     expect(tools.children[1]?.hasAttribute("hidden")).toBe(false)
     expect(tools.children[2]).toBe(status)
-    expect(tools.children).toHaveLength(3)
+    expect(tools.children[3]).toBe(output)
+    expect(tools.children).toHaveLength(4)
 
     flushSync(() => {
       header
@@ -357,7 +360,16 @@ describe("Guide timeline", () => {
     const executionBefore = executionFingerprintSource(controller.state)
     controller.writeDisplayProxy({ h3Fps: 30, h3TotalFrames: 120 })
 
-    expect(controller.state.h3Output).toEqual({ fps: 30, totalFrames: 120 })
+    expect(controller.state.h3Output).toEqual({
+      fps: 30,
+      totalFrames: 120,
+      width: 1344,
+      height: 768,
+      mode: "aspect",
+      imageId: null,
+      aspect: "16:9",
+      targetMegapixels: 1.03,
+    })
     expect(controller.state.h3Timeline.guides[0]?.frameIndex).toBe(48)
     expect(nativeToTimelineFrame(48, 30)).toBe(60)
     expect(timelineFrameInputToNative("61", 30)).toBe("49")
@@ -407,7 +419,7 @@ describe("Guide timeline", () => {
 
   test("marks the configured output end without hiding out-of-range placements", () => {
     const state = fixture()
-    state.h3Output = { fps: 24, totalFrames: 124 }
+    state.h3Output = { ...state.h3Output, fps: 24, totalFrames: 124, width: 1344, height: 768 }
     state.h3Timeline.guides[0]!.frameIndex = 200
     const { root } = mount(state)
 
@@ -557,7 +569,7 @@ describe("Guide timeline", () => {
 
   test("does not let out-of-range visual Guides push the End marker into a new row", () => {
     const state = fixture()
-    state.h3Output = { fps: 24, totalFrames: 124 }
+    state.h3Output = { ...state.h3Output, fps: 24, totalFrames: 124, width: 1344, height: 768 }
     state.h3Timeline.guides = [
       { id: "first", frameIndex: 0, visualId: "scene", audioId: null },
       { id: "out-of-range", frameIndex: 140, visualId: "scene", audioId: null },

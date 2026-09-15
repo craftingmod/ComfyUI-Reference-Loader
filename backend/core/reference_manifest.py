@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from .reference_contract import (
+  H3_OUTPUT_DEFAULT_HEIGHT,
+  H3_OUTPUT_DEFAULT_MEGAPIXELS,
+  H3_OUTPUT_DEFAULT_WIDTH,
   ImageOutputSettings,
   ReferenceContractError,
   ReferenceItem,
@@ -244,6 +247,15 @@ def parse_reference_manifest_state(value: str | Mapping[str, Any]) -> ReferenceS
     h3_output = {
       "fps": raw_h3_output.get("fps"),
       "totalFrames": raw_h3_output.get("total_frames"),
+      "width": raw_h3_output.get("width", H3_OUTPUT_DEFAULT_WIDTH),
+      "height": raw_h3_output.get("height", H3_OUTPUT_DEFAULT_HEIGHT),
+      "mode": raw_h3_output.get("mode", "aspect"),
+      "imageId": raw_h3_output.get("image_id"),
+      "aspect": raw_h3_output.get("aspect", "16:9"),
+      "targetMegapixels": raw_h3_output.get(
+        "target_megapixels",
+        H3_OUTPUT_DEFAULT_MEGAPIXELS,
+      ),
     }
 
   state_payload: dict[str, Any] = {

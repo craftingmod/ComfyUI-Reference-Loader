@@ -151,6 +151,16 @@ def test_wrapper_reads_bundle_frames_and_rejects_non_native_fps(monkeypatch):
   )
   assert FakeMiniMaxH3.calls[-1]["length"] == 200
 
+  sized_bundle = replace(bundle, h3_width=1024, h3_height=576)
+  module.MiniMaxH3ReferenceToVideoWrapperNode.execute(
+    clip="clip",
+    references=sized_bundle,
+    width=640,
+    height=640,
+  )
+  assert FakeMiniMaxH3.calls[-1]["width"] == 1024
+  assert FakeMiniMaxH3.calls[-1]["height"] == 576
+
   with pytest.raises(ValueError, match="requires an H3 output frame rate"):
     module.MiniMaxH3ReferenceToVideoWrapperNode.execute(
       clip="clip",

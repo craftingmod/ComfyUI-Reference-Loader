@@ -115,16 +115,65 @@ def test_contract_projection_is_deterministic_and_excludes_ui_state():
 
 def test_h3_output_settings_are_execution_visible_and_round_trip_through_manifest():
   raw = loader_state()
-  raw["h3Output"] = {"fps": 24, "totalFrames": 200}
+  raw["h3Output"] = {
+    "fps": 24,
+    "totalFrames": 200,
+    "width": 1024,
+    "height": 576,
+    "mode": "manual",
+    "imageId": None,
+    "aspect": "16:9",
+    "targetMegapixels": 1.234,
+  }
   state = parse_reference_state(raw)
 
   assert state.h3_output.fps == 24
   assert state.h3_output.total_frames == 200
+  assert state.h3_output.width == 1024
+  assert state.h3_output.height == 576
   assert execution_projection(state)["h3Output"] == raw["h3Output"]
 
+  changed = copy.deepcopy(raw)
+  changed["h3Output"]["width"] = 1056
+  assert execution_fingerprint(state) != execution_fingerprint(
+    parse_reference_state(changed)
+  )
+
   manifest = build_reference_manifest(state)
-  assert manifest["h3_output"] == {"fps": 24, "total_frames": 200}
+  assert manifest["h3_output"] == {
+    "fps": 24,
+    "total_frames": 200,
+    "width": 1024,
+    "height": 576,
+    "mode": "manual",
+    "image_id": None,
+    "aspect": "16:9",
+    "target_megapixels": 1.234,
+  }
   assert parse_reference_manifest_state(manifest).h3_output == state.h3_output
+
+
+def test_h3_output_dimensions_migrate_when_older_state_omits_them():
+  raw = loader_state()
+  raw["h3Output"] = {"fps": 24, "totalFrames": 124}
+
+  state = parse_reference_state(raw)
+
+  assert state.h3_output.width == 1344
+  assert state.h3_output.height == 768
+
+
+@pytest.mark.parametrize(
+  ("field", "value"),
+  [("width", 31), ("width", 33), ("height", 16_385), ("height", True)],
+)
+def test_h3_output_dimensions_require_native_32_pixel_steps(field, value):
+  raw = loader_state()
+  raw["h3Output"] = {"fps": 24, "totalFrames": 124, "width": 1344, "height": 768}
+  raw["h3Output"][field] = value
+
+  with pytest.raises(ReferenceContractError, match=f"h3_output\\.{field}"):
+    parse_reference_state(raw)
 
 
 @pytest.mark.parametrize(

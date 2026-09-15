@@ -381,9 +381,19 @@ class ReferenceLoaderNode(io.ComfyNode):
       waveform_pairs,
       prompt_schema_preset,
     )
+    parsed_state = parse_reference_state(loader_state)
     state = replace(
-      parse_reference_state(loader_state),
-      h3_output=h3_output_settings(h3_fps, h3_total_frames),
+      parsed_state,
+      h3_output=h3_output_settings(
+        h3_fps,
+        h3_total_frames,
+        parsed_state.h3_output.width,
+        parsed_state.h3_output.height,
+        parsed_state.h3_output.mode,
+        parsed_state.h3_output.image_id,
+        parsed_state.h3_output.aspect,
+        parsed_state.h3_output.target_megapixels,
+      ),
     )
     validate_reference_sources(state)
     output_settings = image_output_settings(
@@ -441,9 +451,19 @@ class ReferenceLoaderNode(io.ComfyNode):
       waveform_pairs,
       prompt_schema_preset,
     )
+    parsed_state = parse_reference_state(loader_state)
     state = replace(
-      parse_reference_state(loader_state),
-      h3_output=h3_output_settings(h3_fps, h3_total_frames),
+      parsed_state,
+      h3_output=h3_output_settings(
+        h3_fps,
+        h3_total_frames,
+        parsed_state.h3_output.width,
+        parsed_state.h3_output.height,
+        parsed_state.h3_output.mode,
+        parsed_state.h3_output.image_id,
+        parsed_state.h3_output.aspect,
+        parsed_state.h3_output.target_megapixels,
+      ),
     )
     output_settings = image_output_settings(
       limit_image_pixels,
@@ -488,6 +508,12 @@ class ReferenceLoaderNode(io.ComfyNode):
         compiled_prompt=compiled_prompt,
         h3_fps=state.h3_output.fps,
         h3_total_frames=state.h3_output.total_frames,
+        h3_width=state.h3_output.width,
+        h3_height=state.h3_output.height,
+        h3_mode=state.h3_output.mode,
+        h3_image_id=state.h3_output.image_id,
+        h3_aspect=state.h3_output.aspect,
+        h3_target_megapixels=state.h3_output.target_megapixels,
         reference_fingerprint=reference_loader_fingerprint(
           manifest_json,
           prompt_state_json,

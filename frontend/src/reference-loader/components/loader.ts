@@ -18,6 +18,7 @@ import {
   H3_OUTPUT_MAX_TOTAL_FRAMES,
   H3_OUTPUT_MIN_FPS,
   H3_OUTPUT_MIN_TOTAL_FRAMES,
+  type H3OutputSettings,
   type H3TimelineState,
   type LoaderState,
   type MediaItem,
@@ -221,6 +222,7 @@ export class ReferenceLoaderController {
       this.#timelineSession.dropGuide(channel, frame, dataTransfer),
     h3Toggle: () => this.#timelineSession.toggle(),
     h3ToggleCollapsed: () => this.#timelineSession.collapse(),
+    h3SetOutput: (values) => this.setH3Output(values),
     h3OpenMedia: (mediaId, channel, guideId) =>
       this.#timelineSession.openForMedia(mediaId, channel, guideId),
     h3ToggleGuide: (id, channel) => this.#timelineSession.toggleGuide(id, channel),
@@ -470,6 +472,11 @@ export class ReferenceLoaderController {
     if (!changed) return
     this.#syncCaptionFields(id)
     this.#markDirty()
+  }
+
+  setH3Output(values: Partial<H3OutputSettings>): void {
+    if (this.#destroyed) return
+    this.#dispatch({ type: "set-h3-output", values })
   }
 
   flushDeferredPreviews(): void {

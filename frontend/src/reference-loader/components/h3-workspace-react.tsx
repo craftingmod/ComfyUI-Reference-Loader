@@ -18,12 +18,18 @@ import {
   type H3TimelinePlacement,
 } from "../h3-media-guides.ts"
 import { translateRaw, useI18n } from "../i18n.ts"
-import type { MediaItem } from "../types.ts"
+import { type H3OutputSettings, type MediaItem } from "../types.ts"
 import { Button } from "../ui/button.tsx"
 import { StatusMessage } from "../ui/status-message.tsx"
 import { ToggleGroup } from "../ui/toggle-group.tsx"
 import type { H3WorkspaceView, LoaderViewSnapshot } from "../view-model.ts"
 import { H3GuideInspector, type H3GuideEditorProps } from "./h3-guide-editor.tsx"
+import {
+  H3OutputPanel,
+  h3OutputAspect,
+  outputImageOptions,
+  outputResolutionLabel,
+} from "./h3-output-panel.tsx"
 import {
   H3FrameControl,
   H3TimelineReact,
@@ -39,6 +45,7 @@ import {
 export interface H3WorkspaceActions extends H3TimelineReactActions {
   h3Toggle(): void
   h3ToggleCollapsed(): void
+  h3SetOutput(values: Partial<H3OutputSettings>): void
   h3OpenMedia(mediaId: string, channel: H3GuideChannel, guideId?: string): void
   h3ToggleGuide(id: string, channel: H3GuideChannel): void
   h3SelectPlacement(placement: H3TimelinePlacement, channel: "visual" | "audio"): void
@@ -480,11 +487,15 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
   const h3 = snapshot.h3
   const [mode, setMode] = useState<"timeline" | "list">("timeline")
   const [snapMode, setSnapMode] = useState<H3TimelineSnapMode>("off")
+  const [outputOpen, setOutputOpen] = useState(false)
   const pageId = useId()
 
   if (!h3) return null
   const fps = snapshot.display.h3Fps
   const frameCount = snapshot.display.h3TotalFrames
+  const output = snapshot.state.h3Output
+  const aspect = h3OutputAspect(output)
+  const imageOptions = outputImageOptions(snapshot, t("missingSource"))
   const count = Object.keys(snapshot.state.items).length
   const status = h3.issue
     ? translateRaw(locale, h3.issue)
@@ -572,32 +583,57 @@ export function H3WorkspaceReact({ snapshot, actions }: H3WorkspaceReactProps): 
             >
               {h3.timeline.enabled ? t("on") : t("off")}
             </Button>
+            <Button
+              type="button"
+              className="rl-h3-workspace__output-button"
+              data-h3-action="output-settings"
+              aria-haspopup="dialog"
+              aria-expanded={outputOpen}
+              title={t("videoOutputSettings")}
+              onClick={(event) => {
+                event.stopPropagation()
+                setOutputOpen((open) => !open)
+              }}
+            >
+              {t("videoOutput")}: {aspect} · {outputResolutionLabel(output.width, output.height)} ·{" "}
+              {frameCount}f · {fps}fps ▾
+            </Button>
           </div>
         </header>
         <div id={pageId} className="rl-h3-workspace__body" hidden={h3.collapsed}>
-          <div className="rl-h3-stage">
-            {mode === "timeline" ? (
-              <H3TimelineReact
-                state={snapshot.state}
-                runtime={snapshot.runtime}
-                h3={h3}
-                actions={actions}
-                fps={fps}
-                frameCount={frameCount}
-                zoom={1}
-                snapMode={snapMode}
+          <div className={`rl-h3-stage${outputOpen ? " is-output-open" : ""}`}>
+            <div className="rl-h3-stage__main">
+              {mode === "timeline" ? (
+                <H3TimelineReact
+                  state={snapshot.state}
+                  runtime={snapshot.runtime}
+                  h3={h3}
+                  actions={actions}
+                  fps={fps}
+                  frameCount={frameCount}
+                  zoom={1}
+                  snapMode={snapMode}
+                />
+              ) : (
+                <GuideList snapshot={snapshot} h3={h3} actions={actions} fps={fps} />
+              )}
+              {h3.editor?.mediaId ? (
+                <div className="rl-h3-inline-editor" data-h3-inline-editor="">
+                  <SourceInspector snapshot={snapshot} h3={h3} actions={actions} fps={fps} />
+                </div>
+              ) : h3.editor?.recovery ? (
+                <div className="rl-h3-inline-editor" data-h3-inline-editor="">
+                  <RecoveryInspector snapshot={snapshot} h3={h3} actions={actions} fps={fps} />
+                </div>
+              ) : null}
+            </div>
+            {outputOpen ? (
+              <H3OutputPanel
+                output={output}
+                imageOptions={imageOptions}
+                onChange={actions.h3SetOutput}
+                onClose={() => setOutputOpen(false)}
               />
-            ) : (
-              <GuideList snapshot={snapshot} h3={h3} actions={actions} fps={fps} />
-            )}
-            {h3.editor?.mediaId ? (
-              <div className="rl-h3-inline-editor" data-h3-inline-editor="">
-                <SourceInspector snapshot={snapshot} h3={h3} actions={actions} fps={fps} />
-              </div>
-            ) : h3.editor?.recovery ? (
-              <div className="rl-h3-inline-editor" data-h3-inline-editor="">
-                <RecoveryInspector snapshot={snapshot} h3={h3} actions={actions} fps={fps} />
-              </div>
             ) : null}
           </div>
         </div>

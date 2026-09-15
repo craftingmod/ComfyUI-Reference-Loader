@@ -4,8 +4,13 @@ import { flushSync } from "react-dom"
 
 import { ReferenceLoaderApi } from "../src/reference-loader/api.ts"
 import { ReferenceLoaderController } from "../src/reference-loader/components/loader.ts"
+import { executionFingerprintSource } from "../src/reference-loader/execution.ts"
 import { serializeLoaderState } from "../src/reference-loader/serialization.ts"
-import { createEmptyLoaderState, createMediaItem } from "../src/reference-loader/types.ts"
+import {
+  createEmptyLoaderState,
+  createMediaItem,
+  normalizeH3OutputDimension,
+} from "../src/reference-loader/types.ts"
 
 const cleanups: (() => void)[] = []
 afterEach(() => {
@@ -138,6 +143,162 @@ describe("React Guide inspector boundary", () => {
 
     flushSync(() => buttons[1]!.click())
     expect(root.querySelector<HTMLElement>("[data-h3-add-frame]")?.hidden).toBe(false)
+  })
+
+  test("edits canonical Video output dimensions from the H3 workspace picker", () => {
+    const { root, controller } = mount()
+    const before = executionFingerprintSource(controller.state)
+    const trigger = root.querySelector<HTMLButtonElement>('[data-h3-action="output-settings"]')!
+
+    flushSync(() => trigger.click())
+    const panel = document.querySelector<HTMLElement>("[data-h3-output-panel]")!
+    expect(trigger.getAttribute("aria-expanded")).toBe("true")
+    expect(panel.parentElement?.className).toBe("rl-h3-stage is-output-open")
+    expect(panel.textContent).toContain("Video Output")
+    expect(
+      [...panel.querySelectorAll<HTMLElement>(".rl-h3-output-panel__mode-group [data-value]")].map(
+        (button) => button.dataset.value,
+      ),
+    ).toEqual(["image", "aspect", "manual"])
+    flushSync(() =>
+      panel
+        .querySelector<HTMLButtonElement>('.rl-h3-output-panel__mode-group [data-value="image"]')!
+        .click(),
+    )
+    expect(
+      panel.querySelector<HTMLElement>(".rl-h3-output-panel__image-options")?.dataset.captureWheel,
+    ).toBe("true")
+    expect(panel.querySelector<HTMLButtonElement>('[data-h3-output-image="scene"]')?.disabled).toBe(
+      true,
+    )
+    expect(
+      panel.querySelector<HTMLInputElement>("[data-h3-output-megapixels-input]")?.disabled,
+    ).toBe(true)
+    flushSync(() =>
+      panel
+        .querySelector<HTMLButtonElement>('.rl-h3-output-panel__mode-group [data-value="aspect"]')!
+        .click(),
+    )
+    const aspectTrigger = panel.querySelector<HTMLButtonElement>("[data-h3-output-aspect-trigger]")!
+    expect(aspectTrigger.getAttribute("aria-expanded")).toBe("false")
+    expect(panel.querySelector("[data-h3-output-aspect]")).toBeNull()
+    flushSync(() => aspectTrigger.click())
+    expect(aspectTrigger.getAttribute("aria-expanded")).toBe("true")
+    expect(
+      [
+        ...panel.querySelectorAll<HTMLElement>(
+          ".rl-h3-output-panel__orientation-group [data-value]",
+        ),
+      ].map((button) => button.dataset.value),
+    ).toEqual(["horizontal", "square", "vertical"])
+    expect(
+      panel
+        .querySelector<HTMLElement>(
+          '.rl-h3-output-panel__orientation-group [data-value="horizontal"]',
+        )
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true")
+    expect(
+      [...panel.querySelectorAll<HTMLElement>("[data-h3-output-aspect]")].map((button) =>
+        button.textContent?.trim(),
+      ),
+    ).toEqual(["5:4", "4:3", "3:2", "16:9", "2:1"])
+    expect(panel.querySelector(".rl-h3-output-panel__size-group")).toBeNull()
+
+    flushSync(() =>
+      panel
+        .querySelector<HTMLButtonElement>(
+          '.rl-h3-output-panel__orientation-group [data-value="square"]',
+        )!
+        .click(),
+    )
+    expect(aspectTrigger.getAttribute("aria-expanded")).toBe("true")
+    expect(
+      [...panel.querySelectorAll<HTMLElement>("[data-h3-output-aspect]")].map((button) =>
+        button.textContent?.trim(),
+      ),
+    ).toEqual(["1:1"])
+
+    flushSync(() =>
+      panel
+        .querySelector<HTMLButtonElement>(
+          '.rl-h3-output-panel__orientation-group [data-value="vertical"]',
+        )!
+        .click(),
+    )
+    expect(aspectTrigger.getAttribute("aria-expanded")).toBe("true")
+    expect(
+      [...panel.querySelectorAll<HTMLElement>("[data-h3-output-aspect]")].map((button) =>
+        button.textContent?.trim(),
+      ),
+    ).toEqual(["1:2", "9:16", "2:3", "3:4", "4:5"])
+
+    flushSync(() =>
+      panel
+        .querySelector<HTMLButtonElement>(
+          '.rl-h3-output-panel__orientation-group [data-value="horizontal"]',
+        )!
+        .click(),
+    )
+    flushSync(() =>
+      panel.querySelector<HTMLButtonElement>('[data-h3-output-aspect="16:9"]')!.click(),
+    )
+
+    flushSync(() =>
+      panel.querySelector<HTMLButtonElement>('[data-h3-output-megapixels="2"]')!.click(),
+    )
+    expect(controller.state.h3Output).toMatchObject({ width: 1888, height: 1056 })
+    expect(panel.querySelector<HTMLInputElement>("[data-h3-output-megapixels-input]")?.value).toBe(
+      "2",
+    )
+    flushSync(() => controller.setH3Output({ targetMegapixels: 1.234, width: 1472, height: 832 }))
+    expect(controller.state.h3Output).toMatchObject({
+      mode: "aspect",
+      aspect: "16:9",
+      targetMegapixels: 1.234,
+    })
+    expect(panel.querySelector("[data-h3-output-resolution]")).toBeNull()
+    expect(executionFingerprintSource(controller.state)).not.toBe(before)
+
+    flushSync(() =>
+      panel
+        .querySelector<HTMLButtonElement>('.rl-h3-output-panel__mode-group [data-value="manual"]')!
+        .click(),
+    )
+    const width = panel.querySelector<HTMLInputElement>('[data-h3-output-dimension="width"]')!
+    expect(width.step).toBe("32")
+    controller.setH3Output({ width: 1000 })
+    expect(normalizeH3OutputDimension(1000, 1024)).toBe(992)
+    expect(controller.state.h3Output.width).toBe(992)
+    expect(JSON.parse(controller.serialize()).h3Output).toMatchObject({
+      width: 992,
+      height: 832,
+      mode: "manual",
+      targetMegapixels: 1.234,
+    })
+
+    flushSync(() => panel.querySelector<HTMLButtonElement>(".rl-h3-output-panel__close")?.click())
+    flushSync(() => trigger.click())
+    const reopened = document.querySelector<HTMLElement>("[data-h3-output-panel]")!
+    expect(
+      reopened
+        .querySelector<HTMLButtonElement>('.rl-h3-output-panel__mode-group [data-value="manual"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true")
+    expect(
+      reopened.querySelector<HTMLInputElement>('[data-h3-output-dimension="width"]')?.value,
+    ).toBe("992")
+    flushSync(() =>
+      reopened
+        .querySelector<HTMLButtonElement>('.rl-h3-output-panel__mode-group [data-value="aspect"]')!
+        .click(),
+    )
+    expect(
+      reopened.querySelector<HTMLInputElement>("[data-h3-output-megapixels-input]")?.value,
+    ).toBe("1.234")
+    flushSync(() =>
+      reopened.querySelector<HTMLButtonElement>(".rl-h3-output-panel__close")?.click(),
+    )
   })
 
   test("isolates node instances and cleans up the permanent roots on restore and destroy", () => {

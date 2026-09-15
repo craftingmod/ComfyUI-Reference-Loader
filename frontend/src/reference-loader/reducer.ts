@@ -6,11 +6,16 @@ import {
 import {
   isAudioItem,
   H3_OUTPUT_MAX_FPS,
+  H3_OUTPUT_MAX_MEGAPIXELS,
   H3_OUTPUT_MAX_TOTAL_FRAMES,
   H3_OUTPUT_MIN_FPS,
+  H3_OUTPUT_MIN_MEGAPIXELS,
   H3_OUTPUT_MIN_TOTAL_FRAMES,
+  H3_OUTPUT_ASPECT_IDS,
+  H3_OUTPUT_MODES,
   createEmptyH3Timeline,
   MAX_H3_GUIDES,
+  normalizeH3OutputDimension,
   type LoaderState,
   type LoaderUiPreferences,
   type H3OutputSettings,
@@ -319,8 +324,63 @@ export function loaderReducer(state: LoaderState, action: LoaderAction): LoaderS
               H3_OUTPUT_MAX_TOTAL_FRAMES,
               Math.max(H3_OUTPUT_MIN_TOTAL_FRAMES, Math.round(action.values.totalFrames)),
             )
-      if (fps === state.h3Output.fps && totalFrames === state.h3Output.totalFrames) return state
-      return { ...state, h3Output: { fps, totalFrames } }
+      const width =
+        action.values.width === undefined
+          ? state.h3Output.width
+          : normalizeH3OutputDimension(action.values.width, state.h3Output.width)
+      const height =
+        action.values.height === undefined
+          ? state.h3Output.height
+          : normalizeH3OutputDimension(action.values.height, state.h3Output.height)
+      const mode =
+        action.values.mode === undefined
+          ? state.h3Output.mode
+          : H3_OUTPUT_MODES.includes(action.values.mode)
+            ? action.values.mode
+            : state.h3Output.mode
+      const aspect =
+        action.values.aspect === undefined
+          ? state.h3Output.aspect
+          : H3_OUTPUT_ASPECT_IDS.includes(action.values.aspect)
+            ? action.values.aspect
+            : state.h3Output.aspect
+      const imageId =
+        action.values.imageId === undefined
+          ? state.h3Output.imageId
+          : action.values.imageId !== null && state.items[action.values.imageId]?.kind === "image"
+            ? action.values.imageId
+            : null
+      const targetMegapixels =
+        action.values.targetMegapixels === undefined
+          ? state.h3Output.targetMegapixels
+          : Math.min(
+              H3_OUTPUT_MAX_MEGAPIXELS,
+              Math.max(H3_OUTPUT_MIN_MEGAPIXELS, action.values.targetMegapixels),
+            )
+      if (
+        fps === state.h3Output.fps &&
+        totalFrames === state.h3Output.totalFrames &&
+        width === state.h3Output.width &&
+        height === state.h3Output.height &&
+        mode === state.h3Output.mode &&
+        imageId === state.h3Output.imageId &&
+        aspect === state.h3Output.aspect &&
+        targetMegapixels === state.h3Output.targetMegapixels
+      )
+        return state
+      return {
+        ...state,
+        h3Output: {
+          fps,
+          totalFrames,
+          width,
+          height,
+          mode,
+          imageId,
+          aspect,
+          targetMegapixels,
+        },
+      }
     }
     case "set-h3-timeline":
       return replaceTimeline(state, action.timeline)

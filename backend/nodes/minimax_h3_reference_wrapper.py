@@ -512,7 +512,8 @@ class MiniMaxH3ReferenceToVideoWrapperNode(io.ComfyNode):
       category="reference/integration",
       description=(
         "Feeds a Reference Loader bundle into ComfyUI's native MiniMax H3 "
-        "Reference to Video implementation. Reference videos are sampled at 24 fps."
+        "Reference to Video implementation. Reference videos are sampled at 24 fps. "
+        "Bundle output width and height take precedence over the legacy native controls."
       ),
       search_aliases=[
         "minimax h3 reference to video wrapper",
@@ -549,7 +550,16 @@ class MiniMaxH3ReferenceToVideoWrapperNode(io.ComfyNode):
   ) -> io.NodeOutput:
     if not isinstance(references, ReferenceLoaderBundle):
       raise TypeError("references must be a REFERENCE_LOADER_BUNDLE value.")
-    output = h3_output_settings(references.h3_fps, references.h3_total_frames)
+    output = h3_output_settings(
+      references.h3_fps,
+      references.h3_total_frames,
+      references.h3_width,
+      references.h3_height,
+      references.h3_mode,
+      references.h3_image_id,
+      references.h3_aspect,
+      references.h3_target_megapixels,
+    )
     if output.fps != H3_REFERENCE_FPS:
       raise ValueError(
         "MiniMax H3 native execution requires an H3 output frame rate of "
@@ -585,8 +595,8 @@ class MiniMaxH3ReferenceToVideoWrapperNode(io.ComfyNode):
       vae=vae,
       audio_vae=audio_vae,
       prompt=h3_prompt,
-      width=width,
-      height=height,
+      width=output.width,
+      height=output.height,
       length=length,
       ref_image_size=ref_image_size,
       ref_images=ref_images,

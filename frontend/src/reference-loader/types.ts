@@ -8,11 +8,41 @@ export const H3_OUTPUT_MAX_FPS = 240
 export const H3_OUTPUT_DEFAULT_TOTAL_FRAMES = 124
 export const H3_OUTPUT_MIN_TOTAL_FRAMES = 1
 export const H3_OUTPUT_MAX_TOTAL_FRAMES = 3600
+export const H3_OUTPUT_DEFAULT_WIDTH = 1344
+export const H3_OUTPUT_DEFAULT_HEIGHT = 768
+export const H3_OUTPUT_MIN_WIDTH = 32
+export const H3_OUTPUT_MIN_HEIGHT = 32
+export const H3_OUTPUT_MAX_WIDTH = 16_384
+export const H3_OUTPUT_MAX_HEIGHT = 16_384
+export const H3_OUTPUT_DIMENSION_STEP = 32
+export const H3_OUTPUT_MIN_MEGAPIXELS = 0.01
+export const H3_OUTPUT_MAX_MEGAPIXELS = 268.44
+export const H3_OUTPUT_DEFAULT_MEGAPIXELS = Number(
+  ((H3_OUTPUT_DEFAULT_WIDTH * H3_OUTPUT_DEFAULT_HEIGHT) / 1_000_000).toFixed(2),
+)
 // MiniMax H3 stores Guide positions on a native 24 fps output timeline.
 export const H3_TIMELINE_NATIVE_FPS = H3_OUTPUT_DEFAULT_FPS
 export const H3_TIMELINE_DEFAULT_FRAME_COUNT = H3_OUTPUT_DEFAULT_TOTAL_FRAMES
 
 export type MediaKind = "image" | "audio" | "video"
+
+export const H3_OUTPUT_MODES = ["image", "aspect", "manual"] as const
+export type H3OutputMode = (typeof H3_OUTPUT_MODES)[number]
+
+export const H3_OUTPUT_ASPECT_IDS = [
+  "5:4",
+  "4:3",
+  "3:2",
+  "16:9",
+  "2:1",
+  "1:1",
+  "1:2",
+  "9:16",
+  "2:3",
+  "3:4",
+  "4:5",
+] as const
+export type H3OutputAspectId = (typeof H3_OUTPUT_ASPECT_IDS)[number]
 
 export interface H3GuideEntry {
   id: string
@@ -34,6 +64,12 @@ export interface H3TimelineState {
 export interface H3OutputSettings {
   fps: number
   totalFrames: number
+  width: number
+  height: number
+  mode: H3OutputMode
+  imageId: string | null
+  aspect: H3OutputAspectId
+  targetMegapixels: number
 }
 
 export interface MediaSource {
@@ -154,6 +190,18 @@ export const DEFAULT_UI_PREFERENCES: LoaderUiPreferences = {
 export const DEFAULT_H3_OUTPUT: H3OutputSettings = {
   fps: H3_OUTPUT_DEFAULT_FPS,
   totalFrames: H3_OUTPUT_DEFAULT_TOTAL_FRAMES,
+  width: H3_OUTPUT_DEFAULT_WIDTH,
+  height: H3_OUTPUT_DEFAULT_HEIGHT,
+  mode: "aspect",
+  imageId: null,
+  aspect: "16:9",
+  targetMegapixels: H3_OUTPUT_DEFAULT_MEGAPIXELS,
+}
+
+export function normalizeH3OutputDimension(value: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback
+  const stepped = Math.round(value / H3_OUTPUT_DIMENSION_STEP) * H3_OUTPUT_DIMENSION_STEP
+  return Math.min(H3_OUTPUT_MAX_WIDTH, Math.max(H3_OUTPUT_MIN_WIDTH, stepped))
 }
 
 export function createEmptyLoaderState(): LoaderState {

@@ -105,8 +105,12 @@
 
 .rl-h3-workspace__tools {
   display: flex;
-  flex: none;
+  flex-wrap: wrap;
+  flex: 0 1 auto;
   align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
   gap: 8px;
   margin-left: auto;
   padding: 0;
@@ -117,6 +121,18 @@
 .rl-h3-workspace__tools button,
 .rl-h3-workspace__footer button {
   min-height: 28px;
+}
+
+.rl-h3-workspace__output-button {
+  min-width: 0;
+  max-width: min(340px, 100%);
+  overflow: hidden;
+  padding: 3px 8px;
+  color: var(--rl-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rl-h3-workspace__view-group {
@@ -176,7 +192,6 @@
   color: var(--rl-muted);
   font-size: 10px;
   white-space: nowrap;
-
 }
 
 .rl-h3-workspace__body {
@@ -190,6 +205,17 @@
   overflow: visible;
   padding: 8px 0 0;
   background: var(--rl-bg);
+}
+
+.rl-h3-stage.is-output-open {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(240px, 300px);
+  align-items: start;
+  gap: 8px;
+}
+
+.rl-h3-stage__main {
+  min-width: 0;
 }
 
 .rl-h3-inline-editor {
@@ -443,6 +469,10 @@
 }
 
 @container (max-width: 759px) {
+  .rl-h3-stage.is-output-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .rl-h3-workspace__tools {
     gap: 5px;
   }

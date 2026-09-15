@@ -239,6 +239,8 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert bundle.video_captions == ()
   assert bundle.h3_fps == 24
   assert bundle.h3_total_frames == 124
+  assert bundle.h3_width == 1344
+  assert bundle.h3_height == 768
   assert json.loads(bundle.prompt_state_json) == {
     "version": 6,
     "view": "structured",
@@ -270,6 +272,12 @@ def test_reference_loader_schema_and_aligned_execute(monkeypatch):
   assert json.loads(bundle.manifest_json)["h3_output"] == {
     "fps": 24,
     "total_frames": 124,
+    "width": 1344,
+    "height": 768,
+    "mode": "aspect",
+    "image_id": None,
+    "aspect": "16:9",
+    "target_megapixels": 1.03,
   }
   assert json.loads(bundle.manifest_json)["image_output"] == {
     "mode": "original",

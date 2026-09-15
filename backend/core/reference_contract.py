@@ -20,6 +20,33 @@ H3_OUTPUT_MAX_FPS = 240
 H3_OUTPUT_DEFAULT_TOTAL_FRAMES = 124
 H3_OUTPUT_MIN_TOTAL_FRAMES = 1
 H3_OUTPUT_MAX_TOTAL_FRAMES = 3600
+H3_OUTPUT_DEFAULT_WIDTH = 1344
+H3_OUTPUT_DEFAULT_HEIGHT = 768
+H3_OUTPUT_MIN_WIDTH = 32
+H3_OUTPUT_MIN_HEIGHT = 32
+H3_OUTPUT_MAX_WIDTH = 16384
+H3_OUTPUT_MAX_HEIGHT = 16384
+H3_OUTPUT_DIMENSION_STEP = 32
+H3_OUTPUT_MIN_MEGAPIXELS = 0.01
+H3_OUTPUT_MAX_MEGAPIXELS = 268.44
+H3_OUTPUT_DEFAULT_MEGAPIXELS = round(
+  H3_OUTPUT_DEFAULT_WIDTH * H3_OUTPUT_DEFAULT_HEIGHT / 1_000_000,
+  2,
+)
+H3_OUTPUT_MODES = ("image", "aspect", "manual")
+H3_OUTPUT_ASPECT_IDS = (
+  "5:4",
+  "4:3",
+  "3:2",
+  "16:9",
+  "2:1",
+  "1:1",
+  "1:2",
+  "9:16",
+  "2:3",
+  "3:4",
+  "4:5",
+)
 
 MAX_STATE_CHARACTERS = 1_000_000
 MAX_IMAGES = 32
@@ -225,12 +252,36 @@ class ImageOutputSettings:
 class H3OutputSettings:
   fps: int
   total_frames: int
+  width: int
+  height: int
+  mode: Literal["image", "aspect", "manual"] = "aspect"
+  image_id: str | None = None
+  aspect: str = "16:9"
+  target_megapixels: float = H3_OUTPUT_DEFAULT_MEGAPIXELS
 
-  def state_projection(self) -> dict[str, int]:
-    return {"fps": self.fps, "totalFrames": self.total_frames}
+  def state_projection(self) -> dict[str, Any]:
+    return {
+      "fps": self.fps,
+      "totalFrames": self.total_frames,
+      "width": self.width,
+      "height": self.height,
+      "mode": self.mode,
+      "imageId": self.image_id,
+      "aspect": self.aspect,
+      "targetMegapixels": self.target_megapixels,
+    }
 
-  def manifest_projection(self) -> dict[str, int]:
-    return {"fps": self.fps, "total_frames": self.total_frames}
+  def manifest_projection(self) -> dict[str, Any]:
+    return {
+      "fps": self.fps,
+      "total_frames": self.total_frames,
+      "width": self.width,
+      "height": self.height,
+      "mode": self.mode,
+      "image_id": self.image_id,
+      "aspect": self.aspect,
+      "target_megapixels": self.target_megapixels,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,6 +297,12 @@ class ReferenceState:
     default_factory=lambda: H3OutputSettings(
       H3_OUTPUT_DEFAULT_FPS,
       H3_OUTPUT_DEFAULT_TOTAL_FRAMES,
+      H3_OUTPUT_DEFAULT_WIDTH,
+      H3_OUTPUT_DEFAULT_HEIGHT,
+      "aspect",
+      None,
+      "16:9",
+      H3_OUTPUT_DEFAULT_MEGAPIXELS,
     )
   )
 
@@ -310,7 +367,16 @@ def image_output_settings(
   )
 
 
-def h3_output_settings(fps: Any, total_frames: Any) -> H3OutputSettings:
+def h3_output_settings(
+  fps: Any,
+  total_frames: Any,
+  width: Any = H3_OUTPUT_DEFAULT_WIDTH,
+  height: Any = H3_OUTPUT_DEFAULT_HEIGHT,
+  mode: Any = "aspect",
+  image_id: Any = None,
+  aspect: Any = "16:9",
+  target_megapixels: Any = H3_OUTPUT_DEFAULT_MEGAPIXELS,
+) -> H3OutputSettings:
   if (
     isinstance(fps, bool)
     or not isinstance(fps, int)
@@ -330,7 +396,50 @@ def h3_output_settings(fps: Any, total_frames: Any) -> H3OutputSettings:
       "must be an integer between "
       f"{H3_OUTPUT_MIN_TOTAL_FRAMES} and {H3_OUTPUT_MAX_TOTAL_FRAMES}",
     )
-  return H3OutputSettings(fps=fps, total_frames=total_frames)
+  if (
+    isinstance(width, bool)
+    or not isinstance(width, int)
+    or not H3_OUTPUT_MIN_WIDTH <= width <= H3_OUTPUT_MAX_WIDTH
+    or width % H3_OUTPUT_DIMENSION_STEP != 0
+  ):
+    raise _error(
+      "h3_output.width",
+      "must be an integer between 32 and 16384 in 32-pixel steps",
+    )
+  if (
+    isinstance(height, bool)
+    or not isinstance(height, int)
+    or not H3_OUTPUT_MIN_HEIGHT <= height <= H3_OUTPUT_MAX_HEIGHT
+    or height % H3_OUTPUT_DIMENSION_STEP != 0
+  ):
+    raise _error(
+      "h3_output.height",
+      "must be an integer between 32 and 16384 in 32-pixel steps",
+    )
+  if mode not in H3_OUTPUT_MODES:
+    raise _error("h3_output.mode", "must be image, aspect, or manual")
+  if aspect not in H3_OUTPUT_ASPECT_IDS:
+    raise _error("h3_output.aspect", "must be a supported aspect ratio")
+  if image_id is not None:
+    image_id = _string(image_id, "h3_output.image_id", maximum=128)
+    if not _ID_RE.fullmatch(image_id):
+      raise _error("h3_output.image_id", "must be a stable media ID")
+  target = _finite_number(target_megapixels, "h3_output.target_megapixels")
+  if not H3_OUTPUT_MIN_MEGAPIXELS <= target <= H3_OUTPUT_MAX_MEGAPIXELS:
+    raise _error(
+      "h3_output.target_megapixels",
+      "must be between 0.01 and 268.44 megapixels",
+    )
+  return H3OutputSettings(
+    fps=fps,
+    total_frames=total_frames,
+    width=width,
+    height=height,
+    mode=mode,
+    image_id=image_id,
+    aspect=aspect,
+    target_megapixels=target,
+  )
 
 
 def _source(value: Any, path: str, kind: MediaKind) -> ReferenceSource:
@@ -768,7 +877,15 @@ def parse_reference_state(value: str | Mapping[str, Any]) -> ReferenceState:
     h3_output = h3_output_settings(
       h3_output_value.get("fps"),
       h3_output_value.get("totalFrames"),
+      h3_output_value.get("width", H3_OUTPUT_DEFAULT_WIDTH),
+      h3_output_value.get("height", H3_OUTPUT_DEFAULT_HEIGHT),
+      h3_output_value.get("mode", "aspect"),
+      h3_output_value.get("imageId"),
+      h3_output_value.get("aspect", "16:9"),
+      h3_output_value.get("targetMegapixels", H3_OUTPUT_DEFAULT_MEGAPIXELS),
     )
+    if h3_output.image_id is not None and h3_output.image_id not in image_ids:
+      raise _error("state.h3Output.imageId", "must refer to an image item")
 
   return ReferenceState(
     version=REFERENCE_STATE_VERSION,
@@ -896,12 +1013,24 @@ def reference_loader_fingerprint(
 
 
 __all__ = [
+  "H3_OUTPUT_ASPECT_IDS",
   "H3_OUTPUT_DEFAULT_FPS",
+  "H3_OUTPUT_DEFAULT_HEIGHT",
+  "H3_OUTPUT_DEFAULT_MEGAPIXELS",
   "H3_OUTPUT_DEFAULT_TOTAL_FRAMES",
+  "H3_OUTPUT_DEFAULT_WIDTH",
+  "H3_OUTPUT_DIMENSION_STEP",
   "H3_OUTPUT_MAX_FPS",
+  "H3_OUTPUT_MAX_HEIGHT",
+  "H3_OUTPUT_MAX_MEGAPIXELS",
   "H3_OUTPUT_MAX_TOTAL_FRAMES",
+  "H3_OUTPUT_MAX_WIDTH",
   "H3_OUTPUT_MIN_FPS",
+  "H3_OUTPUT_MIN_HEIGHT",
+  "H3_OUTPUT_MIN_MEGAPIXELS",
   "H3_OUTPUT_MIN_TOTAL_FRAMES",
+  "H3_OUTPUT_MIN_WIDTH",
+  "H3_OUTPUT_MODES",
   "H3_TIMELINE_VERSION",
   "MAX_H3_GUIDES",
   "MAX_OUTPUT_IMAGE_PIXELS",

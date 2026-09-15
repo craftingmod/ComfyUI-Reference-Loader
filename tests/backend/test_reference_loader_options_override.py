@@ -1,5 +1,6 @@
 import importlib
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -93,6 +94,14 @@ def test_options_override_schema_and_execute_preserve_non_image_media(monkeypatc
   assert [field.name for field in schema.outputs] == ["references"]
 
   bundle = _bundle(module)
+  manifest = json.loads(bundle.manifest_json)
+  manifest["h3_output"].update({"width": 1024, "height": 576})
+  bundle = replace(
+    bundle,
+    h3_width=1024,
+    h3_height=576,
+    manifest_json=json.dumps(manifest),
+  )
   loaded_type = importlib.import_module(
     "backend.core.reference_media"
   ).LoadedReferenceMedia
@@ -124,6 +133,10 @@ def test_options_override_schema_and_execute_preserve_non_image_media(monkeypatc
   assert output.video_captions is bundle.video_captions
   assert output.prompt_state_json is bundle.prompt_state_json
   assert output.compiled_prompt is bundle.compiled_prompt
+  assert output.h3_width == 1024
+  assert output.h3_height == 576
+  assert json.loads(output.manifest_json)["h3_output"]["width"] == 1024
+  assert json.loads(output.manifest_json)["h3_output"]["height"] == 576
   assert json.loads(output.manifest_json)["image_output"] == {
     "mode": "limited",
     "maxPixels": 3_500_000,

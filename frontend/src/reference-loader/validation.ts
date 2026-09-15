@@ -2,9 +2,13 @@ import {
   DEFAULT_UI_PREFERENCES,
   DEFAULT_H3_OUTPUT,
   H3_OUTPUT_MAX_FPS,
+  H3_OUTPUT_MAX_MEGAPIXELS,
   H3_OUTPUT_MAX_TOTAL_FRAMES,
   H3_OUTPUT_MIN_FPS,
+  H3_OUTPUT_MIN_MEGAPIXELS,
   H3_OUTPUT_MIN_TOTAL_FRAMES,
+  H3_OUTPUT_ASPECT_IDS,
+  H3_OUTPUT_MODES,
   H3_TIMELINE_VERSION,
   LOADER_STATE_VERSION,
   MAX_H3_GUIDES,
@@ -24,6 +28,7 @@ import {
   type MediaSource,
   type NormalizedCrop,
   type TimeRange,
+  normalizeH3OutputDimension,
 } from "./types.ts"
 
 export interface LoaderValidationResult {
@@ -241,13 +246,32 @@ function sanitizeUi(value: unknown): LoaderUiPreferences {
   }
 }
 
-function sanitizeH3Output(value: unknown, issues: string[]): H3OutputSettings {
+function sanitizeH3Output(
+  value: unknown,
+  items: Record<string, MediaItem>,
+  issues: string[],
+): H3OutputSettings {
   if (!isRecord(value)) {
     if (value !== undefined) issues.push("h3Output was not an object and was reset.")
     return { ...DEFAULT_H3_OUTPUT }
   }
   const fps = finiteNumber(value.fps)
   const totalFrames = finiteNumber(value.totalFrames)
+  const width = finiteNumber(value.width)
+  const height = finiteNumber(value.height)
+  const targetMegapixels = finiteNumber(value.targetMegapixels)
+  const mode = stringValue(value.mode)
+  const aspect = stringValue(value.aspect)
+  const imageId = value.imageId
+  const validImageId =
+    imageId === undefined || imageId === null
+      ? DEFAULT_H3_OUTPUT.imageId
+      : typeof imageId === "string" && items[imageId]?.kind === "image"
+        ? imageId
+        : null
+  if (imageId !== undefined && imageId !== null && validImageId === null) {
+    issues.push("h3Output.imageId refers to an unavailable image and was reset.")
+  }
   return {
     fps:
       fps === undefined
@@ -260,6 +284,25 @@ function sanitizeH3Output(value: unknown, issues: string[]): H3OutputSettings {
             H3_OUTPUT_MAX_TOTAL_FRAMES,
             Math.max(H3_OUTPUT_MIN_TOTAL_FRAMES, Math.round(totalFrames)),
           ),
+    width:
+      width === undefined
+        ? DEFAULT_H3_OUTPUT.width
+        : normalizeH3OutputDimension(width, DEFAULT_H3_OUTPUT.width),
+    height:
+      height === undefined
+        ? DEFAULT_H3_OUTPUT.height
+        : normalizeH3OutputDimension(height, DEFAULT_H3_OUTPUT.height),
+    mode: H3_OUTPUT_MODES.includes(mode as H3OutputSettings["mode"])
+      ? (mode as H3OutputSettings["mode"])
+      : DEFAULT_H3_OUTPUT.mode,
+    imageId: validImageId,
+    aspect: H3_OUTPUT_ASPECT_IDS.includes(aspect as H3OutputSettings["aspect"])
+      ? (aspect as H3OutputSettings["aspect"])
+      : DEFAULT_H3_OUTPUT.aspect,
+    targetMegapixels:
+      targetMegapixels === undefined
+        ? DEFAULT_H3_OUTPUT.targetMegapixels
+        : Math.min(H3_OUTPUT_MAX_MEGAPIXELS, Math.max(H3_OUTPUT_MIN_MEGAPIXELS, targetMegapixels)),
   }
 }
 
@@ -501,7 +544,7 @@ export function validateLoaderState(value: unknown): LoaderValidationResult {
     issues.push("Unsupported videoAudioPolicy was reset to preserve.")
   }
   const h3Timeline = sanitizeH3Timeline(value.h3Timeline, items, issues)
-  const h3Output = sanitizeH3Output(value.h3Output, issues)
+  const h3Output = sanitizeH3Output(value.h3Output, items, issues)
 
   return {
     state: {

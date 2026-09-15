@@ -428,9 +428,7 @@ describe("Reference Loader stylesheet", () => {
 
     expect(first).toBe(second)
     expect(first.rel).toBe("stylesheet")
-    expect(first.href).toBe(
-      "https://example.test/extensions/reference-media-loader/index.css?v=29",
-    )
+    expect(first.href).toBe("https://example.test/extensions/reference-media-loader/index.css?v=30")
     expect(document.querySelectorAll(`#${STYLESHEET_ID}`)).toHaveLength(1)
   })
 
